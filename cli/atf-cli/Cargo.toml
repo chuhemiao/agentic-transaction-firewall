@@ -18,6 +18,7 @@ atf-policy = { workspace = true }
 atf-risk = { workspace = true }
 atf-decision = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 

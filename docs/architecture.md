@@ -34,7 +34,8 @@ Agent Intent
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
-- **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`. *Implemented.*
+- **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
+  `atf policy test`. *Implemented.*
 
 Everything else under `crates/`, `services/`, `sdk/`, `examples/`,
 `conformance/`, `deploy/`, `migrations/`, `fuzz/` is a scaffolded directory
@@ -65,6 +66,9 @@ with a `README.md` describing what belongs there and which roadmap phase
    `atf-simulator` yet.
 7. `atf-cli evaluate` drives steps 1-6 from the command line and prints the
    resulting `Decision` as JSON.
+8. `atf-cli policy test` runs the Policy Kernel in isolation (step 4 only)
+   against a directory of conformance cases and reports pass/fail — see
+   `conformance/policy-tests/README.md`.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or

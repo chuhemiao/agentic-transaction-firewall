@@ -1,13 +1,15 @@
+mod conformance;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-/// ATF command-line interface (PRD §21). Only the two commands needed to
-/// exercise today's Intent/Policy/Decision skeleton are implemented; the
-/// rest of the MVP command list (`serve`, `shadow`, `policy validate`,
-/// `policy test`, `audit show`, `replay`, `init`) waits on the crates that
-/// would back them (see `docs/architecture.md`).
+/// ATF command-line interface (PRD §21). Only the commands needed to
+/// exercise today's Intent/Policy/Risk/Decision skeleton are implemented;
+/// the rest of the MVP command list (`serve`, `shadow`, `policy validate`,
+/// `audit show`, `replay`, `init`) waits on the crates that would back them
+/// (see `docs/architecture.md`).
 #[derive(Parser)]
 #[command(name = "atf", version, about = "Agentic Transaction Firewall CLI")]
 struct Cli {
@@ -30,6 +32,21 @@ enum Command {
         #[arg(long, default_value = "policies/examples")]
         policies: PathBuf,
     },
+    /// Policy Bundle commands.
+    Policy {
+        #[command(subcommand)]
+        action: PolicyCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum PolicyCommand {
+    /// Run the Policy Kernel conformance test cases and report pass/fail.
+    Test {
+        /// Directory of `*.json` conformance test cases.
+        #[arg(long, default_value = "conformance/policy-tests")]
+        dir: PathBuf,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -40,6 +57,9 @@ fn main() -> std::process::ExitCode {
             intent_path,
             policies,
         } => run_evaluate(&intent_path, &policies),
+        Command::Policy { action } => match action {
+            PolicyCommand::Test { dir } => conformance::run(&dir),
+        },
     };
 
     match result {

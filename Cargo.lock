@@ -142,6 +142,7 @@ dependencies = [
  "atf-policy",
  "atf-risk",
  "clap",
+ "serde",
  "serde_json",
 ]
 

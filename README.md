@@ -43,7 +43,7 @@ Only the following crates are implemented so far:
   vendor price deviation, high-risk network/protocol).
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
-- `cli/atf-cli` — `atf validate-intent` and `atf evaluate`.
+- `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 
 Everything else in the workspace (risk engine, simulator, approval engine,
 adapters, gateway, audit ledger, SDKs) is scaffolded as an empty directory with
@@ -63,19 +63,21 @@ semantics (evaluate only, never execute).
    high-risk network/protocol.
 2. ~~Finish the PRD §10.1 Decision merge algorithm in `atf-decision`.~~ Done
    for Policy + Risk (Simulator branch still pending `atf-simulator`).
-3. Risk rules that need history/state — daily cumulative spend, first-time
+3. ~~A `conformance/policy-tests` harness (`atf policy test`).~~ Done: loads
+   `*.json` cases (inline intent + expected Cedar permit/forbid), runs them
+   against a declared policy bundle, exits non-zero on any failure.
+4. Risk rules that need history/state — daily cumulative spend, first-time
    destination address, duplicate purchase, order frequency (PRD §12.2) —
    wait on `atf-audit`/persistence.
-4. `atf-identity` — Agent registration + Ed25519 identity-signature
+5. `atf-identity` — Agent registration + Ed25519 identity-signature
    verification (PRD §17.2), wired into the Gateway's request path.
-5. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
+6. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
    only the Transaction Intent schema exists today.
 
 ### Phased plan (PRD §31)
 
-- **Phase 1 (finishing now)**: a `conformance/policy-tests` harness, so the
-  Policy Kernel is solid before anything else is layered on top of it.
-- **Phase 2 (Shadow Mode)**: `atf-identity` + `atf-audit` +
+- **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
+- **Phase 2 (Shadow Mode, next)**: `atf-identity` + `atf-audit` +
   `services/gateway`, so Shadow Mode can run the full pipeline end-to-end and
   persist an audit trail (plus the state-dependent Risk rules above).
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
