@@ -166,6 +166,7 @@ dependencies = [
  "atf-intent",
  "atf-policy",
  "atf-risk",
+ "jsonschema",
  "serde",
  "serde_json",
 ]

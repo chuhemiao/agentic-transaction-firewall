@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/decision.schema.json",
+  "title": "ATF Decision",
+  "description": "The Decision Engine's output for a Transaction Intent (docs/PRD.md §10). Only decision_id, intent_id, decision, and reasons are required: that is the full shape atf-decision currently produces. risk_score, policy_version, required_approvals, obligations, and expires_at are part of the eventual PRD §10 shape but are not emitted by any crate in this repo yet (no Approval Engine, no Policy Bundle versioning) — see docs/architecture.md. additionalProperties is left open at the top level so those fields can be added later without breaking existing validators.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["decision_id", "intent_id", "decision", "reasons"],
+  "properties": {
+    "decision_id": { "type": "string", "minLength": 1 },
+    "intent_id": { "type": "string", "minLength": 1 },
+    "decision": {
+      "type": "string",
+      "enum": ["PERMIT", "DENY", "REVIEW", "ERROR"]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "severity": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "risk_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Not yet produced by atf-decision; PRD §10 example only."
+    },
+    "policy_version": {
+      "type": "string",
+      "description": "Not yet produced; waits on Policy Bundle versioning (PRD §11.3)."
+    },
+    "required_approvals": {
+      "type": "array",
+      "description": "Not yet produced; waits on atf-approval (Phase 4).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "obligations": {
+      "type": "array",
+      "description": "Not yet produced; waits on atf-approval/atf-reconciliation (Phase 4).",
+      "items": { "type": "object" }
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Not yet produced; waits on the Approval Engine (Phase 4)."
+    }
+  }
+}

@@ -30,7 +30,8 @@ Full product requirements: [`docs/PRD.md`](docs/PRD.md).
 
 ## Status
 
-This repository is in the **skeleton / MVP bring-up** phase (PRD §36, Phase 0-1).
+This repository is in the **skeleton / MVP bring-up** phase (PRD §36; Phase 1
+done, Phase 2 in progress — see Roadmap below).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives and error types.
@@ -47,9 +48,14 @@ Only the following crates are implemented so far:
   algorithm (Policy + Risk; no Simulator branch yet).
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 
-Everything else in the workspace (risk engine, simulator, approval engine,
-adapters, gateway, audit ledger, SDKs) is scaffolded as an empty directory with
-a `README.md` describing what belongs there and which roadmap phase will fill
+`schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`)
+and `decision.schema.json` (validated in CI against real `atf-decision`
+output). `audit-event.schema.json` is also there but is a forward-declared
+contract — nothing produces or consumes it yet.
+
+Everything else in the workspace (simulator, approval engine, adapters,
+gateway, audit ledger, SDKs) is scaffolded as an empty directory with a
+`README.md` describing what belongs there and which roadmap phase will fill
 it in — see PRD §31 for the phase plan.
 
 No real wallet, exchange, or production secret is wired into this repository.
@@ -78,8 +84,16 @@ semantics (evaluate only, never execute).
    (PAUSED/REVOKED/EXPIRED can't submit even with a valid signature). Not
    yet wired into anything — there is no `services/gateway` request path to
    call it from yet.
-6. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
-   only the Transaction Intent schema exists today.
+6. ~~`schemas/decision.schema.json` and `schemas/audit-event.schema.json`.~~
+   Done: `decision.schema.json` is validated in CI against real
+   `atf-decision` output for all four decision kinds (PERMIT/DENY/REVIEW/
+   ERROR); `audit-event.schema.json` is a forward-declared contract (no
+   `atf-audit` yet) checked only for internal consistency.
+
+### Remaining before Phase 2 can close out
+
+- The state-dependent Risk rules and `atf-identity` wiring above (items 4-5)
+  both need `atf-audit` and `services/gateway` to exist first.
 
 ### Phased plan (PRD §31)
 

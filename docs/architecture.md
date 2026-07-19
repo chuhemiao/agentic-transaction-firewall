@@ -75,6 +75,11 @@ with a `README.md` describing what belongs there and which roadmap phase
 8. `atf-cli policy test` runs the Policy Kernel in isolation (step 4 only)
    against a directory of conformance cases and reports pass/fail — see
    `conformance/policy-tests/README.md`.
+9. `schemas/decision.schema.json` describes the shape `atf-decision::Decision`
+   serializes to; `atf-decision`'s own test suite (`tests/schema_validation.rs`)
+   validates real output of all four decision kinds against it in CI, so the
+   schema can't silently drift from the type. `schemas/audit-event.schema.json`
+   has no producer to check against yet — see the gaps section below.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -105,3 +110,5 @@ complete Decision Engine:
   `IdentityRegistry::verify_intent_signature` yet, and there is no key
   rotation *policy* (expiry windows, forced revocation) — only the
   mechanism to hold multiple keys at once (PRD §17.2.4).
+- `schemas/audit-event.schema.json` is a forward-declared contract with no
+  implementation to check it against — there is no `atf-audit` yet (Phase 2).

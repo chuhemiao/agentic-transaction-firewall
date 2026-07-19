@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/audit-event.schema.json",
+  "title": "ATF Audit Event",
+  "description": "One entry in the append-only Audit Ledger hash chain (docs/PRD.md §16). This schema formalizes the event envelope §16.2/§16.3 describe in prose. No crate in this repo produces or consumes this shape yet — atf-audit is not implemented (Phase 2, see docs/architecture.md) — so this is a forward-declared contract, not a description of running code.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["event_id", "event_type", "occurred_at", "prev_event_hash"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique id for this event, e.g. a ULID."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "IntentReceived",
+        "IdentityVerified",
+        "PolicyEvaluated",
+        "RiskEvaluated",
+        "SimulationCompleted",
+        "ApprovalRequested",
+        "ApprovalGranted",
+        "ApprovalRejected",
+        "ExecutionRequested",
+        "ExecutionSubmitted",
+        "ExecutionConfirmed",
+        "SettlementVerified",
+        "ServiceDelivered",
+        "ReconciliationFailed",
+        "KillSwitchTriggered",
+        "PolicyChanged",
+        "AgentPaused"
+      ]
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "intent_id": {
+      "type": ["string", "null"],
+      "description": "Null for events not tied to one Intent, e.g. PolicyChanged, AgentPaused, KillSwitchTriggered."
+    },
+    "prev_event_hash": {
+      "type": ["string", "null"],
+      "description": "Hex-encoded hash of the previous event in the chain (PRD §16.3). Null only for the very first event ever recorded."
+    },
+    "data": {
+      "type": "object",
+      "description": "Event-type-specific payload — PRD §16.2 lists the event types but not a fixed per-type field set, so this is intentionally open."
+    }
+  }
+}
