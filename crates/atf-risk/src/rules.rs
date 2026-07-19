@@ -1,21 +1,23 @@
 use std::str::FromStr;
 
+use atf_audit::AuditLedger;
 use atf_core::{Amount, Timestamp};
 use atf_intent::TransactionIntent;
 use rust_decimal::Decimal;
 
 use crate::config::RiskConfig;
 use crate::finding::RiskFinding;
+use crate::history_rules;
 use crate::severity::Severity;
 
-/// Run every MVP rule against `intent` and return the findings that fired.
+/// Run every stateless MVP rule against `intent` and return the findings
+/// that fired.
 ///
 /// This is a deliberately small, *stateless* rule set (PRD §12.1: "确定性优先"):
 /// every rule here can be decided from the Intent (plus `now`) alone, with no
-/// database, history, or external service lookup. Rules that need state —
-/// daily cumulative spend, first-time address, duplicate purchase, order
-/// frequency — are PRD §12.2 items too, but need `atf-audit`/persistence
-/// (Phase 2) to be honest about, so they are not implemented here yet.
+/// database, history, or external service lookup. Rules that need history —
+/// duplicate purchase, daily cumulative spend, first-time address, order
+/// frequency (PRD §12.2) — are `evaluate_with_history`'s job instead.
 pub fn evaluate(intent: &TransactionIntent, config: &RiskConfig) -> Vec<RiskFinding> {
     let now = Timestamp::now();
     [
@@ -28,6 +30,21 @@ pub fn evaluate(intent: &TransactionIntent, config: &RiskConfig) -> Vec<RiskFind
     .into_iter()
     .flatten()
     .collect()
+}
+
+/// Everything `evaluate` does, plus the history-dependent rules in
+/// `history_rules` that need to look at prior events in `ledger` (PRD
+/// §12.2). Callers that don't have a ledger (e.g. `atf-cli evaluate`, which
+/// is a one-shot local tool) should keep using `evaluate` instead —
+/// `services/gateway` is the reference caller of this function.
+pub fn evaluate_with_history(
+    intent: &TransactionIntent,
+    config: &RiskConfig,
+    ledger: &AuditLedger,
+) -> Vec<RiskFinding> {
+    let mut findings = evaluate(intent, config);
+    findings.extend(history_rules::history_findings(intent, ledger));
+    findings
 }
 
 fn request_expired(intent: &TransactionIntent, now: Timestamp) -> Option<RiskFinding> {

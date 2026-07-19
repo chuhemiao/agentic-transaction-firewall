@@ -70,10 +70,19 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
             .audit_ledger
             .lock()
             .expect("audit ledger lock poisoned");
+        // agent_id/resource_id are recorded here specifically so
+        // atf_risk::evaluate_with_history's duplicate-purchase rule has
+        // something to match future requests against.
         ledger.append(
             EventType::IntentReceived,
             Some(intent.intent_id.clone()),
-            serde_json::json!({ "idempotency_key": intent.idempotency_key }),
+            serde_json::json!({
+                "idempotency_key": intent.idempotency_key,
+                "agent_id": intent.principal.agent_id,
+                "organization_id": intent.principal.organization_id,
+                "resource_id": intent.resource.resource_id,
+                "amount": intent.transaction.amount.to_string(),
+            }),
         );
     }
 
@@ -100,7 +109,11 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
     let risk_findings = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
-            atf_risk::evaluate(&intent, &state.risk_config)
+            let ledger = state
+                .audit_ledger
+                .lock()
+                .expect("audit ledger lock poisoned");
+            atf_risk::evaluate_with_history(&intent, &state.risk_config, &ledger)
         }
         _ => Vec::new(),
     };

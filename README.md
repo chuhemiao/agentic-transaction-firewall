@@ -43,15 +43,18 @@ Only the following crates are implemented so far:
   Intent.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
   stateless MVP rules (request expiry, single-transaction cap, fee ratio,
-  vendor price deviation, high-risk network/protocol).
+  vendor price deviation, high-risk network/protocol), plus one
+  history-dependent rule (duplicate purchase within 24h) that queries an
+  `atf-audit::AuditLedger`.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only, with tamper detection (`verify_chain`). In-memory only — no
   persistent store yet.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
-- `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk,
-  Decision, and Audit into one request path: `POST /v1/intents` and
+- `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
+  (including the history-dependent duplicate-purchase check), Decision, and
+  Audit into one request path: `POST /v1/intents` and
   `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. Identity
   verification is not wired in yet (no way to register an Agent's key
   through this service). Never executes anything — evaluate-only.
@@ -82,9 +85,15 @@ semantics (evaluate only, never execute).
 3. ~~A `conformance/policy-tests` harness (`atf policy test`).~~ Done: loads
    `*.json` cases (inline intent + expected Cedar permit/forbid), runs them
    against a declared policy bundle, exits non-zero on any failure.
-4. Risk rules that need history/state — daily cumulative spend, first-time
-   destination address, duplicate purchase, order frequency (PRD §12.2) —
-   need `atf-risk` to query the ledger below; not wired up yet.
+4. ~~Risk rules that need history/state (PRD §12.2).~~ Partly done:
+   `atf_risk::evaluate_with_history` adds a duplicate-purchase check
+   (same Agent + Resource within 24h, reading `IntentReceived` events'
+   `agent_id`/`resource_id` back out of the ledger) — verified end-to-end
+   through `services/gateway` over a real HTTP request. Daily cumulative
+   spend, first-time destination address, and order frequency are still
+   not implemented; they need more than `IntentReceived`'s payload
+   currently carries (e.g. a reliable "was this ultimately PERMITted"
+   signal).
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
    verification (PRD §17.2).~~ Done as a library: an in-memory registry
    verifying a raw Ed25519 signature over `intent.canonical_hash()`, key
@@ -111,16 +120,18 @@ semantics (evaluate only, never execute).
 
 - Wire `atf-identity` into the gateway once there's a way to register an
   Agent's key (an Admin API endpoint, PRD §17.3 — itself unscheduled).
-- Wire the state-dependent Risk rules (item 4) up against `atf-audit`.
+- The remaining history-dependent Risk rules (daily cumulative spend,
+  first-time address, order frequency).
 - Give the gateway a persistent store — right now a process restart loses
   the audit ledger and every recorded Decision.
 
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Shadow Mode, in progress)**: `atf-identity`, `atf-audit`, and
-  `services/gateway` are all done; what's left is identity wiring (needs an
-  Admin API), state-dependent Risk rules, and persistence.
+- **Phase 2 (Shadow Mode, in progress)**: `atf-identity`, `atf-audit`,
+  `services/gateway`, and one history-dependent Risk rule are all done;
+  what's left is identity wiring (needs an Admin API), the remaining
+  history-dependent Risk rules, and persistence.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

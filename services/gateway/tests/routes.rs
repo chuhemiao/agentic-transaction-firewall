@@ -203,3 +203,48 @@ async fn looking_up_an_unknown_intent_id_returns_not_found() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// End-to-end proof that atf-risk's history-dependent duplicate-purchase
+/// rule (crates/atf-risk/src/history_rules.rs) actually fires through a
+/// real HTTP request path, not just in atf-risk's own unit tests: the same
+/// Agent requesting the same resource twice gets PERMIT then REVIEW.
+#[tokio::test]
+async fn a_second_request_for_the_same_resource_is_flagged_as_a_duplicate() {
+    let app = build_router(test_state());
+
+    let first = sample_intent_json("01J0000000000000000000D1", "12.50");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/intents")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&first).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_json(response).await["decision"], "PERMIT");
+
+    let second = sample_intent_json("01J0000000000000000000D2", "12.50");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/intents")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&second).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let decision = body_json(response).await;
+    assert_eq!(decision["decision"], "REVIEW");
+    assert!(decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["code"] == "DUPLICATE_PURCHASE"));
+}

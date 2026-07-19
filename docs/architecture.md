@@ -36,9 +36,13 @@ Agent Intent
   `evaluate(intent) -> cedar_policy::Response`. *Implemented.*
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
-  network/protocol). *Implemented (partial — rules needing history/state,
-  e.g. duplicate purchase or daily cumulative spend, wait on `atf-audit`
-  being queried by `atf-risk`, which doesn't happen yet either).*
+  network/protocol) via `evaluate`, plus one history-dependent rule
+  (duplicate purchase: same Agent + Resource within 24h) via
+  `evaluate_with_history`, which reads `agent_id`/`resource_id` back out of
+  `IntentReceived` events in an `atf_audit::AuditLedger`. *Implemented
+  (partial — daily cumulative spend, first-time destination address, and
+  order frequency, PRD §12.2, still need more than `IntentReceived`'s
+  current payload carries).*
 - **`atf-audit`** — `AuditEvent`/`EventType` (PRD §16.2) and an in-memory,
   append-only `AuditLedger` that hash-chains events and can `verify_chain()`
   to detect after-the-fact tampering (PRD §16.3). *Implemented as a
@@ -52,12 +56,15 @@ Agent Intent
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Intent validation -> Policy -> (if permitted)
-  Risk -> Decision merge, records three audit events per request, and
+  Risk (via `evaluate_with_history`, so duplicate-purchase detection is
+  live) -> Decision merge, records three audit events per request, and
   stores the Decision; `GET /v1/intents/{id}/decision` retrieves it;
   `/healthz`/`/readyz`. *Implemented — verified against a real bound
-  socket, not just in-process tests. Does not call `atf-identity` (see
-  above) and has no persistent store (PRD §22): a process restart loses
-  every recorded Decision and the whole audit ledger.*
+  socket, not just in-process tests (including the duplicate-purchase path:
+  posting the same Agent+Resource twice really does turn `PERMIT` into
+  `REVIEW` on the second request). Does not call `atf-identity` (see above)
+  and has no persistent store (PRD §22): a process restart loses every
+  recorded Decision and the whole audit ledger.*
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, `migrations/`, `fuzz/` is a scaffolded directory with a
@@ -76,8 +83,9 @@ will fill it in. None of it is wired into the Cargo workspace yet.
 4. `atf-policy::evaluate` loads a Cedar policy set + schema and evaluates the
    Intent's principal/action/resource/context against it, returning a Cedar
    `Decision` (Allow/Deny) plus the policy IDs that fired.
-5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` runs the
-   MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
+5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or
+   `evaluate_with_history`, if the caller has a ledger — see step 10) runs
+   the MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
    request never reaches Risk scoring).
 6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
    (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.1/§10.2: Cedar `forbid` (or
@@ -99,13 +107,15 @@ will fill it in. None of it is wired into the Cargo workspace yet.
    `schemas/audit-event.schema.json`.
 10. `services/gateway`'s `POST /v1/intents` is the second caller of steps
     1-6, and the first thing in this repo that also writes to
-    `atf-audit::AuditLedger`: it appends `IntentReceived` right after step 2,
-    `PolicyEvaluated` right after step 4, and `RiskEvaluated` right after
-    step 5 (skipping the Risk call itself when Policy already denied, exactly
-    like step 5 does) — then stores the final `Decision` in an in-memory
-    map keyed by `intent_id` for `GET /v1/intents/{id}/decision` to return.
-    Everything here is in-memory: a process restart loses both the ledger
-    and every stored Decision.
+    `atf-audit::AuditLedger`: it appends `IntentReceived` right after step 2
+    — with `agent_id`/`organization_id`/`resource_id`/`amount` in the event's
+    `data`, specifically so step 5's `evaluate_with_history` call has
+    something to match future requests against — `PolicyEvaluated` right
+    after step 4, and `RiskEvaluated` right after step 5 (skipping the Risk
+    call itself when Policy already denied, exactly like step 5 does) — then
+    stores the final `Decision` in an in-memory map keyed by `intent_id` for
+    `GET /v1/intents/{id}/decision` to return. Everything here is in-memory:
+    a process restart loses both the ledger and every stored Decision.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -126,9 +136,12 @@ complete Decision Engine:
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
-- Risk rules that need history/state — daily cumulative spend, first-time
-  address, duplicate purchase, order frequency (PRD §12.2) — need
-  `atf-risk` to query `atf-audit`, which no code does yet.
+- Risk rules that need history/state (PRD §12.2) — duplicate purchase is
+  done (`atf_risk::evaluate_with_history`, wired into `services/gateway`);
+  daily cumulative spend, first-time destination address, and order
+  frequency are not. All three need more than `IntentReceived`'s current
+  `data` payload carries — e.g. summing amounts needs a reliable "was this
+  Intent ultimately PERMITted" signal, which isn't in that event today.
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).

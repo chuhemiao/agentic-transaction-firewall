@@ -242,8 +242,10 @@ dependencies = [
 name = "atf-risk"
 version = "0.1.0"
 dependencies = [
+ "atf-audit",
  "atf-core",
  "atf-intent",
+ "chrono",
  "rust_decimal",
  "serde",
  "serde_json",
