@@ -1,9 +1,8 @@
-//! The ATF Decision model (PRD §10) and today's (partial) merge path.
+//! The ATF Decision model (PRD §10) and today's (partial) merge algorithm.
 //!
-//! See `docs/architecture.md` for what's implemented vs. still pending —
-//! notably, the full Policy + Risk + Simulation merge algorithm (PRD §10.1)
-//! is not implemented yet; this crate currently only reflects the Policy
-//! Kernel's result.
+//! `decide` merges a Policy Kernel result and Risk Findings per PRD §10.1;
+//! the Simulator branch of that algorithm is not implemented yet since
+//! `atf-simulator` doesn't exist (Phase 3) — see `docs/architecture.md`.
 
 mod decide;
 mod types;

@@ -1,0 +1,17 @@
+[package]
+name = "atf-risk"
+description = "Financial Risk Engine: deterministic, versioned risk rules over a Transaction Intent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atf-core = { workspace = true }
+atf-intent = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rust_decimal = { workspace = true }
+
+[dev-dependencies]

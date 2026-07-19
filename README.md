@@ -38,7 +38,11 @@ Only the following crates are implemented so far:
   validation, canonical serialization and hashing.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
   Intent.
-- `crates/atf-decision` — the Decision model and merge skeleton.
+- `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
+  stateless MVP rules (request expiry, single-transaction cap, fee ratio,
+  vendor price deviation, high-risk network/protocol).
+- `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
+  algorithm (Policy + Risk; no Simulator branch yet).
 - `cli/atf-cli` — `atf validate-intent` and `atf evaluate`.
 
 Everything else in the workspace (risk engine, simulator, approval engine,
@@ -54,25 +58,26 @@ semantics (evaluate only, never execute).
 
 ### Immediate TODO
 
-1. `atf-risk` — a first Financial Risk Engine pass: 3-5 general rules (single
-   transaction cap, first-time destination address, request expiry) so the
-   Decision merge algorithm has real Risk input to merge against.
-2. Finish the PRD §10.1 Decision merge algorithm in `atf-decision` — today it
-   only maps Cedar `forbid`/default-deny -> `DENY` and `permit` -> `PERMIT`;
-   `REVIEW` is not reachable yet.
-3. `atf-identity` — Agent registration + Ed25519 identity-signature
+1. ~~`atf-risk` — a first Financial Risk Engine pass.~~ Done: request
+   expiry, single-transaction cap, fee ratio, vendor price deviation,
+   high-risk network/protocol.
+2. ~~Finish the PRD §10.1 Decision merge algorithm in `atf-decision`.~~ Done
+   for Policy + Risk (Simulator branch still pending `atf-simulator`).
+3. Risk rules that need history/state — daily cumulative spend, first-time
+   destination address, duplicate purchase, order frequency (PRD §12.2) —
+   wait on `atf-audit`/persistence.
+4. `atf-identity` — Agent registration + Ed25519 identity-signature
    verification (PRD §17.2), wired into the Gateway's request path.
-4. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
+5. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
    only the Transaction Intent schema exists today.
 
 ### Phased plan (PRD §31)
 
-- **Phase 1 (finishing now)**: Decision merge algorithm + a
-  `conformance/policy-tests` harness, so the Policy Kernel is solid before
-  anything is layered on top of it.
-- **Phase 2 (Shadow Mode)**: `atf-identity` + `atf-risk` + `atf-audit` +
+- **Phase 1 (finishing now)**: a `conformance/policy-tests` harness, so the
+  Policy Kernel is solid before anything else is layered on top of it.
+- **Phase 2 (Shadow Mode)**: `atf-identity` + `atf-audit` +
   `services/gateway`, so Shadow Mode can run the full pipeline end-to-end and
-  persist an audit trail.
+  persist an audit trail (plus the state-dependent Risk rules above).
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

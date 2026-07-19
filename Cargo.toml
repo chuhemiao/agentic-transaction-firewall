@@ -4,6 +4,7 @@ members = [
     "crates/atf-core",
     "crates/atf-intent",
     "crates/atf-policy",
+    "crates/atf-risk",
     "crates/atf-decision",
     "cli/atf-cli",
 ]
@@ -20,6 +21,7 @@ authors = ["ATF Contributors"]
 atf-core = { path = "crates/atf-core" }
 atf-intent = { path = "crates/atf-intent" }
 atf-policy = { path = "crates/atf-policy" }
+atf-risk = { path = "crates/atf-risk" }
 atf-decision = { path = "crates/atf-decision" }
 
 serde = { version = "1", features = ["derive"] }

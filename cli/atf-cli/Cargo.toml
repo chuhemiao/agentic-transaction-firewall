@@ -15,6 +15,7 @@ path = "src/main.rs"
 atf-core = { workspace = true }
 atf-intent = { workspace = true }
 atf-policy = { workspace = true }
+atf-risk = { workspace = true }
 atf-decision = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }

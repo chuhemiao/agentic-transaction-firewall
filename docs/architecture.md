@@ -27,9 +27,13 @@ Agent Intent
   canonical serialization + SHA-256 hash. *Implemented.*
 - **`atf-policy`** — Cedar schema + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Implemented.*
-- **`atf-decision`** — `Decision` type + merge skeleton (policy-only today;
-  risk/simulation inputs are typed but not yet wired — see §10.1).
-  *Implemented (partial).*
+- **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
+  single-transaction cap, fee ratio, vendor price deviation, high-risk
+  network/protocol). *Implemented (partial — rules needing history/state,
+  e.g. duplicate purchase or daily cumulative spend, wait on `atf-audit`).*
+- **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
+  minus the Simulator branch (no `atf-simulator` yet). *Implemented
+  (partial).*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`. *Implemented.*
 
 Everything else under `crates/`, `services/`, `sdk/`, `examples/`,
@@ -49,13 +53,17 @@ with a `README.md` describing what belongs there and which roadmap phase
 4. `atf-policy::evaluate` loads a Cedar policy set + schema and evaluates the
    Intent's principal/action/resource/context against it, returning a Cedar
    `Decision` (Allow/Deny) plus the policy IDs that fired.
-5. `atf-decision` wraps that into ATF's own `Decision` enum
-   (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.2. The full merge algorithm
-   in PRD §10.1 (Simulator > Policy forbid > Risk critical > Review
-   conditions > Permit) is **not** implemented yet — today a Cedar `Deny`
-   maps to `DENY`, a Cedar `Allow` maps to `PERMIT`, and any internal error
-   maps to `ERROR` (fail closed, never silently `PERMIT`).
-6. `atf-cli evaluate` drives steps 1-5 from the command line and prints the
+5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` runs the
+   MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
+   request never reaches Risk scoring).
+6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
+   (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.1/§10.2: Cedar `forbid` (or
+   default-deny) -> `DENY`; otherwise a `Critical` Risk Finding -> `DENY`, a
+   `High` Risk Finding -> `REVIEW`, anything less -> `PERMIT`; any internal
+   evaluation error -> `ERROR` (fail closed, never silently `PERMIT`). The
+   Simulator branch of §10.1 is not implemented — there is no
+   `atf-simulator` yet.
+7. `atf-cli evaluate` drives steps 1-6 from the command line and prints the
    resulting `Decision` as JSON.
 
 No Adapter, execution path, wallet integration, or production secret exists
@@ -75,8 +83,11 @@ submits a transaction.
 These are called out explicitly so nobody mistakes today's skeleton for a
 complete Decision Engine:
 
-- Decision merge algorithm (PRD §10.1) — Risk and Simulation inputs exist as
-  types but aren't consulted yet.
+- Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
+  the Simulator branch has no input to merge yet (no `atf-simulator`).
+- Risk rules that need history/state — daily cumulative spend, first-time
+  address, duplicate purchase, order frequency (PRD §12.2) — wait on
+  `atf-audit`/persistence (Phase 2).
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).

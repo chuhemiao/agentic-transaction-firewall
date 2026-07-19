@@ -140,6 +140,7 @@ dependencies = [
  "atf-decision",
  "atf-intent",
  "atf-policy",
+ "atf-risk",
  "clap",
  "serde_json",
 ]
@@ -163,6 +164,7 @@ dependencies = [
  "atf-core",
  "atf-intent",
  "atf-policy",
+ "atf-risk",
  "serde",
  "serde_json",
 ]
@@ -190,6 +192,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "atf-risk"
+version = "0.1.0"
+dependencies = [
+ "atf-core",
+ "atf-intent",
+ "rust_decimal",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

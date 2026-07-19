@@ -69,7 +69,18 @@ fn run_evaluate(intent_path: &Path, policies_dir: &Path) -> Result<()> {
     let intent = read_intent(intent_path)?;
     let bundle = atf_policy::PolicyBundle::from_dir(policies_dir)
         .with_context(|| format!("loading policy bundle from {}", policies_dir.display()))?;
-    let decision = atf_decision::decide(&bundle, &intent);
+
+    let policy_result = bundle.evaluate(&intent);
+    // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
+    // forbidden request terminates the merge before Risk is consulted.
+    let risk_findings = match &policy_result {
+        Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => {
+            atf_risk::evaluate(&intent, &atf_risk::RiskConfig::default())
+        }
+        _ => Vec::new(),
+    };
+
+    let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
     println!("{}", serde_json::to_string_pretty(&decision)?);
     Ok(())
 }
