@@ -157,6 +157,8 @@ cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --poli
 See [`docs/architecture.md`](docs/architecture.md) for the full component
 breakdown, and PRD §20 for the target Rust workspace layout.
 
+Picking up work here as an AI agent? Start with [`AGENTS.md`](AGENTS.md).
+
 ## License
 
 Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
