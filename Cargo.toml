@@ -6,6 +6,7 @@ members = [
     "crates/atf-identity",
     "crates/atf-policy",
     "crates/atf-risk",
+    "crates/atf-audit",
     "crates/atf-decision",
     "cli/atf-cli",
 ]
@@ -24,6 +25,7 @@ atf-intent = { path = "crates/atf-intent" }
 atf-identity = { path = "crates/atf-identity" }
 atf-policy = { path = "crates/atf-policy" }
 atf-risk = { path = "crates/atf-risk" }
+atf-audit = { path = "crates/atf-audit" }
 atf-decision = { path = "crates/atf-decision" }
 
 serde = { version = "1", features = ["derive"] }

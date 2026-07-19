@@ -6,11 +6,13 @@
 //! re-implemented per crate.
 
 mod amount;
+mod canonical;
 mod error;
 mod id;
 mod time;
 
 pub use amount::Amount;
+pub use canonical::{sha256_hex, sort_json_keys};
 pub use error::CoreError;
 pub use id::new_ulid;
 pub use time::Timestamp;

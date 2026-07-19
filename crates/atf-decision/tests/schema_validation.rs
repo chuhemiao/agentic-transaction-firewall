@@ -132,32 +132,3 @@ fn an_error_decision_matches_the_schema() {
     assert_eq!(decision.decision, DecisionKind::Error);
     assert_valid_against_schema(&decision);
 }
-
-/// `schemas/audit-event.schema.json` has no producer yet (no `atf-audit`),
-/// so there's no real event to validate — this only confirms the schema
-/// itself compiles as valid JSON Schema and accepts a hand-written example
-/// matching PRD §16.2/§16.3's prose description.
-#[test]
-fn audit_event_schema_compiles_and_accepts_a_hand_written_example() {
-    const AUDIT_EVENT_SCHEMA_STR: &str = include_str!("../../../schemas/audit-event.schema.json");
-    let schema_value: serde_json::Value = serde_json::from_str(AUDIT_EVENT_SCHEMA_STR).unwrap();
-    let validator = jsonschema::validator_for(&schema_value).expect("schema itself is valid");
-
-    let example = serde_json::json!({
-        "event_id": "01J0000000000000000000EV",
-        "event_type": "PolicyEvaluated",
-        "occurred_at": "2026-07-18T08:00:05Z",
-        "intent_id": "01J000000000000000000000",
-        "prev_event_hash": "deadbeef",
-        "data": { "policy_ids": ["policy0"] }
-    });
-
-    let errors: Vec<String> = validator
-        .iter_errors(&example)
-        .map(|e| e.to_string())
-        .collect();
-    assert!(
-        errors.is_empty(),
-        "example event failed validation: {errors:?}"
-    );
-}

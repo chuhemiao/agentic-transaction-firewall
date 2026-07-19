@@ -36,7 +36,13 @@ Agent Intent
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol). *Implemented (partial — rules needing history/state,
-  e.g. duplicate purchase or daily cumulative spend, wait on `atf-audit`).*
+  e.g. duplicate purchase or daily cumulative spend, wait on `atf-audit`
+  being queried by `atf-risk`, which doesn't happen yet either).*
+- **`atf-audit`** — `AuditEvent`/`EventType` (PRD §16.2) and an in-memory,
+  append-only `AuditLedger` that hash-chains events and can `verify_chain()`
+  to detect after-the-fact tampering (PRD §16.3). *Implemented as a
+  library — no persistent store (PRD's MVP design calls for PostgreSQL) and
+  not called from anywhere yet, same situation as `atf-identity`.*
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
@@ -78,8 +84,13 @@ with a `README.md` describing what belongs there and which roadmap phase
 9. `schemas/decision.schema.json` describes the shape `atf-decision::Decision`
    serializes to; `atf-decision`'s own test suite (`tests/schema_validation.rs`)
    validates real output of all four decision kinds against it in CI, so the
-   schema can't silently drift from the type. `schemas/audit-event.schema.json`
-   has no producer to check against yet — see the gaps section below.
+   schema can't silently drift from the type. `atf-audit` does the same for
+   `schemas/audit-event.schema.json`.
+10. `atf-audit::AuditLedger::append` is independent of the pipeline above —
+    nothing calls it yet. A wired-in gateway would call it once per step
+    (`IntentReceived` on step 1, `PolicyEvaluated` on step 4, `RiskEvaluated`
+    on step 5, etc. — PRD §16.2's event list maps almost one-to-one onto
+    this list's steps).
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -101,14 +112,21 @@ complete Decision Engine:
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
 - Risk rules that need history/state — daily cumulative spend, first-time
-  address, duplicate purchase, order frequency (PRD §12.2) — wait on
-  `atf-audit`/persistence (Phase 2).
+  address, duplicate purchase, order frequency (PRD §12.2) — need
+  `atf-risk` to query `atf-audit`, which no code does yet.
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- `atf-identity` is implemented but unwired: nothing in this repo calls
-  `IdentityRegistry::verify_intent_signature` yet, and there is no key
-  rotation *policy* (expiry windows, forced revocation) — only the
-  mechanism to hold multiple keys at once (PRD §17.2.4).
-- `schemas/audit-event.schema.json` is a forward-declared contract with no
-  implementation to check it against — there is no `atf-audit` yet (Phase 2).
+- `atf-identity` and `atf-audit` are both implemented but unwired: nothing
+  in this repo calls `IdentityRegistry::verify_intent_signature` or
+  `AuditLedger::append`, since there is no `services/gateway` request path
+  to call them from. `atf-identity` also has no key-rotation *policy*
+  (expiry windows, forced revocation) — only the mechanism to hold multiple
+  keys at once (PRD §17.2.4). `atf-audit` has no persistent store — it is
+  in-memory only, so nothing survives a process restart (PRD §16.3's MVP
+  design calls for PostgreSQL).
+- `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
+  `atf-audit`'s canonical hashing; any future crate that needs a
+  deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3
+  versioning) should reuse these rather than re-deriving the
+  `preserve_order`-feature fix a second time.

@@ -1,42 +1,19 @@
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 use crate::types::TransactionIntent;
 
-/// Recursively sort every JSON object's keys, explicitly, regardless of
-/// which concrete map type `serde_json::Value::Object` happens to use.
-///
-/// `serde_json`'s `Map` is a `BTreeMap` (sorted) only when the
-/// `preserve_order` feature is off *for every crate in the build* — Cargo
-/// unifies features across the whole dependency graph, so if any dependency
-/// anywhere (in this workspace: `jsonschema`/`cedar-policy` pull it in via
-/// `serde_with`) turns `preserve_order` on, `Value::Object` silently becomes
-/// an insertion-order-preserving `IndexMap` for every crate that touches
-/// `serde_json::Value`, including this one. Relying on the default was a
-/// latent bug: it worked when this crate was tested in isolation and broke
-/// under `cargo test --all-targets` for the whole workspace. Sorting
-/// explicitly here makes `canonical_hash` correct independent of that flag.
-fn sort_keys(value: Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut entries: Vec<(String, Value)> =
-                map.into_iter().map(|(k, v)| (k, sort_keys(v))).collect();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            Value::Object(entries.into_iter().collect())
-        }
-        Value::Array(items) => Value::Array(items.into_iter().map(sort_keys).collect()),
-        other => other,
-    }
-}
-
 impl TransactionIntent {
     /// Deterministic JSON form of this Intent, with every object's keys
-    /// sorted at every nesting level. This is what makes `canonical_hash`
-    /// stable across semantically-identical inputs regardless of struct
-    /// field declaration order or how the original input happened to order
-    /// its keys (PRD §9.1.4).
+    /// sorted at every nesting level (via `atf_core::sort_json_keys` — see
+    /// its docs for why this can't just rely on `serde_json`'s default map
+    /// ordering). This is what makes `canonical_hash` stable across
+    /// semantically-identical inputs regardless of struct field declaration
+    /// order or how the original input happened to order its keys
+    /// (PRD §9.1.4).
     pub fn canonical_value(&self) -> Value {
-        sort_keys(serde_json::to_value(self).expect("TransactionIntent always serializes to JSON"))
+        atf_core::sort_json_keys(
+            serde_json::to_value(self).expect("TransactionIntent always serializes to JSON"),
+        )
     }
 
     pub fn canonical_bytes(&self) -> Vec<u8> {
@@ -46,8 +23,7 @@ impl TransactionIntent {
     /// Hex-encoded SHA-256 over the canonical JSON bytes. This is the value
     /// that binds a Decision or Approval to this exact Intent (PRD §14.2).
     pub fn canonical_hash(&self) -> String {
-        let digest = Sha256::digest(self.canonical_bytes());
-        hex::encode(digest)
+        atf_core::sha256_hex(&self.canonical_bytes())
     }
 }
 
@@ -145,11 +121,11 @@ mod tests {
         // Regression test for the bug where `to_value` alone was assumed to
         // sort keys: that only holds if serde_json's `preserve_order`
         // feature is off *everywhere* in the build, which Cargo's feature
-        // unification does not guarantee (see `sort_keys` docs above).
+        // unification does not guarantee (see `atf_core::sort_json_keys`).
         let mut unsorted = serde_json::Map::new();
         unsorted.insert("zebra".to_string(), serde_json::json!(1));
         unsorted.insert("alpha".to_string(), serde_json::json!(2));
-        let value = super::sort_keys(serde_json::Value::Object(unsorted));
+        let value = atf_core::sort_json_keys(serde_json::Value::Object(unsorted));
         let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
         assert_eq!(keys, vec!["alpha", "zebra"]);
     }

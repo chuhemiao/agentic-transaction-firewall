@@ -132,6 +132,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "atf-audit"
+version = "0.1.0"
+dependencies = [
+ "atf-core",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "atf-cli"
 version = "0.1.0"
 dependencies = [
@@ -151,9 +162,11 @@ name = "atf-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror",
  "ulid",
 ]
@@ -188,11 +201,9 @@ name = "atf-intent"
 version = "0.1.0"
 dependencies = [
  "atf-core",
- "hex",
  "jsonschema",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "thiserror",
 ]
 
