@@ -1,0 +1,26 @@
+/target
+**/target
+Cargo.lock.bak
+*.pdb
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Local env / secrets — ATF must never hold production secrets
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# SDKs
+sdk/typescript/node_modules/
+sdk/typescript/dist/
+sdk/python/__pycache__/
+sdk/python/*.egg-info/
+sdk/python/.venv/

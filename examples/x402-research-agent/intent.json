@@ -1,0 +1,51 @@
+{
+  "spec_version": "1.0",
+  "intent_id": "01J000000000000000000001",
+  "idempotency_key": "research-2026-07-18-001",
+  "created_at": "2026-07-18T08:00:00Z",
+  "expires_at": "2026-07-18T08:05:00Z",
+  "principal": {
+    "organization_id": "alpha-lab",
+    "user_id": "user-001",
+    "agent_id": "research-agent-01",
+    "agent_version": "1.4.2",
+    "strategy_id": null
+  },
+  "mandate": {
+    "mandate_id": "mandate-001",
+    "task_id": "research-task-001",
+    "purpose": "purchase historical order-book data",
+    "budget_id": "research-budget-july",
+    "human_authorized": true
+  },
+  "action": {
+    "category": "payment",
+    "operation": "purchase_api_resource"
+  },
+  "resource": {
+    "protocol": "x402",
+    "venue": "market-data-provider",
+    "resource_id": "btc-orderbook-2026-07-01",
+    "resource_type": "dataset"
+  },
+  "transaction": {
+    "network": "base",
+    "asset": "eip155:8453/erc20:0xUSDC",
+    "amount": "12.50",
+    "destination": "0xdestination",
+    "contract": null,
+    "calldata_hash": null,
+    "max_fee": "0.25",
+    "slippage_bps": null,
+    "leverage": null
+  },
+  "context": {
+    "task_budget": "20.00",
+    "historical_vendor_median": "8.50",
+    "data_classification": "public",
+    "requested_by_tool": "mcp-market-data"
+  },
+  "metadata": {
+    "labels": ["research", "market-data"]
+  }
+}

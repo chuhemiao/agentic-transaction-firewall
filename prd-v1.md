@@ -6,7 +6,7 @@
 产品类型：开源基础设施
 核心语言：Rust
 开源许可：Apache License 2.0
-文档版本：PRD v1.0
+文档版本：PRD v1.1
 项目阶段：初始化与 MVP 设计
 目标定位：面向 AI Agent 的金融交易意图、权限、风险、审批、执行与审计控制层
 
@@ -149,6 +149,7 @@ ATF 第一阶段明确不做以下事情：
 13. 不在 MVP 阶段覆盖所有链、交易所和 Agent 框架。
 14. 不把低延迟高频交易作为初始目标。
 15. 不发行项目 Token。
+16. 不内置 AML/OFAC 制裁名单筛查。ATF 通过 Risk Rule 扩展点支持接入第三方合规数据源（见 12.4），但不自带合规数据或承担合规责任。
 
 ---
 
@@ -409,6 +410,45 @@ MVP：
 9. refund
 10. withdrawal
 
+### 9.4 Budget 模型
+
+Transaction Intent 中的 `budget_id` 与 `context.task_budget` 引用一个独立的 Budget 对象，而非自由文本。
+
+Budget 层级：
+
+1. Organization Budget：组织级总额度，周期性重置。
+2. Agent Budget：单个 Agent 在组织额度内的分配上限。
+3. Strategy Budget：量化策略级别的独立额度，绑定 `strategy_id`。
+4. Task Budget：单个任务或会话级别的一次性或周期性额度，绑定 `task_id`。
+
+核心字段：
+
+```json
+{
+  "budget_id": "research-budget-july",
+  "parent_budget_id": "org-budget-2026-07",
+  "owner": {
+    "organization_id": "alpha-lab",
+    "agent_id": "research-agent-01"
+  },
+  "limit": "500.00",
+  "period": "monthly",
+  "period_start": "2026-07-01T00:00:00Z",
+  "period_end": "2026-08-01T00:00:00Z",
+  "consumed": "120.00",
+  "reserved": "20.00",
+  "status": "ACTIVE"
+}
+```
+
+设计约束：
+
+1. 扣减必须是原子操作（PostgreSQL 行级锁或 CAS），禁止先查询余额后扣减的竞态写法。
+2. 每次 PERMIT 决策先 `reserve`（预留），执行确认后 `commit`，失败或过期后 `release`，防止并发请求超支。
+3. 子 Budget 消耗必须同步反映到 `parent_budget_id`，父级超限时子级必须一并拒绝。
+4. Budget 状态耗尽或过期时，关联 Intent 直接 DENY，不进入 REVIEW。
+5. Budget 变更（额度调整）本身是审计事件，必须记录变更前后值与操作人。
+
 ---
 
 ## 10. 决策模型
@@ -452,7 +492,23 @@ ATF 对每个请求返回统一 Decision。
 }
 ```
 
-Decision 类型：
+### 10.1 Decision 合并算法
+
+Policy Kernel、Risk Engine、Simulator 各自产出独立结果，Decision Engine 按以下固定优先级合并，禁止任何加权评分覆盖该顺序：
+
+1. Simulator 报告"交易必定 Revert"或"无法完成模拟" → DENY 或 REVIEW（见 13.6），此结果不可被 Policy PERMIT 覆盖。
+2. Policy Kernel 返回 Cedar `forbid` → DENY，终止合并，不再评估 Risk。
+3. Risk Engine 命中任意 `severity: critical` 规则 → DENY。
+4. Policy Kernel 返回 `permit` 且未命中 Review 条件，同时 Risk Engine 未命中 `high` 或以上规则 → PERMIT。
+5. 以下任一条件成立 → REVIEW：
+   - Policy Kernel 显式要求 Review。
+   - Risk Engine 命中 `high` 或以上 severity 规则，但未达 `critical`。
+   - Simulator 数据不完整或外部依赖超时。
+6. 任一模块内部出错（非业务判定，如异常、超时、依赖不可用）→ ERROR，ERROR 在 Enforce Mode 下等价于 DENY，在 Shadow Mode 下记录但不影响原交易路径。
+
+合并规则本身必须版本化（随 `policy_version` 一起声明），且必须有对应属性测试（见 28.3）验证合并结果的确定性与幂等性。
+
+### 10.2 Decision 类型
 
 1. PERMIT
 2. DENY
@@ -503,6 +559,14 @@ Risk Engine 负责：
 8. 市场数据新鲜度。
 9. 重复采购。
 10. 组合日亏损。
+
+### 11.3 Policy 组合与冲突处理
+
+1. 沿用 Cedar 默认语义：存在任意匹配的 `forbid` 时结果为 DENY，`forbid` 优先于所有 `permit`。
+2. 一个 Agent 可同时受多个 Policy Bundle 约束（组织级、策略级、Adapter 级）；多个 Bundle 独立求值后按"最严结果生效"合并（DENY > REVIEW > PERMIT）。
+3. Policy Bundle 必须有唯一 `policy_version`，同一 Decision 中引用的所有 Bundle 版本必须记录在 Audit 中，禁止跨版本混用求值。
+4. Policy 变更必须先在非生产环境通过 `atf policy test` 全量回归，再灰度发布；生产切换必须支持一键回滚到上一个签名版本。
+5. 两个 Policy 之间若存在静态可检测的矛盾（例如同一 Principal/Action/Resource 同时被不同 Bundle 判定为 permit 与 forbid），`atf policy validate` 必须报错阻止发布，而非留给运行时合并规则兜底。
 
 ---
 
@@ -568,6 +632,19 @@ Treasury：
 7. 非工作时间审批。
 8. 提现与交易权限隔离。
 
+### 12.3 市场数据源与新鲜度
+
+1. MVP 阶段价格与资金费率数据默认来自 Adapter 自带的场所行情接口（如 Hyperliquid 自身订单簿），不依赖第三方聚合 Oracle，降低 Oracle 操纵面。
+2. 每条外部数据必须标注 `source`、`fetched_at`、`staleness_ms`；超过规则配置的新鲜度阈值时，规则按 12.1.8 默认提升风险而非跳过判断。
+3. 如接入第三方价格源（Chainlink、Pyth 等），必须支持多源交叉校验，单一数据源不得单独触发 PERMIT。
+4. Vendor 历史价格中位数（如 `historical_vendor_median`）由 Risk Engine 自身滚动计算并持久化，不依赖外部第三方评分服务。
+
+### 12.4 自定义与合规扩展点
+
+1. Risk Engine 提供规则插件接口，允许接入组织自定义规则，包括制裁名单筛查、内部黑名单、第三方合规服务。
+2. 合规类规则与金融风险规则使用同一 Risk Finding 格式，可直接触发 REVIEW 或 DENY。
+3. ATF 核心不内置任何合规数据源，相关数据源的准确性与时效性由接入方负责（对应非目标 5.16）。
+
 ---
 
 ## 13. Transaction Simulator
@@ -627,6 +704,13 @@ Treasury：
 7. 服务交付验证要求。
 8. 重复采购检查。
 
+### 13.6 模拟失败与降级策略
+
+1. Simulator 超时、依赖不可用或 Adapter 不支持该 Action 的模拟能力时，按 10.1 合并规则强制进入 REVIEW，禁止直接 PERMIT。
+2. 若 Simulation 明确返回"必定 Revert"或"账户状态非法"，直接 DENY，不受 Policy PERMIT 结果影响。
+3. Enforce Mode 下，若配置要求"必须模拟成功才可执行"（高风险 Adapter 默认开启），模拟不可用则整个请求 Fail Closed 为 DENY，而非降级为 Shadow 评估。
+4. Shadow Mode 下模拟失败仅记录 `SimulationCompleted` 事件并标记 `status: unavailable`，不影响原交易路径。
+
 ---
 
 ## 14. Approval Engine
@@ -653,6 +737,14 @@ Treasury：
 5. 不允许同一主体同时发起和完成高风险双人审批。
 6. 审批记录不可删除。
 7. 审批不得直接包含生产私钥。
+
+### 14.3 审批超时与默认行为
+
+1. 审批请求过期后默认结果为 DENY，不自动转为 PERMIT，也不无限期悬挂。
+2. 过期前可配置 Escalate 规则（如 30 分钟未处理自动升级给上一级角色），升级本身生成 Audit 事件。
+3. 多人审批中，若已获得部分批准但未达到所需人数即过期，视为整体 DENY，不采纳部分批准。
+4. Kill Switch 触发期间，所有待处理审批立即标记为 DENY 并记录触发原因，不允许在 Kill Switch 生效后继续 Approve。
+5. 审批过期判定必须使用 ATF 服务端时钟，不信任审批请求中携带的客户端时间戳。
 
 ---
 
@@ -723,6 +815,29 @@ x402 Adapter：
 12. LangGraph Middleware
 13. MCP Middleware
 
+### 15.4 Adapter Manifest 字段
+
+每个 Adapter 必须随代码发布一份 `adapter-manifest.json`（对应 schemas/adapter-manifest.schema.json），供 Conformance Tests 和 Admin API 读取：
+
+```json
+{
+  "adapter_id": "hyperliquid",
+  "adapter_version": "0.3.0",
+  "atf_spec_version": "1.0",
+  "supported_actions": ["exchange_order"],
+  "supported_assets": ["eip155:*"],
+  "supports_simulation": true,
+  "supports_shadow_mode": true,
+  "requires_simulation_before_execute": true,
+  "secret_binding": "external_signer",
+  "conformance_test_report": "conformance/adapter-tests/hyperliquid-0.3.0.json"
+}
+```
+
+1. `requires_simulation_before_execute` 为 true 的 Adapter，在 13.6 的降级策略下不允许跳过模拟直接执行。
+2. `secret_binding` 必须声明签名密钥的托管方式（如 `external_signer`、`kms_ref`），Adapter 自身不得声明持有明文密钥。
+3. Manifest 版本与 Conformance Test 报告不匹配时，`atf adapter test` 必须拒绝将该 Adapter 标记为可用。
+
 ---
 
 ## 16. Audit Ledger
@@ -761,9 +876,18 @@ MVP：
 4. 审计日志只追加，不更新。
 5. 管理员也不能静默删除。
 
+### 16.4 留存策略与合规边界
+
+1. "不可篡改"约束的是事件内容和 Hash 链，不等于永久物理存储；ATF 支持按组织配置留存周期，到期数据整体归档并从 Hash 链中以"归档区块"形式摘要，而非逐条删除或篡改。
+2. 涉及个人数据的字段（如审批人姓名、邮箱）应与不可变的交易事实字段分离存储，便于在合规删除请求下做字段级脱敏，同时保留交易 Hash 链完整性。
+3. 归档、脱敏操作本身必须生成审计事件并由多人授权，不允许管理员单方面执行。
+4. 生产部署必须明确写入自身的留存周期与脱敏策略，ATF 核心不代为承诺满足特定司法辖区的合规要求（对应非目标 5.16）。
+
 ---
 
 ## 17. Agent Identity
+
+### 17.1 登记字段与状态
 
 每个 Agent 必须登记：
 
@@ -791,6 +915,21 @@ Agent 状态：
 3. PAUSED
 4. REVOKED
 5. EXPIRED
+
+### 17.2 身份签名机制
+
+1. 每个 Agent 注册时绑定一对非对称密钥（默认 Ed25519），私钥由 Agent 运行环境持有，公钥登记到 `atf-identity`。
+2. Agent SDK 对每个 Transaction Intent 的 Canonical Hash 进行签名，Gateway 验证签名后才进入 Context Normalizer；签名失败直接 DENY，不进入 Policy/Risk 评估。
+3. Agent 私钥与执行签名私钥（钱包/交易所侧）必须是两套独立密钥：前者只用于证明"这是哪个 Agent 发起的请求"，后者由 Adapter/Fireblocks/Safe 等托管，ATF 核心进程不持有、不代理执行签名。
+4. 支持密钥轮换：注册新公钥、设置旧公钥失效窗口、轮换事件写入 Audit；轮换期间允许双公钥并行验证，避免请求中断。
+5. 单个私钥泄露的爆炸半径由 `risk_tier`、`default_budget` 和 `allowed_adapters` 限定，即：身份签名验证通过只代表"请求来自该 Agent"，不代表跳过 Policy/Risk 评估。
+
+### 17.3 Admin API 权限模型
+
+1. `atf-admin-api` 自身的操作（注册/暂停 Agent、发布 Policy Bundle、调整 Budget、管理审批角色）需要独立的 RBAC，区别于 Agent 身份体系。
+2. 最小角色集：`org_admin`（管理 Agent 与 Budget）、`policy_author`（发布 Policy，不能执行审批）、`approver`（仅可处理审批，不能改 Policy）、`auditor`（只读）。
+3. 高风险 Admin 操作（发布生产 Policy、调整 Kill Switch、提升 Agent 权限）需要与 14.1 类似的多人审批，不允许单一 `org_admin` 账号直接生效。
+4. 所有 Admin API 调用生成审计事件（对应 16.2 的 `PolicyChanged`、`AgentPaused` 等），且记录操作者角色与身份，不允许匿名或共享账号操作。
 
 ---
 
@@ -899,6 +1038,14 @@ Rust 主要组件：
 10. atf-reconciliation
 11. atf-cli
 12. atf-admin-api
+
+### 19.3 高可用与容灾
+
+1. §26 要求"Audit 写入失败时阻止 Enforce Mode 执行"，这意味着 Audit 存储（PostgreSQL）是 Enforce Mode 的可用性瓶颈，必须显式设计而非默认单实例。
+2. 生产参考部署建议 PostgreSQL 采用主从复制（如 Patroni/RDS Multi-AZ），Gateway 侧对 Audit 写入使用同步提交到主节点，只有主节点确认写入后才返回 Decision。
+3. Shadow Mode 不受此约束：Audit 写入失败时降级为本地缓冲 + 异步重试，不阻塞交易评估，因为 Shadow Mode 本身不接管签名权限。
+4. 单机部署（30.2）明确不提供 HA 保证，需在文档中标注"仅适合个人/小团队，无 Audit 高可用"。
+5. 备份策略：PostgreSQL 定期快照 + WAL 归档，Merkle 检查点（16.3）额外冗余存储于对象存储，用于在数据库损坏后独立验证审计链完整性。
 
 ---
 
@@ -1358,6 +1505,9 @@ Docker Compose：
 8. 三个 Demo 均可本地运行。
 9. Audit Hash Chain 可验证。
 10. Kill Switch 可以阻止 Enforce Mode 请求。
+11. Decision 合并算法（10.1）对同一输入始终产出相同结果，且有属性测试覆盖 Policy/Risk/Simulation 三者冲突场景。
+12. Budget 并发扣减不出现超支（12.1 数据不足提升风险原则 + 9.4 原子扣减一致）。
+13. 审批过期后默认 DENY，不存在无限悬挂的审批请求（14.3）。
 
 ### 32.2 安全验收
 
@@ -1371,6 +1521,8 @@ Docker Compose：
 8. 无限 Approval 可以被识别。
 9. Policy Bundle 支持签名或 Hash 校验。
 10. CI 包含依赖和许可证检查。
+11. Agent 身份签名（17.2）验证失败的请求在进入 Policy/Risk 之前即被拒绝。
+12. Admin API 高风险操作（发布 Policy、调整 Kill Switch）需要多人授权，单账号无法直接生效（17.3）。
 
 ### 32.3 文档验收
 
@@ -1466,7 +1618,7 @@ Docker Compose：
 
 ## 36. 首次项目初始化输出要求
 
-使用 ChatGPT 客户端初始化项目时，第一轮只完成以下内容：
+使用 Claude 客户端初始化项目时，第一轮只完成以下内容：
 
 1. 创建 Rust Workspace。
 2. 创建完整目录结构。

@@ -1,0 +1,18 @@
+[package]
+name = "atf-core"
+description = "Shared domain primitives (amounts, timestamps, ids, errors) for the Agentic Transaction Firewall"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+ulid = { workspace = true }
+rust_decimal = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
