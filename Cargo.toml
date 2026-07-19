@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/atf-core",
     "crates/atf-intent",
+    "crates/atf-identity",
     "crates/atf-policy",
     "crates/atf-risk",
     "crates/atf-decision",
@@ -20,6 +21,7 @@ authors = ["ATF Contributors"]
 [workspace.dependencies]
 atf-core = { path = "crates/atf-core" }
 atf-intent = { path = "crates/atf-intent" }
+atf-identity = { path = "crates/atf-identity" }
 atf-policy = { path = "crates/atf-policy" }
 atf-risk = { path = "crates/atf-risk" }
 atf-decision = { path = "crates/atf-decision" }
@@ -36,6 +38,7 @@ clap = { version = "4", features = ["derive"] }
 rust_decimal = { version = "1", features = ["serde-str"] }
 jsonschema = "0.28"
 cedar-policy = "4"
+ed25519-dalek = "3"
 
 [profile.release]
 opt-level = 3

@@ -1,0 +1,18 @@
+[package]
+name = "atf-identity"
+description = "Agent identity registry and Ed25519 identity-signature verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atf-core = { workspace = true }
+atf-intent = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

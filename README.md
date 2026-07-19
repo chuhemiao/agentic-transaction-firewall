@@ -36,6 +36,8 @@ Only the following crates are implemented so far:
 - `crates/atf-core` — shared domain primitives and error types.
 - `crates/atf-intent` — canonical Transaction Intent type, JSON Schema
   validation, canonical serialization and hashing.
+- `crates/atf-identity` — Agent registration records and Ed25519
+  identity-signature verification over an Intent's canonical hash.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
   Intent.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
@@ -69,17 +71,23 @@ semantics (evaluate only, never execute).
 4. Risk rules that need history/state — daily cumulative spend, first-time
    destination address, duplicate purchase, order frequency (PRD §12.2) —
    wait on `atf-audit`/persistence.
-5. `atf-identity` — Agent registration + Ed25519 identity-signature
-   verification (PRD §17.2), wired into the Gateway's request path.
+5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
+   verification (PRD §17.2).~~ Done as a library: an in-memory registry
+   verifying a raw Ed25519 signature over `intent.canonical_hash()`, key
+   rotation (multiple valid keys per Agent), and status gating
+   (PAUSED/REVOKED/EXPIRED can't submit even with a valid signature). Not
+   yet wired into anything — there is no `services/gateway` request path to
+   call it from yet.
 6. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
    only the Transaction Intent schema exists today.
 
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Shadow Mode, next)**: `atf-identity` + `atf-audit` +
-  `services/gateway`, so Shadow Mode can run the full pipeline end-to-end and
-  persist an audit trail (plus the state-dependent Risk rules above).
+- **Phase 2 (Shadow Mode, in progress)**: `atf-identity` (library done, not
+  wired in) + `atf-audit` + `services/gateway`, so Shadow Mode can run the
+  full pipeline end-to-end and persist an audit trail (plus the
+  state-dependent Risk rules above).
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

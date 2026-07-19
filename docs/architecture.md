@@ -25,6 +25,12 @@ Agent Intent
   (RFC 3339), error types. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, JSON Schema validation,
   canonical serialization + SHA-256 hash. *Implemented.*
+- **`atf-identity`** — Agent registration records (`AgentRecord`,
+  `AgentStatus`) and an in-memory `IdentityRegistry` verifying a raw
+  Ed25519 signature over `intent.canonical_hash()`, with key-rotation
+  support (multiple valid keys per Agent) and status gating. *Implemented
+  as a library — not called from anywhere yet, since there is no
+  `services/gateway` request path to call it from (PRD §17.2).*
 - **`atf-policy`** — Cedar schema + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Implemented.*
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
@@ -95,4 +101,7 @@ complete Decision Engine:
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- Agent identity signature verification (PRD §17.2).
+- `atf-identity` is implemented but unwired: nothing in this repo calls
+  `IdentityRegistry::verify_intent_signature` yet, and there is no key
+  rotation *policy* (expiry windows, forced revocation) — only the
+  mechanism to hold multiple keys at once (PRD §17.2.4).
