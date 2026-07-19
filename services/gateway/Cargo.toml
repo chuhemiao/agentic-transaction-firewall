@@ -1,0 +1,29 @@
+[package]
+name = "atf-gateway"
+description = "HTTP gateway wiring Policy/Risk/Decision/Audit into one request path (Shadow Mode only — no execution)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "atf-gateway"
+path = "src/main.rs"
+
+[dependencies]
+atf-core = { workspace = true }
+atf-intent = { workspace = true }
+atf-policy = { workspace = true }
+atf-risk = { workspace = true }
+atf-decision = { workspace = true }
+atf-audit = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }

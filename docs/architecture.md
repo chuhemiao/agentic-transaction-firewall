@@ -29,8 +29,9 @@ Agent Intent
   `AgentStatus`) and an in-memory `IdentityRegistry` verifying a raw
   Ed25519 signature over `intent.canonical_hash()`, with key-rotation
   support (multiple valid keys per Agent) and status gating. *Implemented
-  as a library — not called from anywhere yet, since there is no
-  `services/gateway` request path to call it from (PRD §17.2).*
+  as a library — still not called from `services/gateway` (PRD §17.2): the
+  gateway now exists, but there is no way to register an Agent's key
+  through it yet, which is really an Admin API concern (PRD §17.3).*
 - **`atf-policy`** — Cedar schema + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Implemented.*
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
@@ -41,18 +42,27 @@ Agent Intent
 - **`atf-audit`** — `AuditEvent`/`EventType` (PRD §16.2) and an in-memory,
   append-only `AuditLedger` that hash-chains events and can `verify_chain()`
   to detect after-the-fact tampering (PRD §16.3). *Implemented as a
-  library — no persistent store (PRD's MVP design calls for PostgreSQL) and
-  not called from anywhere yet, same situation as `atf-identity`.*
+  library — no persistent store (PRD's MVP design calls for PostgreSQL);
+  now called from `services/gateway`, so it's the first of these two
+  "implemented but unwired" crates to actually be wired somewhere.*
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
+- **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
+  `POST /v1/intents` runs Intent validation -> Policy -> (if permitted)
+  Risk -> Decision merge, records three audit events per request, and
+  stores the Decision; `GET /v1/intents/{id}/decision` retrieves it;
+  `/healthz`/`/readyz`. *Implemented — verified against a real bound
+  socket, not just in-process tests. Does not call `atf-identity` (see
+  above) and has no persistent store (PRD §22): a process restart loses
+  every recorded Decision and the whole audit ledger.*
 
-Everything else under `crates/`, `services/`, `sdk/`, `examples/`,
-`conformance/`, `deploy/`, `migrations/`, `fuzz/` is a scaffolded directory
-with a `README.md` describing what belongs there and which roadmap phase
-(PRD §31) will fill it in. None of it is wired into the Cargo workspace yet.
+Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
+`deploy/`, `migrations/`, `fuzz/` is a scaffolded directory with a
+`README.md` describing what belongs there and which roadmap phase (PRD §31)
+will fill it in. None of it is wired into the Cargo workspace yet.
 
 ## Data flow through today's skeleton
 
@@ -77,7 +87,8 @@ with a `README.md` describing what belongs there and which roadmap phase
    Simulator branch of §10.1 is not implemented — there is no
    `atf-simulator` yet.
 7. `atf-cli evaluate` drives steps 1-6 from the command line and prints the
-   resulting `Decision` as JSON.
+   resulting `Decision` as JSON. It does not touch `atf-audit` — it's a
+   one-shot local tool, not a long-running service with a ledger to keep.
 8. `atf-cli policy test` runs the Policy Kernel in isolation (step 4 only)
    against a directory of conformance cases and reports pass/fail — see
    `conformance/policy-tests/README.md`.
@@ -86,11 +97,15 @@ with a `README.md` describing what belongs there and which roadmap phase
    validates real output of all four decision kinds against it in CI, so the
    schema can't silently drift from the type. `atf-audit` does the same for
    `schemas/audit-event.schema.json`.
-10. `atf-audit::AuditLedger::append` is independent of the pipeline above —
-    nothing calls it yet. A wired-in gateway would call it once per step
-    (`IntentReceived` on step 1, `PolicyEvaluated` on step 4, `RiskEvaluated`
-    on step 5, etc. — PRD §16.2's event list maps almost one-to-one onto
-    this list's steps).
+10. `services/gateway`'s `POST /v1/intents` is the second caller of steps
+    1-6, and the first thing in this repo that also writes to
+    `atf-audit::AuditLedger`: it appends `IntentReceived` right after step 2,
+    `PolicyEvaluated` right after step 4, and `RiskEvaluated` right after
+    step 5 (skipping the Risk call itself when Policy already denied, exactly
+    like step 5 does) — then stores the final `Decision` in an in-memory
+    map keyed by `intent_id` for `GET /v1/intents/{id}/decision` to return.
+    Everything here is in-memory: a process restart loses both the ledger
+    and every stored Decision.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -117,14 +132,18 @@ complete Decision Engine:
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- `atf-identity` and `atf-audit` are both implemented but unwired: nothing
-  in this repo calls `IdentityRegistry::verify_intent_signature` or
-  `AuditLedger::append`, since there is no `services/gateway` request path
-  to call them from. `atf-identity` also has no key-rotation *policy*
-  (expiry windows, forced revocation) — only the mechanism to hold multiple
-  keys at once (PRD §17.2.4). `atf-audit` has no persistent store — it is
-  in-memory only, so nothing survives a process restart (PRD §16.3's MVP
-  design calls for PostgreSQL).
+- `atf-identity` is implemented but still unwired: nothing calls
+  `IdentityRegistry::verify_intent_signature`, since there is still no way
+  to register an Agent's key through `services/gateway` — that needs an
+  Admin API (PRD §17.3), which doesn't exist. It also has no key-rotation
+  *policy* (expiry windows, forced revocation) — only the mechanism to hold
+  multiple keys at once (PRD §17.2.4).
+- `services/gateway` has no persistent store: `atf-audit::AuditLedger` and
+  the Decision-by-`intent_id` map are both plain in-memory state behind a
+  `Mutex`, so a process restart loses everything (PRD §16.3's MVP design
+  calls for PostgreSQL). There is also no rate limiting, no TLS termination
+  config, and no multi-instance story — this is a reference wiring, not a
+  production deployment target.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

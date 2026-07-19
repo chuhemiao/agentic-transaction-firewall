@@ -50,6 +50,11 @@ Only the following crates are implemented so far:
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
+- `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk,
+  Decision, and Audit into one request path: `POST /v1/intents` and
+  `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. Identity
+  verification is not wired in yet (no way to register an Agent's key
+  through this service). Never executes anything — evaluate-only.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -57,9 +62,9 @@ and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
 
 Everything else in the workspace (simulator, approval engine, adapters,
-gateway, SDKs) is scaffolded as an empty directory with a `README.md`
-describing what belongs there and which roadmap phase will fill it in — see
-PRD §31 for the phase plan.
+SDKs) is scaffolded as an empty directory with a `README.md` describing
+what belongs there and which roadmap phase will fill it in — see PRD §31
+for the phase plan.
 
 No real wallet, exchange, or production secret is wired into this repository.
 Execution is not implemented; every code path defaults to **Shadow Mode**
@@ -84,31 +89,38 @@ semantics (evaluate only, never execute).
    verification (PRD §17.2).~~ Done as a library: an in-memory registry
    verifying a raw Ed25519 signature over `intent.canonical_hash()`, key
    rotation (multiple valid keys per Agent), and status gating
-   (PAUSED/REVOKED/EXPIRED can't submit even with a valid signature). Not
-   yet wired into anything — there is no `services/gateway` request path to
-   call it from yet.
+   (PAUSED/REVOKED/EXPIRED can't submit even with a valid signature). Still
+   not called from `services/gateway` — see item 8.
 6. ~~`schemas/decision.schema.json` and `schemas/audit-event.schema.json`.~~
    Done: both validated in CI against real output (`atf-decision` and
    `atf-audit` respectively).
 7. ~~`atf-audit` — the Audit Ledger (PRD §16).~~ Done as a library:
    hash-chained `AuditEvent`s, append-only, `verify_chain()` detects
    after-the-fact tampering. In-memory only (no PostgreSQL, per the PRD's
-   own MVP design) and not called from anywhere yet.
+   own MVP design).
+8. ~~`services/gateway` — wire Policy/Risk/Decision/Audit into one request
+   path.~~ Done: `POST /v1/intents` runs Policy → (if permitted) Risk →
+   Decision merge, records `IntentReceived`/`PolicyEvaluated`/
+   `RiskEvaluated` audit events for every request, and stores the Decision
+   for `GET /v1/intents/{id}/decision` to retrieve. Verified live against a
+   real bound socket, not just in-process tests. **Not** wired in:
+   `atf-identity` (no endpoint to register an Agent's key yet — that's an
+   Admin API concern, PRD §17.3), Simulation, Approval.
 
 ### Remaining before Phase 2 can close out
 
-- Wire `atf-identity` and `atf-audit` into an actual request path
-  (`services/gateway`) — both are implemented but unused today.
-- Wire the state-dependent Risk rules (item 4) up against `atf-audit` once
-  the gateway exists to drive both.
+- Wire `atf-identity` into the gateway once there's a way to register an
+  Agent's key (an Admin API endpoint, PRD §17.3 — itself unscheduled).
+- Wire the state-dependent Risk rules (item 4) up against `atf-audit`.
+- Give the gateway a persistent store — right now a process restart loses
+  the audit ledger and every recorded Decision.
 
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Shadow Mode, in progress)**: `atf-identity` and `atf-audit`
-  (both done as libraries, neither wired in) + `services/gateway` to
-  connect them into one request path and unlock the state-dependent Risk
-  rules above.
+- **Phase 2 (Shadow Mode, in progress)**: `atf-identity`, `atf-audit`, and
+  `services/gateway` are all done; what's left is identity wiring (needs an
+  Admin API), state-dependent Risk rules, and persistence.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
