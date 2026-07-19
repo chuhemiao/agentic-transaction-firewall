@@ -50,6 +50,36 @@ No real wallet, exchange, or production secret is wired into this repository.
 Execution is not implemented; every code path defaults to **Shadow Mode**
 semantics (evaluate only, never execute).
 
+## Roadmap
+
+### Immediate TODO
+
+1. `atf-risk` — a first Financial Risk Engine pass: 3-5 general rules (single
+   transaction cap, first-time destination address, request expiry) so the
+   Decision merge algorithm has real Risk input to merge against.
+2. Finish the PRD §10.1 Decision merge algorithm in `atf-decision` — today it
+   only maps Cedar `forbid`/default-deny -> `DENY` and `permit` -> `PERMIT`;
+   `REVIEW` is not reachable yet.
+3. `atf-identity` — Agent registration + Ed25519 identity-signature
+   verification (PRD §17.2), wired into the Gateway's request path.
+4. `schemas/decision.schema.json` and `schemas/audit-event.schema.json` —
+   only the Transaction Intent schema exists today.
+
+### Phased plan (PRD §31)
+
+- **Phase 1 (finishing now)**: Decision merge algorithm + a
+  `conformance/policy-tests` harness, so the Policy Kernel is solid before
+  anything is layered on top of it.
+- **Phase 2 (Shadow Mode)**: `atf-identity` + `atf-risk` + `atf-audit` +
+  `services/gateway`, so Shadow Mode can run the full pipeline end-to-end and
+  persist an audit trail.
+- **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
+  Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
+- **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
+  + execution-hash binding + Kill Switch.
+- **Phase 5 (community)**: TypeScript/Python SDKs + MCP middleware + docs
+  site.
+
 ## Getting started
 
 ```bash
