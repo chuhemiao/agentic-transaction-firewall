@@ -109,8 +109,19 @@ async fn posting_an_in_budget_intent_permits_and_records_audit_events() {
         .collect();
     assert_eq!(
         event_types,
-        vec!["IntentReceived", "PolicyEvaluated", "RiskEvaluated"]
+        vec![
+            "IntentReceived",
+            "PolicyEvaluated",
+            "RiskEvaluated",
+            "DecisionRecorded"
+        ]
     );
+    let recorded = ledger.iter().last().unwrap();
+    assert_eq!(recorded.data["decision"], "PERMIT");
+    assert_eq!(recorded.data["organization_id"], "alpha-lab");
+    assert_eq!(recorded.data["agent_id"], "research-agent-01");
+    assert_eq!(recorded.data["resource_id"], "btc-orderbook-2026-07-01");
+    assert_eq!(recorded.data["intent_hash"].as_str().unwrap().len(), 64);
     assert!(ledger.verify_chain().is_ok());
 }
 
@@ -247,4 +258,45 @@ async fn a_second_request_for_the_same_resource_is_flagged_as_a_duplicate() {
         .unwrap()
         .iter()
         .any(|r| r["code"] == "DUPLICATE_PURCHASE"));
+}
+
+#[tokio::test]
+async fn a_denied_request_does_not_count_as_a_duplicate_purchase() {
+    let app = build_router(test_state());
+
+    let denied = sample_intent_json("01J0000000000000000000N1", "999.00");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/intents")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&denied).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_json(response).await["decision"], "DENY");
+
+    let permitted = sample_intent_json("01J0000000000000000000N2", "12.50");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/intents")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&permitted).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let decision = body_json(response).await;
+    assert_eq!(decision["decision"], "PERMIT");
+    assert!(!decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "DUPLICATE_PURCHASE"));
 }

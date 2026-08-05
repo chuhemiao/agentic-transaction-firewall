@@ -45,10 +45,13 @@ Only the following crates are implemented so far:
   stateless MVP rules (request expiry, single-transaction cap, fee ratio,
   vendor price deviation, high-risk network/protocol), plus one
   history-dependent rule (duplicate purchase within 24h) that queries an
-  `atf-audit::AuditLedger`.
+  `atf-audit::AuditLedger`. Duplicate-purchase history is scoped by
+  organization and counts only prior `DecisionRecorded(PERMIT)` events — a
+  received or denied request is not treated as a purchase.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
-  append-only, with tamper detection (`verify_chain`). In-memory only — no
-  persistent store yet.
+  append-only, with tamper detection (`verify_chain`), including the
+  `DecisionRecorded` lifecycle event. In-memory only — no persistent store
+  yet.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
@@ -87,13 +90,13 @@ semantics (evaluate only, never execute).
    against a declared policy bundle, exits non-zero on any failure.
 4. ~~Risk rules that need history/state (PRD §12.2).~~ Partly done:
    `atf_risk::evaluate_with_history` adds a duplicate-purchase check
-   (same Agent + Resource within 24h, reading `IntentReceived` events'
-   `agent_id`/`resource_id` back out of the ledger) — verified end-to-end
-   through `services/gateway` over a real HTTP request. Daily cumulative
+   (same Organization + Agent + Resource within 24h, reading only prior
+   `DecisionRecorded(PERMIT)` events) — verified end-to-end through
+   `services/gateway`; a prior DENY does not poison a later valid request,
+   and one organization's history cannot affect another. Daily cumulative
    spend, first-time destination address, and order frequency are still
-   not implemented; they need more than `IntentReceived`'s payload
-   currently carries (e.g. a reliable "was this ultimately PERMITted"
-   signal).
+   not implemented; their configured lifecycle boundary (PERMITTED vs.
+   EXECUTED vs. SETTLED) must be explicit.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
    verification (PRD §17.2).~~ Done as a library: an in-memory registry
    verifying a raw Ed25519 signature over `intent.canonical_hash()`, key
@@ -110,8 +113,9 @@ semantics (evaluate only, never execute).
 8. ~~`services/gateway` — wire Policy/Risk/Decision/Audit into one request
    path.~~ Done: `POST /v1/intents` runs Policy → (if permitted) Risk →
    Decision merge, records `IntentReceived`/`PolicyEvaluated`/
-   `RiskEvaluated` audit events for every request, and stores the Decision
-   for `GET /v1/intents/{id}/decision` to retrieve. Verified live against a
+   `RiskEvaluated`/`DecisionRecorded` audit events for every request, and
+   stores the Decision for `GET /v1/intents/{id}/decision` to retrieve.
+   Verified live against a
    real bound socket, not just in-process tests. **Not** wired in:
    `atf-identity` (no endpoint to register an Agent's key yet — that's an
    Admin API concern, PRD §17.3), Simulation, Approval.
@@ -124,6 +128,10 @@ semantics (evaluate only, never execute).
   first-time address, order frequency).
 - Give the gateway a persistent store — right now a process restart loses
   the audit ledger and every recorded Decision.
+
+The security-audit baseline and prioritized acceptance criteria are tracked
+in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
+delivery view is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ### Phased plan (PRD §31)
 

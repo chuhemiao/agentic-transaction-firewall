@@ -1,9 +1,8 @@
 # Threat Model (draft)
 
-This is an initial draft covering the threats enumerated in `docs/PRD.md`
-§18.2, annotated with what today's skeleton (Phase 0/1: `atf-core`,
-`atf-intent`, `atf-policy`, `atf-decision`, `atf-cli`) does and does not yet
-mitigate. This will be expanded as later phases land.
+This draft covers the threats enumerated in `docs/PRD.md` §18.2, annotated
+against the current Phase 2 Shadow Mode implementation. The gateway has a
+real network request path, but no execution path or production secret.
 
 ## Security principles (PRD §18.1)
 
@@ -22,40 +21,48 @@ mitigate. This will be expanded as later phases land.
 
 | # | Threat | Status in this repo |
 |---|---|---|
-| 1 | Prompt injection causing an Agent to overstep authorization | Out of scope for `atf-policy`/`atf-decision` today — mitigated structurally once Policy Kernel + Risk Engine are mandatory in front of every execution path; no LLM is in the Permit/Deny path (principle 8) |
-| 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` canonical hash gives a tamper-evident representation of the Intent; signature verification (identity binding) is Phase 2 (`atf-identity`, PRD §17.2) |
+| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by mandatory Policy/Risk evaluation and no LLM in Permit/Deny; identity, semantic validation, and execution enforcement are still absent |
+| 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` canonical hash is tamper-evident and `atf-identity` can verify Ed25519 signatures, but identity is not wired into the gateway and the signed message still lacks domain separation |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
-| 4 | Policy bypass | `atf-policy` is the only evaluation path in this skeleton; no alternate/legacy path exists yet because no execution path exists yet |
+| 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Intent has an `idempotency_key` field (schema-level); enforcement of uniqueness is a gateway/persistence concern (Phase 2) |
+| 7 | Nonce replay | Unmitigated: `idempotency_key` is only schema-level; the gateway does not enforce uniqueness and signed identity envelopes have no nonce |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
-| 10 | Supply-chain dependency attack | `cargo deny` configured (`deny.toml`) for license + advisory checks; CI runs `cargo audit` |
+| 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Not applicable yet — no Audit Ledger (Phase 2, `atf-audit`) |
-| 13 | Price oracle manipulation | Not applicable yet — no Risk Engine data sources (Phase 2, PRD §12.3) |
+| 12 | Audit log deletion | Partially addressed: `atf-audit` is append-only in its public API and hash-chained, but storage is process memory, has no independent checkpoint, and disappears on restart |
+| 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
-| 15 | Unlimited token approval | Schema supports representing `token_approval` actions; the risk rule that flags unlimited approvals is Phase 2 (`atf-risk`) |
+| 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
 | 16 | Malicious contract call | Not applicable yet — no Simulator (Phase 3) |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Not applicable yet — Risk Engine rule (Phase 2) |
+| 18 | Duplicate purchase | Partially mitigated: the gateway records `DecisionRecorded` and the 24-hour rule counts only prior same-organization `PERMIT` decisions; execution- and settlement-based accounting do not exist yet |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
 | 20 | High-frequency small-order splitting to bypass per-transaction limits | Not applicable yet — cumulative-spend risk rules are Phase 2 |
 
 ## What this repo's current attack surface actually is
 
-Since there is no network service, no Adapter, and no secret in this
-skeleton, the realistic attack surface today is limited to:
+There is a network service but no Adapter, execution route, or production
+secret. The realistic attack surface today includes:
+
+- **Unauthenticated HTTP input** to `POST /v1/intents` and unscoped reads
+  from `GET /v1/intents/{id}/decision`. There is no request-size limit,
+  rate limit, organization authorization, or persistent idempotency.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — mitigated by JSON Schema validation and Rust's memory safety;
   fuzz targets for the parser/normalizer are tracked in `fuzz/` (Phase 1+).
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
-  Cedar's own policy validator is used before evaluation; a policy that
-  fails validation must not silently evaluate as Permit (fail closed).
-- **Supply-chain risk in Rust dependencies** — mitigated via `cargo deny`
-  and `cargo audit` in CI.
+  Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
+  signed Bundle validation are still missing.
+- **History poisoning and process-local state** — lifecycle semantics now
+  prevent denied or cross-organization requests from triggering the
+  duplicate-purchase rule, but restart loss and multi-instance divergence
+  remain until PostgreSQL persistence lands.
+- **Supply-chain risk in Rust dependencies** — partially mitigated via
+  `cargo deny` in CI; the broader controls listed above remain open.
 
 ## Secret management (PRD §18.3)
 

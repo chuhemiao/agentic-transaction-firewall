@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// PRD §10.2. `Review` exists as a variant today even though nothing in this
-/// crate can produce it yet — see `docs/architecture.md` for why (no Risk
-/// Engine or Simulator wired in).
+/// PRD §10.2. `Review` is produced when the Risk Engine returns a `High`
+/// finding; the future Simulator branch can also produce it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DecisionKind {
@@ -20,11 +19,10 @@ pub struct Reason {
     pub message: String,
 }
 
-/// PRD §10: today this only reflects the Policy Kernel result. `risk_score`,
-/// `policy_version`, `required_approvals`, and `obligations` are omitted
-/// rather than stubbed out, since nothing produces real values for them yet
-/// (Risk Engine, Approval Engine — Phase 2/4). Add them when those crates
-/// exist instead of guessing their shape now.
+/// PRD §10: today this reflects the merged Policy/Risk outcome. Strong
+/// binding fields (`intent_hash`, policy/risk/context/simulation hashes,
+/// expiry, constraints, `decision_hash`) and Approval output are omitted
+/// until their versioned inputs exist; see `docs/audit-gap-matrix.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Decision {
     pub decision_id: String,

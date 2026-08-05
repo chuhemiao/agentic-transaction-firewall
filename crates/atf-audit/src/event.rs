@@ -1,8 +1,9 @@
 use atf_core::Timestamp;
 use serde::{Deserialize, Serialize};
 
-/// The fixed set of audit event types (PRD §16.2). Unit variants serialize
-/// as their exact PascalCase Rust name by default, which is also what
+/// The fixed set of audit event types (PRD §16.2 plus lifecycle events
+/// adopted by the security audit). Unit variants serialize as their exact
+/// PascalCase Rust name by default, which is also what
 /// `schemas/audit-event.schema.json`'s `event_type` enum expects — no
 /// `#[serde(rename_all = ...)]` needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,6 +12,7 @@ pub enum EventType {
     IdentityVerified,
     PolicyEvaluated,
     RiskEvaluated,
+    DecisionRecorded,
     SimulationCompleted,
     ApprovalRequested,
     ApprovalGranted,

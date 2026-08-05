@@ -47,3 +47,22 @@ fn a_chained_event_with_no_intent_id_matches_the_schema() {
     assert!(event.intent_id.is_none());
     assert_valid_against_schema(event);
 }
+
+#[test]
+fn a_decision_recorded_event_matches_the_schema() {
+    let mut ledger = AuditLedger::new();
+    let event = ledger.append(
+        EventType::DecisionRecorded,
+        Some("01J000000000000000000000".to_string()),
+        serde_json::json!({
+            "decision_id": "01J00000000000000000000D",
+            "decision": "PERMIT",
+            "intent_hash": "00",
+            "organization_id": "alpha-lab",
+            "agent_id": "research-agent-01",
+            "resource_id": "dataset-1"
+        }),
+    );
+
+    assert_valid_against_schema(event);
+}

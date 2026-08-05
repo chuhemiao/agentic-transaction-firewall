@@ -1,5 +1,5 @@
-//! Financial Risk Engine (PRD §12): deterministic, versioned risk rules over
-//! a Transaction Intent.
+//! Financial Risk Engine (PRD §12): deterministic MVP risk rules over a
+//! Transaction Intent. Rule-set version/hash binding is not implemented yet.
 //!
 //! `evaluate` runs the stateless MVP rules; `evaluate_with_history` also
 //! runs the rules in `history_rules` that need an `atf_audit::AuditLedger`

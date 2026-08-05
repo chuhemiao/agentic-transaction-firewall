@@ -9,10 +9,9 @@ use crate::severity::Severity;
 /// Rules that need to look at prior events, not just the current Intent —
 /// PRD §12.2's "duplicate purchase", "daily cumulative spend", "first-time
 /// address", "order frequency" are all this shape. Only `duplicate_purchase`
-/// is implemented so far; the rest need more than `IntentReceived`'s
-/// `agent_id`/`resource_id`/`amount` payload carries today (e.g. a
-/// destination-address history, or a reliable "was this Intent ultimately
-/// PERMITted" signal, which `IntentReceived` alone doesn't have).
+/// is implemented so far. `DecisionRecorded` now carries the outcome and
+/// normalized fields needed for this rule; daily spend, first-time address,
+/// and order frequency still need their own lifecycle semantics.
 pub(crate) fn history_findings(
     intent: &TransactionIntent,
     ledger: &AuditLedger,
@@ -22,16 +21,16 @@ pub(crate) fn history_findings(
         .collect()
 }
 
-/// Flags a request for the same Agent + Resource combination seen in the
-/// ledger within the last 24 hours (PRD §12.2 "服务重复购买", §24.3.2's
-/// concrete "same dataset within 24h" rule).
+/// Flags a request for the same Organization + Agent + Resource combination
+/// that previously received a `PERMIT` Decision within the last 24 hours
+/// (PRD §12.2 "服务重复购买", §24.3.2's concrete "same dataset within 24h"
+/// rule).
 ///
-/// Reads `agent_id`/`resource_id` back out of `IntentReceived` events' data
-/// payload — see `services/gateway`'s `create_intent` handler, which is
-/// what puts them there. A ledger that doesn't record those fields (e.g. a
-/// hand-built one in a test) just never matches, which is the correct
-/// fail-safe direction: this rule can miss a real duplicate if the caller
-/// didn't record enough to detect it, but it can't invent a false one.
+/// A received request is not proof that a purchase was authorized, executed,
+/// or settled. This rule deliberately reads `DecisionRecorded(PERMIT)` rather
+/// than `IntentReceived`, so a previously denied request cannot poison a
+/// later valid request. Execution- or settlement-based semantics can replace
+/// this boundary once those lifecycle stages exist.
 fn duplicate_purchase_within_24h(
     intent: &TransactionIntent,
     ledger: &AuditLedger,
@@ -40,9 +39,12 @@ fn duplicate_purchase_within_24h(
         Timestamp::from_datetime(Timestamp::now().as_datetime() - Duration::hours(24));
 
     let duplicate_of = ledger.iter().find(|event| {
-        event.event_type == EventType::IntentReceived
+        event.event_type == EventType::DecisionRecorded
             && event.intent_id.as_deref() != Some(intent.intent_id.as_str())
             && event.occurred_at >= window_start
+            && event.data.get("decision").and_then(|v| v.as_str()) == Some("PERMIT")
+            && event.data.get("organization_id").and_then(|v| v.as_str())
+                == Some(intent.principal.organization_id.as_str())
             && event.data.get("agent_id").and_then(|v| v.as_str())
                 == Some(intent.principal.agent_id.as_str())
             && event.data.get("resource_id").and_then(|v| v.as_str())
@@ -53,7 +55,7 @@ fn duplicate_purchase_within_24h(
         code: "DUPLICATE_PURCHASE".to_string(),
         severity: Severity::High,
         message: format!(
-            "Agent `{}` already requested resource `{}` at {} (intent {}), within the last 24h",
+            "Agent `{}` previously received a PERMIT decision for resource `{}` at {} (intent {}), within the last 24h",
             intent.principal.agent_id,
             intent.resource.resource_id,
             duplicate_of.occurred_at,
@@ -116,19 +118,34 @@ mod tests {
         }
     }
 
-    fn ledger_with_prior_purchase(agent_id: &str, resource_id: &str) -> AuditLedger {
+    fn ledger_with_prior_decision(
+        organization_id: &str,
+        agent_id: &str,
+        resource_id: &str,
+        decision: &str,
+    ) -> AuditLedger {
         let mut ledger = AuditLedger::new();
         ledger.append(
-            EventType::IntentReceived,
+            EventType::DecisionRecorded,
             Some("01J0000000000000000000P0".to_string()),
-            serde_json::json!({ "agent_id": agent_id, "resource_id": resource_id }),
+            serde_json::json!({
+                "decision": decision,
+                "organization_id": organization_id,
+                "agent_id": agent_id,
+                "resource_id": resource_id,
+            }),
         );
         ledger
     }
 
     #[test]
     fn flags_a_repeat_request_for_the_same_agent_and_resource() {
-        let ledger = ledger_with_prior_purchase("research-agent-01", "btc-orderbook-2026-07-01");
+        let ledger = ledger_with_prior_decision(
+            "alpha-lab",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+            "PERMIT",
+        );
         let new_intent = intent(
             "01J0000000000000000000P1",
             "research-agent-01",
@@ -142,7 +159,12 @@ mod tests {
 
     #[test]
     fn does_not_flag_a_different_resource() {
-        let ledger = ledger_with_prior_purchase("research-agent-01", "btc-orderbook-2026-07-01");
+        let ledger = ledger_with_prior_decision(
+            "alpha-lab",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+            "PERMIT",
+        );
         let new_intent = intent(
             "01J0000000000000000000P2",
             "research-agent-01",
@@ -154,7 +176,12 @@ mod tests {
 
     #[test]
     fn does_not_flag_a_different_agent() {
-        let ledger = ledger_with_prior_purchase("research-agent-01", "btc-orderbook-2026-07-01");
+        let ledger = ledger_with_prior_decision(
+            "alpha-lab",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+            "PERMIT",
+        );
         let new_intent = intent(
             "01J0000000000000000000P3",
             "research-agent-02",
@@ -177,11 +204,43 @@ mod tests {
     }
 
     #[test]
+    fn does_not_flag_a_previously_denied_request() {
+        let ledger = ledger_with_prior_decision(
+            "alpha-lab",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+            "DENY",
+        );
+        let new_intent = intent(
+            "01J0000000000000000000P6",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+        );
+
+        assert!(duplicate_purchase_within_24h(&new_intent, &ledger).is_none());
+    }
+
+    #[test]
+    fn does_not_cross_organization_boundaries() {
+        let ledger = ledger_with_prior_decision(
+            "other-org",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+            "PERMIT",
+        );
+        let new_intent = intent(
+            "01J0000000000000000000P7",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+        );
+
+        assert!(duplicate_purchase_within_24h(&new_intent, &ledger).is_none());
+    }
+
+    #[test]
     fn does_not_flag_the_intents_own_already_recorded_event() {
-        // A caller (services/gateway) records IntentReceived for the
-        // current Intent *before* running Risk, so the ledger already
-        // contains this exact intent_id. That must not count as its own
-        // duplicate.
+        // Replay or hand-built ledgers can already contain a decision for
+        // the current Intent. It must not count as its own duplicate.
         let mut ledger = AuditLedger::new();
         let this_intent = intent(
             "01J0000000000000000000P5",
@@ -189,9 +248,11 @@ mod tests {
             "btc-orderbook-2026-07-01",
         );
         ledger.append(
-            EventType::IntentReceived,
+            EventType::DecisionRecorded,
             Some(this_intent.intent_id.clone()),
             serde_json::json!({
+                "decision": "PERMIT",
+                "organization_id": this_intent.principal.organization_id,
                 "agent_id": this_intent.principal.agent_id,
                 "resource_id": this_intent.resource.resource_id,
             }),

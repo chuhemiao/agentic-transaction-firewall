@@ -130,6 +130,27 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
     }
 
     let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
+    {
+        let mut ledger = state
+            .audit_ledger
+            .lock()
+            .expect("audit ledger lock poisoned");
+        ledger.append(
+            EventType::DecisionRecorded,
+            Some(intent.intent_id.clone()),
+            serde_json::json!({
+                "decision_id": decision.decision_id,
+                "decision": decision.decision,
+                "intent_hash": intent.canonical_hash(),
+                "organization_id": intent.principal.organization_id,
+                "agent_id": intent.principal.agent_id,
+                "resource_id": intent.resource.resource_id,
+                "amount": intent.transaction.amount.to_string(),
+                "destination": intent.transaction.destination,
+                "action_category": intent.action.category,
+            }),
+        );
+    }
 
     state
         .decisions

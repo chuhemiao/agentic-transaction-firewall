@@ -1,6 +1,6 @@
 [package]
 name = "atf-risk"
-description = "Financial Risk Engine: deterministic, versioned risk rules over a Transaction Intent"
+description = "Financial Risk Engine: deterministic MVP risk rules over a Transaction Intent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
