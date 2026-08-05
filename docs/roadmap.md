@@ -3,7 +3,8 @@
 This is the security-delivery view of the roadmap. `README.md` remains the
 live feature-status summary; `docs/PRD.md` §31 remains the product plan. The
 acceptance criteria and evidence for every open area are in
-`docs/audit-gap-matrix.md`.
+`docs/audit-gap-matrix.md`. The ordering rationale is recorded in
+`docs/decisions/0001-durable-shadow-before-enforce.md`.
 
 ## Current release: Durable Shadow Mode
 

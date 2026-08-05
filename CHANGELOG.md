@@ -23,6 +23,10 @@ This project has not yet made a tagged release.
 
 ### Changed
 
+- Updated the product requirements to PRD v1.2, making Durable Shadow Mode
+  the explicit release gate before Simulator/Adapter/Approval/Enforce work.
+- Recorded ADR-0001 for the decision to finish persistence, identity,
+  idempotency, replay, provenance, and audit durability before execution.
 - Duplicate-purchase detection now counts only prior same-organization
   `DecisionRecorded(PERMIT)` events instead of every `IntentReceived` event.
 

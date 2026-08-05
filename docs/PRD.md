@@ -2,13 +2,37 @@
 
 项目名称：Agentic Transaction Firewall
 项目简称：ATF
-仓库建议：agentic-transaction-firewall
+仓库：agentic-transaction-firewall
 产品类型：开源基础设施
 核心语言：Rust
 开源许可：Apache License 2.0
-文档版本：PRD v1.1
-项目阶段：初始化与 MVP 设计
-目标定位：面向 AI Agent 的金融交易意图、权限、风险、审批、执行与审计控制层
+文档版本：PRD v1.2（Durable Shadow Mode 修订版）
+更新日期：2026-08-05
+项目阶段：Phase 2 — Durable Shadow Mode
+目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
+
+---
+
+## 0. 文档定位与当前基线
+
+本 PRD 同时定义长期产品目标与当前版本的交付门槛。带有“必须”“禁止”“不得”的条目是规范性要求；目标架构不代表当前仓库已经实现。
+
+当前真实实现以 `README.md` 的 Status、`docs/architecture.md` 的 What exists today、`docs/audit-gap-matrix.md` 的证据和实际代码/测试为准。出现冲突时，按以下顺序判断：
+
+1. 已提交代码、Schema、迁移和可执行测试。
+2. `README.md` 与 `docs/architecture.md` 的当前状态。
+3. 本 PRD 的目标要求。
+4. 其他设计草案或历史说明。
+
+截至 PRD v1.2：
+
+1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、内存 Hash Chain Audit、Identity Library、CLI 和 Shadow Gateway 已有真实代码与测试。
+2. Gateway 已记录 `IntentReceived`、`PolicyEvaluated`、`RiskEvaluated` 和 `DecisionRecorded`；重复购买只统计同组织此前 `PERMIT` 的 Decision。
+3. Identity 尚未接入 Gateway；持久化、真实幂等、确定性 Replay、Context Provenance、Policy Bundle Versioning 和 Metrics 尚未完成。
+4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
+5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
+
+当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
 
 ---
 
@@ -16,16 +40,20 @@
 
 Agentic Transaction Firewall 是一个协议中立、钱包中立、交易场所中立的开源金融交易控制层。
 
-它位于 AI Agent 与钱包、交易所、DeFi 协议、Treasury 系统、x402 服务和其他支付网络之间。所有不可逆或高风险金融行为在执行前，必须转换为统一的 Transaction Intent，经过身份验证、Policy Evaluation、金融风险检查、交易模拟和审批流程，才能被允许执行。
+它位于 AI Agent 与钱包、交易所、DeFi 协议、Treasury 系统、x402 服务和其他支付网络之间。所有不可逆或高风险金融行为在执行前，必须转换为统一的 Transaction Intent，经过身份验证、语义校验、Policy Evaluation、金融风险检查、交易模拟和必要审批，才能获得一次性执行授权。
 
 ATF 不创建新钱包，不托管资产，不发明新支付协议，也不替代交易所、Fireblocks、Privy、Safe、Coinbase CDP 或 AWS AgentCore。ATF 的目标是为这些基础设施提供统一的上层控制语义：
 
 Agent Intent
 → Canonical Transaction Intent
+→ Identity & Semantic Validation
+→ Versioned Evaluation Context
 → Policy Evaluation
 → Financial Risk Evaluation
 → Simulation
+→ Bound Decision
 → Approval
+→ Single-use Execution Grant
 → Execution Adapter
 → Settlement Verification
 → Immutable Audit
@@ -39,16 +67,24 @@ ATF 的核心价值不是“让 Agent 可以付款或交易”，而是回答以
 5. 最终执行的交易是否与审批内容一致。
 6. 执行结果是否完成结算和服务交付。
 7. 出现异常后是否可以完整追踪责任链。
+8. 同一份原始证据是否能够重放出相同 Decision。
+9. 任意一次执行是否只能使用与 Intent、Decision、Approval 完全绑定的一次性授权。
 
 ---
 
 ## 2. 产品愿景
 
-成为 AI Agent 金融行为控制的开源参考实现。
+成为 AI Agent 金融行为控制与证据链的开源参考实现。
 
-长期目标是形成一套被 Agent 框架、钱包、支付平台、交易系统和企业 Treasury 接受的统一标准：
+长期目标不是再造钱包或支付网络，而是在异构执行基础设施之上形成一组可组合、可验证的公共契约：
 
-Agent Transaction Intent Specification
+1. Agent Transaction Intent Specification。
+2. Identity Envelope 与组织隔离模型。
+3. Versioned Evaluation Context 与 Context Provenance。
+4. Deterministic Policy/Risk/Simulation Decision。
+5. Intent Lifecycle 与 Hash-chained Audit Evidence。
+6. Approval 与 Single-use Execution Grant Binding。
+7. Adapter、Settlement 和 Reconciliation Conformance。
 
 ATF 希望成为自主金融系统中的 Policy Enforcement Point，类似于：
 
@@ -58,6 +94,21 @@ ATF 希望成为自主金融系统中的 Policy Enforcement Point，类似于：
 4. Firewalls 和 SIEM 对企业安全行为的控制。
 
 区别在于，ATF 专门理解金融交易语义，包括金额、资产、目的地址、Token Approval、杠杆、滑点、清算距离、资金费率、市场状态、任务预算和交易策略。
+
+### 2.1 当前战略重点
+
+近期产品不是“尽快接上真实钱包”，而是先证明控制层自身值得信任：
+
+1. **Durable**：服务重启、并发请求和多实例运行不能丢失或分叉已接受的 Intent、Decision 与 Audit Evidence。
+2. **Deterministic**：决定结果的时间、Policy、Risk Rules、Context 和外部证据全部版本化并可重放。
+3. **Authenticated**：Agent 与组织身份在 Policy/Risk 之前验证，签名具备 Domain Separation、Audience、Environment、Nonce 和有效期。
+4. **Provenance-aware**：Agent 不能自行提供价格、余额、仓位、历史支出或模拟结果并直接影响 Permit。
+5. **Fail Closed**：缺失、过期、冲突或无法验证的数据不得静默转为 Permit。
+6. **Execution-last**：在 Durable Shadow Mode 完成、通过验收并重新安全审计前，不实现真实资金执行。
+
+### 2.2 产品成功形态
+
+ATF 的最佳成功形态不是垂直产品垄断全部流程，而是成为钱包、Agent Framework、支付系统、交易基础设施和企业 Treasury 都可以复用的公共安全层。第三方可以替换 Policy、Risk 数据源或 Adapter，但不能绕过统一 Intent、绑定、生命周期和证据语义。
 
 ---
 
@@ -100,7 +151,7 @@ ATF 需要进一步判断：
 
 ## 4. 产品目标
 
-### 4.1 核心目标
+### 4.1 长期核心目标
 
 1. 定义统一的 Agent Transaction Intent Schema。
 2. 提供确定性的 Policy-as-Code 执行内核。
@@ -113,26 +164,41 @@ ATF 需要进一步判断：
 9. 建立项目级威胁模型、测试标准和安全边界。
 10. 形成可供第三方实现的 Conformance Test Suite。
 
-### 4.2 成功定义
+### 4.2 当前版本目标：Durable Shadow Mode
 
-第一阶段成功不以用户数、交易量或融资为核心指标，而以以下结果衡量：
+1. PostgreSQL 持久化已接受的 Intent、Evaluation、Decision 和 Audit Event。
+2. 建立明确的 Intent Lifecycle State Machine 与事务边界。
+3. 对 `(organization_id, idempotency_key)` 实施并发安全、重启后仍有效的幂等语义。
+4. 将 Domain-separated Agent Identity Envelope 接入 Gateway，并在 Policy/Risk 前 Fail Closed。
+5. 引入版本化 `EvaluationContext`，消除决策路径对隐式当前时间和未记录环境状态的依赖。
+6. 支持 Original Replay 与 Counterfactual Replay，且不得覆盖原 Decision。
+7. 将决策输入分为 Agent、ATF、Oracle、Adapter、Admin 和 Signed External Evidence 来源，并执行新鲜度检查。
+8. 为 Policy Bundle 和 Risk Rule Set 记录版本、Canonical Hash、Scope 和激活状态。
+9. 提供组织隔离的 Audit Query API、Metrics 和安全可观测性。
+10. 在上述能力完成并重新审计前，保持所有 Execution 路径不存在或默认关闭。
+
+### 4.3 成功定义
+
+当前阶段成功不以用户数、交易量、接入链数量或融资为核心指标，而以以下结果衡量：
 
 1. 开发者能够在 30 分钟内运行本地 Demo。
 2. Agent 可以通过统一 API 提交交易意图。
-3. Cedar Policy 可以对交易进行 Permit、Deny 或 Review 判定。
+3. Cedar Policy、Risk 和 Decision Merge 对相同记录输入产生相同结果。
 4. 风险引擎可以识别静态授权之外的金融风险。
 5. Shadow Mode 可以在不接管签名权限的情况下生成风险报告。
-6. 至少三个 Adapter 能通过统一 Conformance Tests。
-7. 所有决策都能够被完整重放和审计。
-8. 核心模块通过单元测试、属性测试、模糊测试和依赖安全检查。
-9. 开源文档足够清晰，外部开发者可以编写新的 Adapter。
-10. 至少获得一批真实开发者的 Issue、PR 或集成反馈。
+6. 同一 Idempotency Key 的并发和重试不会重复评估或产生冲突 Decision。
+7. 所有决策都能够从持久化 Snapshot 完整重放和审计。
+8. 服务重启后 Intent、Decision、Audit Chain 和 Replay Protection 不丢失。
+9. 核心模块通过单元、集成、并发、属性、模糊和依赖安全检查。
+10. 文档明确区分 `IMPLEMENTED_AND_WIRED`、Partial、Scaffold 和 Missing，不夸大生产能力。
+
+Adapter 数量、真实执行量和多链覆盖属于后续阶段指标，不作为 Durable Shadow Mode 的完成条件。
 
 ---
 
 ## 5. 非目标
 
-ATF 第一阶段明确不做以下事情：
+ATF 明确不做以下事情：
 
 1. 不托管用户资产。
 2. 不保存生产私钥。
@@ -150,6 +216,9 @@ ATF 第一阶段明确不做以下事情：
 14. 不把低延迟高频交易作为初始目标。
 15. 不发行项目 Token。
 16. 不内置 AML/OFAC 制裁名单筛查。ATF 通过 Risk Rule 扩展点支持接入第三方合规数据源（见 12.4），但不自带合规数据或承担合规责任。
+17. Durable Shadow Mode 不接入真实钱包、交易所执行权限或主网资金。
+18. 当前版本不承诺互联网暴露、多租户隔离、HA、SLA 或任何生产就绪状态。
+19. 不把“存在 Idempotency Key 字段”“存在 Hash”“存在 Audit Event”误称为已经实现幂等、不可篡改或可重放。
 
 ---
 
@@ -208,7 +277,11 @@ ATF 第一阶段明确不做以下事情：
 
 ## 7. 产品模式
 
-ATF 支持三种运行模式。
+ATF 的目标形态支持三种运行模式，但三种模式不是可任意切换的配置项，而是按安全能力逐级开放：
+
+1. 当前只开放 Shadow Mode。
+2. Review Mode 必须在持久化、身份、幂等、Decision Binding 和 Approval Engine 完成后开放。
+3. Enforce Mode 必须进一步具备 Simulator、Single-use Execution Grant、Adapter Conformance、Kill Switch、Settlement/Reconciliation 和故障恢复，并完成独立安全复审。
 
 ### 7.1 Shadow Mode
 
@@ -217,7 +290,7 @@ ATF 不阻止交易，也不掌握签名权限。
 流程：
 
 1. Agent 或应用复制 Transaction Intent 给 ATF。
-2. ATF 执行 Policy、Risk 和 Simulation。
+2. ATF 执行当前已启用的 Identity、Semantic Validation、Policy、Risk 和 Simulation 阶段；未实现的阶段必须在结果中显式标记，不得伪造成功。
 3. ATF 返回“如果启用 Enforcement，本次应 Permit、Deny 或 Review”。
 4. 交易仍通过原有路径执行。
 5. ATF 对比预测结果与实际结果。
@@ -229,6 +302,8 @@ ATF 不阻止交易，也不掌握签名权限。
 3. Policy 调试。
 4. 风险误报与漏报分析。
 5. 设计伙伴验证。
+
+当前仓库的 Shadow Gateway 只实现 Intent Schema Validation、Policy、部分 Risk、Policy/Risk Decision Merge 和内存 Audit；它不等同于本节的完整目标态 Shadow Mode。
 
 ### 7.2 Review Mode
 
@@ -242,6 +317,8 @@ ATF 不阻止交易，也不掌握签名权限。
 4. Deny 被拒绝。
 5. 审批结果和原因进入审计账本。
 
+Review Mode 当前不可用。`REVIEW` Decision 只表示“需要额外控制”，不代表仓库已经存在可完成审批的路径。
+
 ### 7.3 Enforce Mode
 
 所有受控交易必须经过 ATF。
@@ -253,10 +330,14 @@ ATF 不阻止交易，也不掌握签名权限。
 3. ATF Decision 绑定 Transaction Hash 或 Canonical Request Hash。
 4. 执行前再次验证请求未被修改。
 5. 执行后验证实际结果。
+6. 每次执行只接受一个未过期、未使用、与 Intent/Decision/Approval/Adapter/Request Hash 完全绑定的 Execution Grant。
+7. Audit、Idempotency、Budget Reservation 或执行授权存储不可用时 Fail Closed。
 
 ---
 
 ## 8. 核心用户流程
+
+本章描述目标端到端流程。当前 Gateway 在 `DecisionRecorded` 后停止，不调用 Simulator、Approval 或 Adapter，也不执行交易。
 
 ### 8.1 Agent 发起交易
 
@@ -317,6 +398,8 @@ ATF 不阻止交易，也不掌握签名权限。
 
 ## 9. Transaction Intent Specification
 
+当前 `atf-intent` 已实现 JSON Schema、Rust Type、Canonical Serialization 和 Hash；本节新增的 Semantic Validator、封闭 Core Envelope 和 Action Profile 尚未实现。
+
 ### 9.1 设计原则
 
 1. 与具体钱包和协议解耦。
@@ -329,6 +412,10 @@ ATF 不阻止交易，也不掌握签名权限。
 8. 所有时间使用 RFC 3339。
 9. 所有资产使用标准化 Asset ID。
 10. 所有请求必须有 Idempotency Key。
+11. JSON Schema 只负责结构校验；Rust Semantic Validator 必须负责金额、时间、ID、版本和 Action-specific 跨字段约束。
+12. 核心 Envelope 不接受会被静默忽略的未知字段；扩展字段必须位于版本化命名空间并进入 Canonical Hash。
+13. Agent 提供的 `context` 默认不可信，不能覆盖 ATF Enricher、Oracle、Adapter 或持久化状态生成的权威字段。
+14. Semantic Validation 失败必须返回稳定、机器可读的 Error Code，并在 Policy/Risk 前终止。
 
 ### 9.2 核心字段
 
@@ -375,8 +462,6 @@ ATF 不阻止交易，也不掌握签名权限。
     "leverage": null
   },
   "context": {
-    "task_budget": "20.00",
-    "historical_vendor_median": "8.50",
     "data_classification": "public",
     "requested_by_tool": "mcp-market-data"
   },
@@ -410,9 +495,11 @@ MVP：
 9. refund
 10. withdrawal
 
+Schema 中列出 Action Category 不代表当前实现已经能够安全评估或执行该类别。未具备对应 Profile Schema、Semantic Validator、Risk Rules 和 Adapter Capability 的 Action 必须 Fail Closed。
+
 ### 9.4 Budget 模型
 
-Transaction Intent 中的 `budget_id` 与 `context.task_budget` 引用一个独立的 Budget 对象，而非自由文本。
+Transaction Intent 中的 `mandate.budget_id` 引用一个独立的 Budget 对象，而非自由文本。Agent-provided `context.task_budget` 只能作为不可信提示，不能替代持久化 Budget 状态或直接产生 Permit。
 
 Budget 层级：
 
@@ -449,6 +536,31 @@ Budget 层级：
 4. Budget 状态耗尽或过期时，关联 Intent 直接 DENY，不进入 REVIEW。
 5. Budget 变更（额度调整）本身是审计事件，必须记录变更前后值与操作人。
 
+### 9.5 Semantic Validation 与 Intent Profile
+
+通用 Intent Envelope 保持跨协议稳定，具体金融行为通过 Profile 定义必填字段、标识规则和跨字段语义：
+
+1. ATF Payment Intent Profile。
+2. ATF EVM Transaction Profile。
+3. ATF Exchange Order Profile。
+4. ATF Treasury Intent Profile。
+5. ATF Prediction Market Intent Profile。
+6. ATF Agent Commerce Intent Profile。
+
+最低通用校验包括：
+
+1. `amount > 0`，`max_fee >= 0`，存在 `leverage` 时必须 `> 0`。
+2. `slippage_bps` 必须位于 `0..=10000`。
+3. `created_at < expires_at`，且 Intent 生命周期不得超过 Profile 配置上限。
+4. `intent_id` 必须是合法 ULID；Idempotency Key 和组织/Agent/Mandate ID 必须满足长度、字符和非空白约束。
+5. `spec_version` 必须位于 Gateway 明确支持的版本集合。
+6. Asset、Network、Contract、Destination 使用 Profile 声明的标准标识和校验器。
+7. Transfer 必须有 Destination；Contract Call 必须有 Contract 与 Calldata Hash；Token Approval 必须有 Spender 与 Allowance；Exchange/Prediction Order 必须有完整订单语义。
+8. `amount`、`max_fee`、`fee_asset` 的计价关系必须明确；跨资产手续费必须绑定可验证报价 Snapshot。
+9. Metadata 或 Agent Context 中的未知字段可以作为证据进入 Hash，但在没有可信 Provenance 映射前不得影响最终 Permit。
+
+具体 Profile 在独立 Specification 中版本化；Profile 变更不得通过向通用 Envelope 随意添加可选字段完成。
+
 ---
 
 ## 10. 决策模型
@@ -459,9 +571,16 @@ ATF 对每个请求返回统一 Decision。
 {
   "decision_id": "dec-001",
   "intent_id": "01J...",
+  "intent_hash": "sha256:...",
   "decision": "REVIEW",
   "risk_score": 72,
-  "policy_version": "policy-bundle-2026-07-18.3",
+  "policy_bundle_version": "policy-bundle-2026-07-18.3",
+  "policy_bundle_hash": "sha256:...",
+  "risk_rule_set_version": "risk-rules-1.0.0",
+  "risk_rule_set_hash": "sha256:...",
+  "context_snapshot_hash": "sha256:...",
+  "simulation_result_hash": null,
+  "evaluation_time": "2026-07-18T08:00:01Z",
   "reasons": [
     {
       "code": "VENDOR_PRICE_DEVIATION",
@@ -488,9 +607,16 @@ ATF 对每个请求返回统一 Decision。
       "type": "verify_service_delivery"
     }
   ],
-  "expires_at": "2026-07-18T08:03:00Z"
+  "execution_constraints": {
+    "adapter_id": "x402",
+    "max_amount": "12.50"
+  },
+  "expires_at": "2026-07-18T08:03:00Z",
+  "decision_hash": "sha256:..."
 }
 ```
+
+上例是目标 Decision Envelope。当前 `atf-decision` 只实现 `decision_id`、`intent_id`、`decision` 和 `reasons`；缺失字段必须按 Durable Shadow Mode 路线逐步实现，不能由调用方伪造默认值。
 
 ### 10.1 Decision 合并算法
 
@@ -506,7 +632,7 @@ Policy Kernel、Risk Engine、Simulator 各自产出独立结果，Decision Engi
    - Simulator 数据不完整或外部依赖超时。
 6. 任一模块内部出错（非业务判定，如异常、超时、依赖不可用）→ ERROR，ERROR 在 Enforce Mode 下等价于 DENY，在 Shadow Mode 下记录但不影响原交易路径。
 
-合并规则本身必须版本化（随 `policy_version` 一起声明），且必须有对应属性测试（见 28.3）验证合并结果的确定性与幂等性。
+合并规则本身必须作为 Risk/Decision Rule Set 的一部分独立版本化和 Hash 绑定，且必须有对应属性测试（见 28.3）验证合并结果的确定性与幂等性。
 
 ### 10.2 Decision 类型
 
@@ -517,9 +643,25 @@ Policy Kernel、Risk Engine、Simulator 各自产出独立结果，Decision Engi
 
 ERROR 不得自动等同于 PERMIT。系统默认 Fail Closed。
 
+### 10.3 Decision 强绑定
+
+Decision 必须绑定产生它的全部决定性输入：
+
+1. Canonical Intent Hash。
+2. Policy Bundle Version 与 Hash。
+3. Risk Rule Set Version 与 Hash。
+4. Evaluation Context/Snapshot Hash。
+5. Simulation Result Hash（未执行模拟时为显式 `null`/`not_run`，不得伪造成功）。
+6. Evaluation Time、Decision Expiry 和 Execution Constraints。
+7. Canonical Decision Hash。
+
+任何绑定字段变化都会产生新的 Evaluation 和 Decision；Original Decision 不得被覆盖。未来 Approval 和 Execution Grant 必须绑定 `intent_hash` 与 `decision_hash`，不能只引用可变数据库 ID。
+
 ---
 
 ## 11. Policy Kernel
+
+当前实现只加载本地 Cedar `PolicySet` 并执行基础授权；Cedar Schema、Bundle Manifest/Version/Hash/Signature/Scope、回滚和多 Bundle 冲突管理尚未实现。
 
 ### 11.1 技术选择
 
@@ -571,6 +713,8 @@ Risk Engine 负责：
 ---
 
 ## 12. Financial Risk Engine
+
+当前实现包含五条 Stateless MVP Rule 和一条基于 `DecisionRecorded(PERMIT)` 的重复购买规则；本章其余规则和版本化/Provenance/Replay 要求仍是目标状态。
 
 ### 12.1 设计原则
 
@@ -645,9 +789,30 @@ Treasury：
 2. 合规类规则与金融风险规则使用同一 Risk Finding 格式，可直接触发 REVIEW 或 DENY。
 3. ATF 核心不内置任何合规数据源，相关数据源的准确性与时效性由接入方负责（对应非目标 5.16）。
 
+### 12.5 Evaluation Context
+
+任何影响 Decision 的代码不得直接读取系统当前时间、随机数、未版本化外部数据、未记录的环境变量或隐式数据库状态。Gateway 必须在评估开始时构建不可变 `EvaluationContext`，至少包含：
+
+1. `evaluation_id`、`evaluation_time`、`environment`。
+2. Policy Bundle Version/Hash。
+3. Risk Rule Set Version/Hash。
+4. Context Snapshot ID/Hash。
+5. Market Data Snapshot ID、Simulation Block Number、Simulator/Adapter Version（适用时）。
+6. External Evidence 引用与 Hash。
+
+Risk Rules 只读取该 Context 和显式 Repository Snapshot。Original Replay 使用原版本和原 Snapshot；Counterfactual Replay 使用新版本创建新的 Evaluation，不能修改原记录。
+
+### 12.6 Context Provenance
+
+Decision-affecting Context 分为 `AGENT_PROVIDED`、`ATF_ENRICHED`、`ORACLE_PROVIDED`、`ADAPTER_PROVIDED`、`ADMIN_PROVIDED` 和 `SIGNED_EXTERNAL_EVIDENCE`。每个值必须记录 `source`、`source_id`、`observed_at`、`expires_at`、`evidence_hash`、可选签名、置信度与 Freshness Status。
+
+Agent 自己提交的价格、余额、仓位、杠杆、累计支出、协议风险、地址信誉、市场数据新鲜度或模拟结果不得直接影响最终 Permit。缺失、过期或来源不可信时只能产生 `DENY`、`REVIEW` 或 `INSUFFICIENT_DATA`，不得静默套用允许性的默认值。
+
 ---
 
 ## 13. Transaction Simulator
+
+当前 `atf-simulator` 仅为 Scaffold；本章全部是 Phase 3 目标要求。
 
 ### 13.1 目标
 
@@ -715,6 +880,8 @@ Treasury：
 
 ## 14. Approval Engine
 
+当前 `atf-approval` 和 Approval Service 仅为 Scaffold；`REVIEW` 尚无可完成审批的运行路径。
+
 ### 14.1 审批规则
 
 1. 单人审批。
@@ -749,6 +916,8 @@ Treasury：
 ---
 
 ## 15. Adapter Framework
+
+当前 Adapter SDK 与所有 Reference Adapter 仅为 Scaffold；不得据此接入真实钱包、交易所或 Secret。
 
 ### 15.1 Adapter 职责
 
@@ -842,6 +1011,8 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
+当前实现是进程内 Append-only Hash Chain，并已接入 Gateway；PostgreSQL、组织链策略、Query API、Checkpoint 和完整 Lifecycle 尚未实现。
+
 ### 16.1 目标
 
 保证每个金融行为都能够被追踪、解释和重放。
@@ -850,21 +1021,54 @@ x402 Adapter：
 
 1. IntentReceived
 2. IdentityVerified
-3. PolicyEvaluated
-4. RiskEvaluated
-5. SimulationCompleted
-6. ApprovalRequested
-7. ApprovalGranted
-8. ApprovalRejected
-9. ExecutionRequested
-10. ExecutionSubmitted
-11. ExecutionConfirmed
-12. SettlementVerified
-13. ServiceDelivered
-14. ReconciliationFailed
-15. KillSwitchTriggered
-16. PolicyChanged
-17. AgentPaused
+3. IdentityRejected
+4. ContextEnriched
+5. PolicyEvaluated
+6. RiskEvaluated
+7. SimulationCompleted
+8. DecisionRecorded
+9. ApprovalRequested
+10. ApprovalApproved
+11. ApprovalRejected
+12. ExecutionGrantIssued
+13. ExecutionSubmitted
+14. ExecutionConfirmed
+15. ExecutionFailed
+16. SettlementVerified
+17. ServiceDelivered
+18. ReconciliationFailed
+19. BudgetReserved
+20. BudgetCommitted
+21. BudgetReleased
+22. PolicyChanged
+23. AgentPaused
+24. KillSwitchEnabled
+25. KillSwitchDisabled
+
+`DecisionRecorded` 必须包含 Canonical Intent Hash、Decision Kind、Decision ID/Hash、组织与 Agent 作用域，以及 Policy/Risk/Context/Simulation 版本引用。事件 Payload 在进入持久化前必须经过对应的版本化 Schema 校验。
+
+### 16.2.1 Intent Lifecycle State Machine
+
+Intent 生命周期至少支持以下状态，并只允许显式定义的单向转换：
+
+```text
+RECEIVED
+  ├─> IDENTITY_REJECTED (terminal)
+  └─> IDENTITY_VERIFIED
+        -> POLICY_EVALUATED
+        -> RISK_EVALUATED
+        -> SIMULATED / NOT_RUN
+        -> DECIDED_PERMIT | DECIDED_REVIEW | DECIDED_DENY
+        -> APPROVAL_PENDING | APPROVED | REJECTED
+        -> EXECUTION_AUTHORIZED
+        -> EXECUTION_SUBMITTED
+        -> EXECUTION_CONFIRMED | EXECUTION_FAILED
+        -> SETTLEMENT_VERIFIED | RECONCILIATION_FAILED
+```
+
+`EXPIRED` 和 `CANCELLED` 是受约束的终止状态。未实现的阶段可以被显式标记为 `NOT_RUN`，但不得跳过安全必需阶段后仍产生可执行授权。
+
+历史风险规则必须声明统计边界：`REQUESTED`、`PERMITTED`、`EXECUTED` 或 `SETTLED`。例如重复购买在当前 Shadow Mode 统计同组织的 `DecisionRecorded(PERMIT)`；未来可按业务配置升级为 `ExecutionConfirmed` 或 `SettlementVerified`，但不得继续以 `IntentReceived` 代替购买事实。
 
 ### 16.3 不可篡改设计
 
@@ -875,6 +1079,9 @@ MVP：
 3. 定期生成 Merkle Root 或审计检查点。
 4. 审计日志只追加，不更新。
 5. 管理员也不能静默删除。
+6. 链作用域必须明确为每组织独立链或有严格组织索引的全局链；PostgreSQL Persistence 实施前必须通过 ADR 选择并发与恢复策略，禁止由表结构偶然决定。
+7. 必须定义接收与完成两个原子事务边界：Intent 与 Idempotency Reservation 同步提交；最终 Decision、`DecisionRecorded` 和 Idempotency Result 同步提交。任何可查询 Decision 都必须有对应 Audit Evidence，不能依赖一个跨外部调用的长事务。
+8. Enforce Mode 下 Audit 写入失败必须 Fail Closed；Shadow Mode 只允许进入有界、持久化的本地缓冲并立即告警，不能使用无界内存队列。
 
 ### 16.4 留存策略与合规边界
 
@@ -919,10 +1126,30 @@ Agent 状态：
 ### 17.2 身份签名机制
 
 1. 每个 Agent 注册时绑定一对非对称密钥（默认 Ed25519），私钥由 Agent 运行环境持有，公钥登记到 `atf-identity`。
-2. Agent SDK 对每个 Transaction Intent 的 Canonical Hash 进行签名，Gateway 验证签名后才进入 Context Normalizer；签名失败直接 DENY，不进入 Policy/Risk 评估。
+2. Agent SDK 对 Domain-separated Identity Envelope 的 Canonical Bytes 签名，而不是只签名无上下文的 Hash 字符串；Gateway 验证后才进入 Context Normalizer，失败直接拒绝且不进入 Policy/Risk。
 3. Agent 私钥与执行签名私钥（钱包/交易所侧）必须是两套独立密钥：前者只用于证明"这是哪个 Agent 发起的请求"，后者由 Adapter/Fireblocks/Safe 等托管，ATF 核心进程不持有、不代理执行签名。
-4. 支持密钥轮换：注册新公钥、设置旧公钥失效窗口、轮换事件写入 Audit；轮换期间允许双公钥并行验证，避免请求中断。
+4. 支持 `key_id`、公钥激活/失效/撤销时间和有界轮换重叠窗口；轮换事件写入 Audit，过期或撤销 Key 立即失效。
 5. 单个私钥泄露的爆炸半径由 `risk_tier`、`default_budget` 和 `allowed_adapters` 限定，即：身份签名验证通过只代表"请求来自该 Agent"，不代表跳过 Policy/Risk 评估。
+6. Agent Record 的 `organization_id` 必须与 Envelope 和 Intent 完全一致，防止跨组织重放。
+7. Envelope 的 Nonce 必须单次使用并持久化；Audience、Environment、Issued At 和 Expires At 必须由 Gateway 校验。
+8. 所有 Identity 成功和失败都写入 Audit，失败原因使用稳定 Error Code 且不得泄露密钥材料。
+
+Identity Envelope 的签名域至少包含：
+
+```text
+ATF_INTENT_V1
+organization_id
+agent_id
+key_id
+intent_hash
+issued_at
+expires_at
+nonce
+audience
+environment
+```
+
+当前 `atf-identity` Library 只实现对 Intent Hash 的基础 Ed25519 验证和内存 Key Registry，不满足上述 Gateway 接入验收条件。
 
 ### 17.3 Admin API 权限模型
 
@@ -947,6 +1174,9 @@ Agent 状态：
 8. 核心内核不依赖 LLM。
 9. Secret 不写入日志。
 10. 生产密钥不进入 ATF 核心进程。
+11. 决策输入必须有来源、时间、版本和 Hash；无法证明来源的数据不能产生 Permit。
+12. Idempotency Key、Nonce 和 Hash 字段本身不等于已经实现幂等、Replay Protection 或不可篡改。
+13. Execution 是最后开放的能力；Durable Shadow Mode 未完成和复审前禁止接入真实资金。
 
 ### 18.2 威胁模型
 
@@ -990,7 +1220,7 @@ ATF 只保存 Secret Reference，不保存明文 Secret。
 
 ## 19. 技术架构
 
-### 19.1 核心技术栈
+### 19.1 目标核心技术栈
 
 语言：
 
@@ -1024,7 +1254,7 @@ Rust 主要组件：
 6. Grafana
 7. Docker Compose
 
-### 19.2 架构组件
+### 19.2 目标架构组件
 
 1. atf-gateway
 2. atf-identity
@@ -1047,9 +1277,21 @@ Rust 主要组件：
 4. 单机部署（30.2）明确不提供 HA 保证，需在文档中标注"仅适合个人/小团队，无 Audit 高可用"。
 5. 备份策略：PostgreSQL 定期快照 + WAL 归档，Merkle 检查点（16.3）额外冗余存储于对象存储，用于在数据库损坏后独立验证审计链完整性。
 
+### 19.4 当前实现边界
+
+PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类如下：
+
+1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
+2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
+3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
+4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz/Migrations 目录。
+5. `MISSING`：PostgreSQL Repository、Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
+
+详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
+
 ---
 
-## 20. Rust Workspace 目录
+## 20. 目标 Rust Workspace 目录
 
 ```text
 agentic-transaction-firewall/
@@ -1163,6 +1405,8 @@ atf kill-switch enable
 atf kill-switch disable
 ```
 
+当前只实现 `validate-intent`、`evaluate` 和 `policy test`。其余命令是目标接口，必须在对应持久化/Simulator/Audit/Replay/Kill Switch 能力真实存在后才加入，不能返回伪成功。
+
 MVP 必须实现：
 
 1. init
@@ -1179,25 +1423,35 @@ MVP 必须实现：
 
 ## 22. API 需求
 
+当前已实现：
+
 1. POST /v1/intents
 2. GET /v1/intents/{intent_id}/decision
-3. POST /v1/shadow/evaluate
-4. POST /v1/approvals
-5. POST /v1/approvals/{approval_id}/approve
-6. POST /v1/approvals/{approval_id}/reject
-7. POST /v1/intents/{intent_id}/execute
-8. GET /v1/audit/intents/{intent_id}
-9. GET /healthz
-10. GET /readyz
-11. GET /metrics
+3. GET /healthz
+4. GET /readyz
 
-MVP 中执行接口默认关闭，必须通过显式配置启用。
+Durable Shadow Mode 必须补充：
+
+1. POST /v1/shadow/evaluate
+2. GET /v1/audit/intents/{intent_id}
+3. POST /v1/replays
+4. GET /v1/replays/{evaluation_id}
+5. GET /metrics
+
+后续 Review/Enforce Mode 目标接口：
+
+1. POST /v1/approvals
+2. POST /v1/approvals/{approval_id}/approve
+3. POST /v1/approvals/{approval_id}/reject
+4. POST /v1/intents/{intent_id}/execute
+
+执行接口不仅默认关闭，而且在 Phase 4 Gate 前不得编译或注册到生产 Router。所有业务接口必须具备 Authentication、Organization Isolation、RBAC、Rate Limit、Request Size Limit、Timeout、Idempotency、Structured Error Code、Correlation/Trace ID、Audit 和 Safe Logging。
 
 ---
 
 ## 23. SDK 需求
 
-TypeScript 与 Python SDK 提供：
+TypeScript 与 Python SDK 当前尚未实现；目标 SDK 提供：
 
 1. ATF Client。
 2. Transaction Intent Builder。
@@ -1257,7 +1511,7 @@ Policy：
 
 ## 25. 可观测性
 
-必须记录：
+当前 Gateway 只有基础文本 Tracing，没有 `/metrics`。Durable Shadow Mode 必须记录：
 
 1. 请求总数。
 2. PERMIT、DENY、REVIEW 比例。
@@ -1279,7 +1533,7 @@ Policy：
 
 ## 26. 性能目标
 
-MVP 不以高频交易为目标。
+以下是目标 SLO，不是当前测量结果。MVP 不以高频交易为目标。
 
 目标：
 
@@ -1360,19 +1614,24 @@ MVP 不以高频交易为目标。
 
 ## 29. CI/CD
 
-每个 Pull Request 执行：
+当前每个 Pull Request 的强制门禁：
 
 1. cargo fmt --check
 2. cargo clippy --all-targets --all-features -- -D warnings
 3. cargo test
-4. cargo nextest run
-5. cargo deny check
-6. cargo audit
-7. Schema Tests
-8. Policy Tests
-9. Adapter Conformance Tests
-10. TypeScript SDK Tests
-11. Python SDK Tests
+4. cargo deny check
+5. 已加入 Workspace 的 Schema Tests 与 Policy Tests
+
+Durable Shadow Mode 完成前必须补充：
+
+1. PostgreSQL Migration 与 Restart Recovery Tests。
+2. Concurrent Idempotency 与 Audit Append Tests。
+3. Replay Determinism Tests。
+4. Property/Fuzz Tests。
+5. cargo audit、Secret Scanning 和 SAST。
+6. Docker Compose End-to-end Test。
+
+对应模块落地后再启用 Adapter Conformance、TypeScript/Python SDK、Container Scanning、SBOM 和 Artifact Signing Gate。PRD 不得声称尚未出现在 Workflow 中的检查已经启用。
 
 Release：
 
@@ -1386,6 +1645,8 @@ Release：
 ---
 
 ## 30. 部署方式
+
+本章描述目标部署拓扑。当前 `deploy/` 仍是 Scaffold，没有可用的 Docker Compose、Helm 或 Kubernetes 生产部署。
 
 ### 30.1 Local Development
 
@@ -1423,119 +1684,96 @@ Docker Compose：
 
 ---
 
-## 31. MVP 路线图
+## 31. 分阶段路线图与 Release Gate
 
-### Phase 0：仓库初始化
+### Phase 0：Repository Foundation（完成）
 
-1. Workspace。
-2. CI。
-3. LICENSE。
-4. README。
-5. SECURITY。
-6. PRD。
-7. Architecture。
-8. Threat Model 初稿。
-9. Intent Schema 草案。
-10. RFC 模板。
+Workspace、基础 CI、许可证、贡献与安全文档、PRD/Architecture/Threat Model 初稿和目录骨架已建立。
 
-### Phase 1：Intent 与 Policy Kernel
+### Phase 1：Intent、Policy 与基础 Decision（完成）
 
-1. atf-intent。
-2. Canonical Serialization。
-3. Cedar Policy Integration。
-4. atf-decision。
-5. CLI evaluate。
-6. Policy Examples。
-7. Policy Tests。
-8. Audit Hash Chain。
+Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk、Policy/Risk Decision Merge、内存 Audit Hash Chain、Identity Library、CLI 和 Shadow Gateway 已实现。部分模块仍不完整，完成状态以第 0 章和 Architecture 为准。
 
-### Phase 2：Shadow Mode
+### Phase 2：Durable Shadow Mode（当前）
 
-1. Gateway。
-2. Agent Identity。
-3. Risk Rule Framework。
-4. Shadow API。
-5. PostgreSQL Audit。
-6. Replay。
-7. Metrics。
+按以下顺序一次交付一个可验证的垂直功能：
 
-### Phase 3：三个参考 Adapter
+1. **P0.1 PostgreSQL Persistence**：持久化 Intent、Evaluation、Decision、Audit，证明 Restart Recovery 与并发 Append。
+2. **P0.2 Lifecycle State Machine**：定义并事务性执行合法状态转换。
+3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
+4. **P0.4 Idempotency & Replay Protection**：同 Key 同 Hash 返回原 Decision；不同 Hash 返回 409；并发只有一个 Evaluator。
+5. **P0.5 Identity Gateway Wiring**：Domain-separated Envelope、Key Lifecycle、Nonce 和组织绑定先于 Policy/Risk。
+6. **P0.6 EvaluationContext**：时间、版本、Snapshot 和证据显式化。
+7. **P0.7 Deterministic Replay**：Original 与 Counterfactual Replay。
+8. **P0.8 Context Provenance**：可信来源、Freshness 和不可覆盖规则。
+9. **P0.9 Policy Bundle Versioning**：Manifest、Hash、Scope、签名、激活与回滚。
+10. **P0.10 Metrics & Audit Query API**：组织隔离查询、Trace/Correlation 和安全指标。
 
-1. x402 Adapter。
-2. Safe Adapter。
-3. Hyperliquid Adapter。
-4. Adapter SDK。
-5. Conformance Tests。
-6. Mock Servers。
-7. 三个完整 Demo。
+**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。未通过 Gate 不启动真实 Adapter 或执行权限集成。
 
-### Phase 4：Approval 与 Enforce Mode
+### Phase 3：Reference Simulation 与 Adapter
 
-1. Approval Engine。
-2. Review Mode。
-3. Execution Hash Binding。
-4. Kill Switch。
-5. Reconciliation。
-6. Enforce Mode Feature Flag。
-7. 故障恢复。
+1. Mock Simulator。
+2. Mock Adapter 与 Adapter SDK/Manifest。
+3. Adapter Conformance Test Suite。
+4. x402、Safe、Hyperliquid Reference Adapter，全部先支持 Shadow Mode。
+5. 三个可重放、无生产 Secret 的 Reference Scenario。
 
-### Phase 5：社区化
+**Phase 3 Gate：** Simulation/Adapter 的能力、版本、请求 Hash、Timeout、Retry Safety、Partial/Unknown Execution 全部通过 Conformance；仍不默认启用真实执行。
 
-1. TypeScript SDK。
-2. Python SDK。
-3. MCP Middleware。
-4. RFC 流程。
-5. 文档站。
-6. Adapter 开发指南。
-7. 首个外部 Adapter PR。
+### Phase 4：Approval、Execution Authorization 与 Reconciliation
+
+1. Approval Engine 与多人/角色/过期语义。
+2. Decision/Approval Hash Binding。
+3. Single-use Execution Grant。
+4. Kill Switch 与 Enforce Mode Feature Flag。
+5. Settlement Verification 与 Reconciliation Worker。
+6. 故障恢复、未知执行状态和安全复审。
+
+### Phase 5：Community 与 Ecosystem
+
+TypeScript/Python SDK、MCP Middleware、文档站、RFC 流程、Adapter 开发指南和外部 Policy/Adapter 贡献。
 
 ---
 
-## 32. MVP 验收标准
+## 32. Release 验收标准
 
-### 32.1 功能验收
+### 32.1 Durable Shadow Mode 功能验收
 
-1. 可以提交符合 Schema 的 Transaction Intent。
-2. 非法 Intent 被拒绝。
-3. Cedar Policy 返回确定性结果。
-4. Risk Engine 至少支持 15 条规则。
-5. Shadow Mode 保存完整结果。
-6. 同一 Intent 可重放并得到一致决策。
-7. 修改 Intent 后旧审批失效。
-8. 三个 Demo 均可本地运行。
-9. Audit Hash Chain 可验证。
-10. Kill Switch 可以阻止 Enforce Mode 请求。
-11. Decision 合并算法（10.1）对同一输入始终产出相同结果，且有属性测试覆盖 Policy/Risk/Simulation 三者冲突场景。
-12. Budget 并发扣减不出现超支（12.1 数据不足提升风险原则 + 9.4 原子扣减一致）。
-13. 审批过期后默认 DENY，不存在无限悬挂的审批请求（14.3）。
+1. Schema 与 Rust Semantic Validator 在 Policy/Risk 前拒绝非法 Intent，并返回稳定 Error Code。
+2. Agent Identity Envelope 在 Policy/Risk 前验证组织、Key、Nonce、Audience、Environment 和有效期；失败写入 Audit。
+3. 每个接受的 Intent、Evaluation、Decision 和 Audit Event 按显式生命周期事务持久化；任一状态转换对 Decision、Audit 和 Idempotency Result 保持原子可见，服务重启和第二实例可读取。
+4. `(organization_id, idempotency_key)` 同 Hash 返回原 Decision，不重新评估；不同 Hash 返回 `IDEMPOTENCY_CONFLICT`；并发只有一个请求进入评估。
+5. 每个 Decision 绑定 Intent、Policy、Risk、Context 和 Simulation（适用时）的版本/Hash、Evaluation Time 与 Expiry。
+6. Original Replay 使用原 Snapshot/版本得到相同 Decision Hash；Counterfactual Replay 创建独立 Evaluation 且不覆盖原记录。
+7. Agent-provided Context 不能直接覆盖价格、余额、仓位、累计支出、风险信誉或模拟结果；缺失/过期数据不产生 Permit。
+8. Audit 支持按 Organization、Intent、Agent、Event Type 和时间查询，Hash Chain 可在重启后验证。
+9. Metrics/Tracing 覆盖请求、Decision、Policy/Risk、Replay、Idempotency、数据新鲜度和 Audit 写入失败，不记录 Secret 或完整敏感 Payload。
+10. 当前所有执行接口不存在或默认关闭，仓库明确标记为 Shadow-only、非生产就绪。
 
-### 32.2 安全验收
+### 32.2 Durable Shadow Mode 安全验收
 
-1. 仓库不存在明文生产 Secret。
-2. 核心路径不调用 LLM。
-3. 所有金额不使用浮点数。
-4. 所有执行请求绑定 Intent Hash。
-5. 重放请求被拒绝或幂等返回。
-6. Audit 写入失败时 Enforce Mode Fail Closed。
-7. Adapter 错误不会被解释为 Permit。
-8. 无限 Approval 可以被识别。
-9. Policy Bundle 支持签名或 Hash 校验。
-10. CI 包含依赖和许可证检查。
-11. Agent 身份签名（17.2）验证失败的请求在进入 Policy/Risk 之前即被拒绝。
-12. Admin API 高风险操作（发布 Policy、调整 Kill Switch）需要多人授权，单账号无法直接生效（17.3）。
+1. 仓库不存在明文生产 Secret，核心路径不调用 LLM，金融金额不使用浮点数。
+2. 非健康检查 API 全部具备 Authentication、Organization Isolation、最小 RBAC、Request Size Limit、Timeout、Rate Limit 和结构化 Error Code。
+3. Policy Bundle、Risk Rule Set、Context Snapshot 和外部证据有版本与 Hash；无法加载或验证时 Fail Closed。
+4. Restart、并发、数据库故障、锁冲突和多实例场景有集成测试，不会丢失或分叉已接受状态。
+5. CI 运行 fmt、clippy、test、deny、依赖/Secret/SAST Gate、Persistence/Replay/Concurrent Idempotency Tests 和至少基础 Fuzz Smoke。
+6. `docs/audit-gap-matrix.md` 中指向 Durable Shadow Mode 的 CRITICAL/HIGH 项有代码、测试和文档证据，不允许仅修改状态文字。
 
-### 32.3 文档验收
+### 32.3 Enforce Mode 前置验收
 
-1. Quickstart。
-2. Architecture。
-3. Threat Model。
-4. Intent Specification。
-5. Policy Model。
-6. Adapter Specification。
-7. 三个 Demo 指南。
-8. Security Disclosure。
-9. Contribution Guide。
-10. Roadmap。
+1. Simulator、Adapter、Approval、Execution Grant、Kill Switch、Settlement 和 Reconciliation 均有独立类型、持久化和 Conformance Test。
+2. 修改 Intent、Decision、Approval、Adapter Version 或 Execution Request 任一字段都会使 Execution Grant 失效。
+3. Approval、Execution Grant 和 Payment Proof Nonce 均为持久化单次使用，并通过并发 Replay Test。
+4. Adapter 错误、Timeout、Partial Execution 或 Unknown State 不得被解释为成功或自动安全重试。
+5. Enforce Mode 默认关闭，并完成独立 Threat Model 更新、安全复审、故障演练和回滚方案。
+
+### 32.4 文档验收
+
+1. README Status、Architecture、Threat Model、Roadmap、Gap Matrix、Changelog 与代码/路由/Workspace 一致。
+2. Intent、Policy、Audit、Identity Envelope、Adapter 和 Replay Specification 可供第三方实现。
+3. Quickstart 和所有示例请求可在当前 Schema/Policy/CLI/Gateway 上真实运行。
+4. 每个目标态能力明确标注 `Implemented`、`Partial`、`Scaffold` 或 `Missing`，不把设计稿描述成现状。
 
 ---
 
@@ -1556,14 +1794,16 @@ Docker Compose：
 
 1. Shadow Evaluations。
 2. Risk Findings。
-3. 阻止的高风险请求。
-4. Review 转化率。
-5. Policy 误报率。
-6. Reconciliation 成功率。
-7. Adapter 稳定性。
-8. 平均决策延迟。
-9. 重放攻击拦截。
-10. 审计完整率。
+3. Original Replay Decision Hash 一致率（目标 100%）。
+4. Idempotent Retry 命中和 Conflict 数量。
+5. Restart Recovery 与 Audit Chain 验证成功率（目标 100%）。
+6. Identity/Nonce/Organization Isolation 拒绝数量。
+7. Context Missing/Stale/Untrusted 比例。
+8. Policy/Risk Rule 命中、误报和版本分布。
+9. 平均与 P95 决策延迟。
+10. Audit 写入失败和本地缓冲深度。
+
+Review 转化、Adapter 稳定性、Reconciliation 成功率和真实执行量只在对应后续阶段启用后统计。
 
 ---
 
@@ -1596,13 +1836,13 @@ Docker Compose：
 
 ---
 
-## 35. 初始化时的开发原则
+## 35. 当前开发原则
 
-1. 第一阶段只创建骨架，不一次实现所有模块。
+1. 每次只完成一个具有 Acceptance Criteria 的可验证垂直功能，不把多个安全边界混入同一提交。
 2. 每个 crate 必须有单一职责。
 3. 核心类型优先稳定，再开发 Adapter。
 4. Schema 和 RFC 优先于前端。
-5. Shadow Mode 优先于 Enforce Mode。
+5. Durable Shadow Mode 完成并复审前不开发真实执行链。
 6. Mock Adapter 优先于生产 Adapter。
 7. 所有错误使用明确类型。
 8. 禁止在核心域模型中使用浮点数。
@@ -1613,41 +1853,27 @@ Docker Compose：
 13. 所有外部数据必须标记时间和来源。
 14. 所有决策必须可解释、可重放、可审计。
 15. 任何不确定错误默认拒绝执行。
+16. 不得使用 `Timestamp::now()`、随机数、未记录环境变量或隐式外部状态直接决定结果；统一通过 EvaluationContext 注入。
+17. 文档中的完成状态必须由 Workspace、真实调用路径和可执行测试共同证明。
+18. 所有运行时功能完成后必须执行 fmt、clippy、workspace tests、deny 和真实进程烟测，并同步 README、Architecture、Threat Model、Roadmap 与 Changelog。
 
 ---
 
-## 36. 首次项目初始化输出要求
+## 36. 需求、架构与状态治理
 
-使用 Claude 客户端初始化项目时，第一轮只完成以下内容：
-
-1. 创建 Rust Workspace。
-2. 创建完整目录结构。
-3. 创建根 Cargo.toml。
-4. 创建 rust-toolchain.toml。
-5. 创建 README、LICENSE、SECURITY、CONTRIBUTING。
-6. 创建 docs/PRD.md。
-7. 创建 docs/architecture.md 初稿。
-8. 创建 docs/threat-model.md 初稿。
-9. 创建 RFC 0001、0002、0003。
-10. 创建 atf-core、atf-intent、atf-policy、atf-decision、atf-cli。
-11. 实现最小 Transaction Intent 类型。
-12. 实现 JSON Schema Validation。
-13. 实现 Canonical Hash。
-14. 接入 Cedar 的最小 Policy Evaluation。
-15. 实现 CLI validate-intent 和 evaluate。
-16. 创建示例 Policy。
-17. 创建单元测试。
-18. 创建 GitHub Actions CI。
-19. 确保 cargo fmt、clippy 和 test 全部通过。
-20. 不接入真实钱包、交易所或 Secret。
-
-第一轮完成后，再进入 Shadow Mode 和 Adapter 开发。
+1. 本 PRD 定义产品目标与 Release Gate；`docs/architecture.md` 定义当前/目标架构；`README.md` 定义最新实现状态；`docs/audit-gap-matrix.md` 定义带证据的安全缺口；`docs/roadmap.md` 定义交付顺序。
+2. 重大公共 Schema、Identity、Decision、Persistence、Approval 或 Execution 设计变更必须先写 RFC 或 ADR，记录上下文、备选方案和后果。
+3. 规范版本变化必须说明向后兼容、迁移方式和旧版本拒绝策略；不得静默改变 Canonical Hash 或签名语义。
+4. 一个功能只有在代码、Schema/迁移、单元/集成测试、真实运行验证和文档均完成后才可标记为 Done。
+5. 历史 ADR 不删除；决策变化通过新的 ADR 标记 Superseded，保留事故调查和 Replay 所需上下文。
+6. 每次 Release 前重新核对 Threat Model 与 Gap Matrix；没有证据关闭的 CRITICAL/HIGH Gap 不得因排期压力降级为“已接受”。
+7. 当前关键架构决策见 `docs/decisions/0001-durable-shadow-before-enforce.md`。
 
 ---
 
 ## 37. 最终产品定义
 
-Agentic Transaction Firewall 是面向自主 Agent 的开源金融行为控制层。
+Agentic Transaction Firewall 是面向自主 Agent 的开源金融行为控制与证据层。
 
 它不负责替 Agent 作出投资决策，也不负责替用户保管资产。
 
@@ -1661,6 +1887,8 @@ Agentic Transaction Firewall 是面向自主 Agent 的开源金融行为控制�
 6. 执行请求未被篡改。
 7. 结算与服务交付可以验证。
 8. 所有行为拥有完整责任链。
+9. 原始 Decision 可以从持久化版本和 Snapshot 确定性重放。
+10. 任意真实执行只能消费一次与完整授权链绑定的 Execution Grant。
 
 ATF 的长期技术资产不是某一个 Adapter，而是：
 
@@ -1671,5 +1899,6 @@ ATF 的长期技术资产不是某一个 Adapter，而是：
 5. Agent 交易威胁模型。
 6. 可重放的审计格式。
 7. 真实金融 Agent 风险案例库。
+8. Identity、Decision、Approval 与 Execution Binding 规范。
 
-项目的最佳成功形态不是成为另一个钱包，而是成为钱包、Agent、支付系统和交易基础设施都可以复用的公共安全层。
+项目的最佳成功形态不是成为另一个钱包，也不是比 Agent 更聪明地做金融决策，而是成为钱包、Agent、支付系统和交易基础设施都可以复用、验证和替换实现的公共安全层。

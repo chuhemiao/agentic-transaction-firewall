@@ -1,5 +1,7 @@
 # Agentic Transaction Firewall 产品需求文档
 
+> **Historical snapshot:** 本文件保留 PRD v1.1 的初始化设计历史，不再是当前产品要求。当前愿景、Release Gate 与验收标准以 [`docs/PRD.md`](docs/PRD.md) v1.2 为准。
+
 项目名称：Agentic Transaction Firewall
 项目简称：ATF
 仓库建议：agentic-transaction-firewall

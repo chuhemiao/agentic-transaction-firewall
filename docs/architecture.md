@@ -9,11 +9,14 @@ document translates it into the current and target code layout.
 Agent Intent
   -> Canonical Transaction Intent   (atf-intent)
   -> Identity Verification          (atf-identity)
+  -> Semantic Validation            (atf-intent profiles, planned)
+  -> Versioned Evaluation Context   (planned)
   -> Policy Evaluation              (atf-policy, Cedar)
   -> Financial Risk Evaluation      (atf-risk)
   -> Simulation                     (atf-simulator)
-  -> Decision merge                 (atf-decision)
+  -> Bound Decision                 (atf-decision)
   -> Approval (if REVIEW)           (atf-approval)
+  -> Single-use Execution Grant     (planned)
   -> Execution Adapter              (atf-adapter-*)
   -> Settlement Verification        (atf-reconciliation)
   -> Immutable Audit                (atf-audit)
@@ -125,13 +128,17 @@ No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
 submits a transaction.
 
-## Why these four crates first (PRD §35)
+## Why the control plane comes before Adapters (PRD §2.1, §35)
 
 - Core types must stabilize before Adapters are built against them.
 - Schema and policy semantics are the project's long-term public contract
   (PRD §37) — get the shape right before adding surface area.
 - Shadow Mode (evaluate-only) is strictly simpler than Enforce Mode and
   carries no execution risk, so it comes first.
+- Durable persistence, identity, idempotency, replay, provenance, and
+  Decision binding must be complete and re-audited before any real execution
+  authority is added; see
+  `docs/decisions/0001-durable-shadow-before-enforce.md`.
 
 ## Open design gaps tracked for later phases
 

@@ -12,10 +12,14 @@ simulation, and (when required) approval before it is allowed to execute.
 ```
 Agent Intent
   -> Canonical Transaction Intent
+  -> Identity & Semantic Validation
+  -> Versioned Evaluation Context
   -> Policy Evaluation
   -> Financial Risk Evaluation
   -> Simulation
+  -> Bound Decision
   -> Approval
+  -> Single-use Execution Grant
   -> Execution Adapter
   -> Settlement Verification
   -> Immutable Audit
@@ -26,12 +30,15 @@ payment protocol, and does not replace exchanges, Fireblocks, Privy, Safe,
 Coinbase CDP, or AWS AgentCore. It provides the shared control-plane semantics
 those systems can sit behind.
 
-Full product requirements: [`docs/PRD.md`](docs/PRD.md).
+Current product vision and release gates: [`docs/PRD.md`](docs/PRD.md)
+(v1.2, Durable Shadow Mode revision).
 
 ## Status
 
-This repository is in the **skeleton / MVP bring-up** phase (PRD §36; Phase 1
-done, Phase 2 in progress — see Roadmap below).
+This repository is in **Phase 2: Durable Shadow Mode**. Phase 1 is complete;
+the current release gate requires persistence, lifecycle/idempotency,
+Gateway identity, deterministic replay, context provenance, versioned bundles,
+and observability before any real execution work begins (PRD §31–32).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives and error types.
@@ -122,12 +129,20 @@ semantics (evaluate only, never execute).
 
 ### Remaining before Phase 2 can close out
 
-- Wire `atf-identity` into the gateway once there's a way to register an
-  Agent's key (an Admin API endpoint, PRD §17.3 — itself unscheduled).
-- The remaining history-dependent Risk rules (daily cumulative spend,
-  first-time address, order frequency).
-- Give the gateway a persistent store — right now a process restart loses
-  the audit ledger and every recorded Decision.
+- PostgreSQL persistence and a transactional Intent lifecycle; process
+  restart and multiple instances must preserve the same Decision/Audit state.
+- Rust semantic validation and versioned Intent Profiles for cross-field and
+  action-specific invariants.
+- Concurrent, durable idempotency plus signed-envelope Nonce replay
+  protection.
+- Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
+  including organization binding and key validity windows.
+- Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
+  Original/Counterfactual Replay.
+- Organization-scoped Audit Query API, metrics, safe tracing, and API
+  security controls.
+- The remaining history-dependent Risk rules after their PERMITTED,
+  EXECUTED, or SETTLED accounting boundary is explicit.
 
 The security-audit baseline and prioritized acceptance criteria are tracked
 in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
@@ -136,10 +151,10 @@ delivery view is in [`docs/roadmap.md`](docs/roadmap.md).
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Shadow Mode, in progress)**: `atf-identity`, `atf-audit`,
-  `services/gateway`, and one history-dependent Risk rule are all done;
-  what's left is identity wiring (needs an Admin API), the remaining
-  history-dependent Risk rules, and persistence.
+- **Phase 2 (Durable Shadow Mode, in progress)**: the in-memory Gateway and
+  core libraries exist; the release gate is persistence, lifecycle,
+  idempotency, Gateway identity, deterministic replay, provenance, versioned
+  bundles, Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
