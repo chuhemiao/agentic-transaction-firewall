@@ -129,6 +129,9 @@ semantics (evaluate only, never execute).
 
 ### Remaining before Phase 2 can close out
 
+- Restore the currently failing `cargo deny 0.20.2` gate by reviewing new
+  transitive licenses and version-binding local workspace dependencies; do not
+  weaken the wildcard/source policy to make the check green.
 - PostgreSQL persistence and a transactional Intent lifecycle; process
   restart and multiple instances must preserve the same Decision/Audit state.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
@@ -146,7 +149,9 @@ semantics (evaluate only, never execute).
 
 The security-audit baseline and prioritized acceptance criteria are tracked
 in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
-delivery view is in [`docs/roadmap.md`](docs/roadmap.md).
+delivery view is in [`docs/roadmap.md`](docs/roadmap.md). The dependency-ordered
+implementation plan and executable checklist are in
+[`tasks/plan.md`](tasks/plan.md) and [`tasks/todo.md`](tasks/todo.md).
 
 ### Phased plan (PRD §31)
 

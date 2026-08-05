@@ -7,6 +7,9 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- A dependency-ordered delivery plan and one-feature-at-a-time TODO covering
+  Durable Shadow Mode, reference simulation/adapters, Approval/Enforce gates,
+  and ecosystem work.
 - `DecisionRecorded` Audit events on the gateway request path, including the
   canonical Intent hash and organization-scoped fields needed for lifecycle
   queries.

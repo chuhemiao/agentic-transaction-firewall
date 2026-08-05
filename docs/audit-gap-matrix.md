@@ -6,10 +6,17 @@ Baseline date: 2026-08-05. Baseline commit: `f0a2a3d` plus the
 workspace code and routes, and the audit requirements supplied for this
 review.
 
-Baseline verification is clean for `cargo fmt --all -- --check`, `cargo
+The original audit-baseline verification was clean for `cargo fmt --all -- --check`, `cargo
 clippy --all-targets --all-features -- -D warnings`, `cargo test --workspace
 --all-targets --all-features`, and `cargo deny check`. GitHub has no open or
 closed Issues or Pull Requests at this baseline.
+
+Planning revalidation on 2026-08-05 at `d112e7e` still passes fmt, clippy and
+all 80 tests, but `cargo deny 0.20.2 check` now fails: the dependency graph
+contains unreviewed `Apache-2.0 WITH LLVM-exception` and `MIT-0` licenses, and
+the current tool rejects unversioned local workspace path dependencies under
+`wildcards = "deny"`. `BL-001` in `tasks/plan.md` is the immediate repair; the
+older clean result above must not be interpreted as the current gate state.
 
 ## Module inventory
 
@@ -317,14 +324,18 @@ closed Issues or Pull Requests at this baseline.
 
 - **module:** `.github/workflows`, `fuzz`, release pipeline
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** fmt/clippy/test/deny run; cargo audit/nextest/fuzz, secret/SAST/container scanning, SBOM, signing, migration and Compose E2E are absent despite PRD claims.
+- **evidence:** fmt/clippy/test jobs run and pass locally; the configured deny
+  job currently fails under cargo-deny 0.20.2 because license/path-dependency
+  policy needs updating. cargo audit/nextest/fuzz, secret/SAST/container
+  scanning, SBOM, signing, migration and Compose E2E are absent.
 - **security_impact:** vulnerable code, secrets, images, or artifacts can escape current gates.
 - **financial_impact:** compromised dependencies/builds can alter financial control behavior.
 - **severity:** `HIGH`
 - **recommended_change:** add staged security/release jobs with pinned actions and generated attestations.
 - **required_tests:** intentional gate-failure fixtures, fuzz smoke, migration E2E, artifact verification.
 - **dependencies:** persistence/container packaging for later jobs.
-- **target_release:** incremental; dependency/secret/SAST gates during Durable Shadow Mode.
+- **target_release:** `BL-001` restores deny before feature work; remaining
+  dependency/secret/SAST gates land during Durable Shadow Mode.
 - **acceptance_criteria:** every PR runs declared gates and every release has verifiable SBOM, checksum, and signature/attestation.
 
 ### GAP-DOC-001 — Documentation Consistency

@@ -2,11 +2,24 @@
 
 This is the security-delivery view of the roadmap. `README.md` remains the
 live feature-status summary; `docs/PRD.md` §31 remains the product plan. The
-acceptance criteria and evidence for every open area are in
-`docs/audit-gap-matrix.md`. The ordering rationale is recorded in
+detailed dependency graph, task acceptance criteria and verification commands
+are in [`../tasks/plan.md`](../tasks/plan.md); the one-item-at-a-time execution
+queue is [`../tasks/todo.md`](../tasks/todo.md). Gap evidence remains in
+`docs/audit-gap-matrix.md`, and the execution-last rationale is recorded in
 `docs/decisions/0001-durable-shadow-before-enforce.md`.
 
 ## Current release: Durable Shadow Mode
+
+The P0.x numbers identify product capabilities, not a literal implementation
+order. The executable order is:
+
+1. durable state and lifecycle (`DS-001`..`DS-007`);
+2. strict Intent contract and authenticated/idempotent admission
+   (`DS-008`..`DS-018`);
+3. versioned Policy/Risk/Context before Decision binding and Replay
+   (`DS-019`..`DS-027`);
+4. stateful Risk, query/observability, operational hardening and re-audit
+   (`DS-028`..`DS-040`).
 
 - [ ] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain.
@@ -29,6 +42,11 @@ acceptance criteria and evidence for every open area are in
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
+
+**Immediate next task:** `BL-001` — restore the currently failing
+`cargo deny 0.20.2` gate without weakening license/source policy. Then
+`DS-001` records the PostgreSQL transaction, evaluator-recovery and
+per-organization Audit-chain contract in ADR-0002.
 
 ## Later releases
 

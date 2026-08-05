@@ -1,0 +1,115 @@
+# ATF Execution TODO
+
+This is the ordered execution checklist. Detailed scope, acceptance criteria,
+verification and likely files are in [`plan.md`](plan.md). Execute one item per
+feature commit unless the plan is explicitly revised.
+
+Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
+
+## Baseline gate repair
+
+- [ ] **NEXT — BL-001:** restore `cargo deny 0.20.2` by reviewing new licenses, version-binding workspace path dependencies and pinning CI behavior.
+
+## Verified baseline — do not reopen without evidence
+
+- [x] Canonical fixed-point Intent, Schema parsing and stable hash.
+- [x] Basic Cedar Policy evaluation and Policy conformance command.
+- [x] Basic Risk rules and deterministic Policy/Risk Decision merge.
+- [x] In-memory Audit hash chain and `DecisionRecorded` event.
+- [x] Evaluate-only Gateway POST/GET plus health/readiness routes.
+- [x] Duplicate-purchase history counts only same-org prior PERMIT Decisions.
+- [x] Durable Shadow Mode PRD v1.2 and execution-last ADR.
+
+## Phase 2 — Durable Shadow Mode
+
+### C1 Durable state
+
+- [ ] **DS-001:** decide durable transactions, evaluator recovery and per-org Audit-chain contract. Depends: BL-001.
+- [ ] **DS-002:** create `atf-store` and the initial PostgreSQL migration. Depends: DS-001.
+- [ ] **DS-003:** implement concurrent per-organization Audit append/verification. Depends: DS-002.
+- [ ] **DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
+- [ ] **DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.
+- [ ] **DS-006:** define lifecycle states and typed Audit payloads. Depends: DS-001.
+- [ ] **DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.
+- [ ] **Checkpoint C1:** restart, second-instance read and concurrent Audit append pass.
+
+### C2 Trusted admission
+
+- [ ] **DS-008:** close unknown core fields and supported Intent-version contract. Depends: DS-007.
+- [ ] **DS-009:** add common Rust semantic validation and stable codes. Depends: DS-008.
+- [ ] **DS-010:** add profile dispatch and supported Payment/Agent-Commerce profile. Depends: DS-009.
+- [ ] **DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.
+- [ ] **DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.
+- [ ] **DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
+- [ ] **DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
+- [ ] **DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.
+- [ ] **DS-016:** wire Identity + nonce/idempotency semantics before Policy/Risk. Depends: DS-012..DS-015.
+- [ ] **DS-017:** decide operator authentication and tenant trust boundary. Depends: DS-015.
+- [ ] **DS-018:** protect all non-health routes with Agent/operator auth and org RBAC. Depends: DS-017.
+- [ ] **Checkpoint C2:** invalid, unauthenticated, cross-tenant, duplicate and replay requests cannot reach evaluation incorrectly.
+
+### C3 Reproducible decisions
+
+- [ ] **DS-019:** add Cedar Schema-backed Policy Bundle manifest/version/hash/scope. Depends: DS-018.
+- [ ] **DS-020:** persist signed Policy activation and rollback with Audit. Depends: DS-019.
+- [ ] **DS-021:** version/hash Risk Rule Sets and accounting boundaries. Depends: DS-019.
+- [ ] **DS-022:** define provenance-bearing evidence and privileged-context firewall. Depends: DS-010, DS-021.
+- [ ] **DS-023:** persist immutable Evaluation Context snapshots. Depends: DS-020..DS-022.
+- [ ] **DS-024:** remove wall-clock and untrusted privileged inputs from evaluators. Depends: DS-023.
+- [ ] **DS-025:** emit strongly bound canonical Decisions and update Schema/Audit. Depends: DS-023, DS-024.
+- [ ] **DS-026:** implement Original Replay with exact Decision-hash reproduction. Depends: DS-025.
+- [ ] **DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.
+- [ ] **Checkpoint C3:** every Decision names immutable inputs and is exactly replayable.
+
+### C4 Release hardening
+
+- [ ] **DS-028:** move duplicate-purchase history to durable snapshot queries. Depends: DS-024, DS-025.
+- [ ] **DS-029:** add asset-aware daily cumulative spend risk. Depends: DS-028.
+- [ ] **DS-030:** add normalized first-time destination risk. Depends: DS-028.
+- [ ] **DS-031:** add business request/order frequency risk. Depends: DS-028.
+- [ ] **DS-032:** add organization-scoped Audit query API. Depends: DS-003, DS-018, DS-025.
+- [ ] **DS-033:** add safe metrics, tracing, correlation and redaction. Depends: DS-018, DS-025, DS-032.
+- [ ] **DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
+- [ ] **DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
+- [ ] **DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
+- [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
+- [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.
+- [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO baseline. Depends: DS-033, DS-036, DS-038.
+- [ ] **DS-040:** re-audit and close the Durable Shadow release gate. Depends: DS-028..DS-039.
+- [ ] **Checkpoint C4:** human security review approves Durable Shadow; execution remains unavailable.
+
+## Phase 3 — Reference Simulation and Adapters
+
+- [ ] **RA-001:** implement typed/hash-bound Simulator results and merge rules. Depends: C4.
+- [ ] **RA-002:** wire deterministic Mock Simulator into Shadow Gateway. Depends: RA-001.
+- [ ] **RA-003:** define Adapter SDK and strict Manifest Schema. Depends: RA-001.
+- [ ] **RA-004:** build Mock Adapter and Adapter conformance harness. Depends: RA-003.
+- [ ] **RA-005:** implement x402 Shadow Adapter/Profile. Depends: RA-002, RA-004.
+- [ ] **RA-006:** implement Safe Shadow Adapter/Profile. Depends: RA-002, RA-004.
+- [ ] **RA-007:** implement Hyperliquid Shadow Adapter/Profile. Depends: RA-002, RA-004.
+- [ ] **RA-008:** run three reference scenarios and close C5. Depends: RA-005..RA-007.
+- [ ] **Checkpoint C5:** all adapters remain Shadow/Mock-only and pass conformance/replay.
+
+## Phase 4 — Approval and Enforce Candidate
+
+- [ ] **EN-001:** add atomic hierarchical Budget reservations. Depends: C4.
+- [ ] **EN-002:** add Budget commit/release/expiry and recovery. Depends: EN-001.
+- [ ] **EN-003:** implement hash-bound Approval domain/store. Depends: C5, EN-001.
+- [ ] **EN-004:** add authenticated Approval/Admin APIs and multi-party controls. Depends: EN-003.
+- [ ] **EN-005:** issue persistent single-use Execution Grants. Depends: EN-002, EN-004, RA-003.
+- [ ] **EN-006:** add audited Kill Switch and default-off Enforce flag. Depends: EN-004, EN-005.
+- [ ] **EN-007:** build Mock Enforce path and unknown-state handling. Depends: EN-005, EN-006, RA-004.
+- [ ] **EN-008:** enable x402 sandbox execution and delivery verification. Depends: EN-007, RA-005.
+- [ ] **EN-009:** enable Safe sandbox execution through external signer. Depends: EN-007, RA-006.
+- [ ] **EN-010:** enable Hyperliquid sandbox execution through external API wallet. Depends: EN-007, RA-007.
+- [ ] **EN-011:** implement settlement proof and reconciliation worker. Depends: EN-007..EN-010.
+- [ ] **EN-012:** run failure drills and independent Enforce security review. Depends: EN-008..EN-011.
+- [ ] **Checkpoint C6:** only explicitly approved sandbox/environment can enable Enforce; default remains off.
+
+## Phase 5 — Ecosystem
+
+- [ ] **EC-001:** TypeScript SDK with shared hashes/signature vectors. Depends: C4.
+- [ ] **EC-002:** Python SDK with the same protocol contract. Depends: EC-001 contract.
+- [ ] **EC-003:** MCP middleware that cannot bypass ATF decisions. Depends: EC-001, C5.
+- [ ] **EC-004:** stabilize versioned public specifications and Adapter guide. Depends: released contracts.
+- [ ] **EC-005:** launch documentation site, RFC workflow and release provenance. Depends: EC-004.
