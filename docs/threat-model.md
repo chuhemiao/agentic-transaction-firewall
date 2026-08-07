@@ -32,13 +32,13 @@ real network request path, but no execution path or production secret.
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, and DS-004 atomically binds admission/finalization rows to their Audit evidence. Gateway still writes only to memory; cutover and independent checkpoints remain DS-005/later work |
+| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004 atomically binds business rows to Audit evidence, and DS-005 makes that durable path authoritative for Gateway traffic. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
 | 16 | Malicious contract call | Not applicable yet — no Simulator (Phase 3) |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Partially mitigated: the gateway records `DecisionRecorded` and the 24-hour rule counts only prior same-organization `PERMIT` decisions; execution- and settlement-based accounting do not exist yet |
+| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, and the 24-hour rule counts only prior same-organization `PERMIT` decisions; deterministic snapshot time plus execution- and settlement-based accounting do not exist yet |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
 | 20 | High-frequency small-order splitting to bypass per-transaction limits | Not applicable yet — cumulative-spend risk rules are Phase 2 |
 
@@ -47,9 +47,10 @@ real network request path, but no execution path or production secret.
 There is a network service but no Adapter, execution route, or production
 secret. The realistic attack surface today includes:
 
-- **Unauthenticated HTTP input** to `POST /v1/intents` and unscoped reads
-  from `GET /v1/intents/{id}/decision`. There is no request-size limit,
-  rate limit, organization authorization, or persistent idempotency.
+- **Unauthenticated HTTP input** to `POST /v1/intents` and tenant-selected
+  reads from `GET /v1/intents/{id}/decision`. GET requires
+  `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
+  lands. There is no request-size limit, rate limit, or completed idempotency.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — mitigated by JSON Schema validation and Rust's memory safety;
@@ -57,16 +58,16 @@ secret. The realistic attack surface today includes:
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.
-- **History poisoning and process-local state** — lifecycle semantics now
-  prevent denied or cross-organization requests from triggering the
-  duplicate-purchase rule, but restart loss and multi-instance divergence
-  remain until the Gateway persistence cutover. Migration 0001 now provides
-  constrained per-organization tables and append-only Audit protection, while
-  ADR-0002 makes PostgreSQL the only target authority. DS-003 implements the
-  chain-head row lock and verifier, but neither affects the current request
-  path yet.
-- **Evaluator crash and stale completion** — the running Gateway has no
-  durable reservation or recovery path. ADR-0002 requires finite leases with
+- **Durable history cost and poisoning boundary** — denied and
+  cross-organization requests cannot trigger the duplicate-purchase rule, and
+  restart no longer clears history. The Gateway currently reloads and verifies
+  the full organization chain for each permitted request; bounded snapshot
+  queries and request/rate limits are still required to resist growth-based
+  denial of service.
+- **Evaluator crash and stale completion** — admission is durable, but the
+  running Gateway has no lifecycle reservation or recovery path. A crash
+  before finalization can strand an Intent, and a retry currently conflicts.
+  ADR-0002 requires finite leases with
   monotonically increasing fencing generations and immutable evaluation
   inputs, so a recovered worker cannot be overwritten by a late predecessor;
   implementation is still pending.

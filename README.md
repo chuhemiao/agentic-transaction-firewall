@@ -51,14 +51,16 @@ Only the following crates are implemented so far:
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
   stateless MVP rules (request expiry, single-transaction cap, fee ratio,
   vendor price deviation, high-risk network/protocol), plus one
-  history-dependent rule (duplicate purchase within 24h) that queries an
-  `atf-audit::AuditLedger`. Duplicate-purchase history is scoped by
-  organization and counts only prior `DecisionRecorded(PERMIT)` events — a
-  received or denied request is not treated as a purchase.
+  history-dependent rule (duplicate purchase within 24h). The Gateway runs it
+  over the organization's verified PostgreSQL Audit chain; local callers can
+  still supply an `atf-audit::AuditLedger`. It counts only prior
+  `DecisionRecorded(PERMIT)` events — a received or denied request is not
+  treated as a purchase.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only, with tamper detection (`verify_chain`), including the
-  `DecisionRecorded` lifecycle event. Its `AuditLedger` remains in-memory;
-  `atf-store` now provides the separate persistent writer/verifier.
+  `DecisionRecorded` lifecycle event. Its standalone `AuditLedger` remains an
+  in-memory domain utility; the Gateway uses `atf-store` as the persistent
+  writer/verifier and has no in-memory Audit fallback.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
 - `crates/atf-store` — the SQLx/PostgreSQL persistence boundary, embedded
@@ -70,23 +72,28 @@ Only the following crates are implemented so far:
   coarse repository transactions now atomically commit canonical Intent +
   `IntentReceived`, then Evaluation + Decision + foreign-key-bound
   `DecisionRecorded`; evidence-complete reads reverify all canonical records
-  and the full organization chain. Gateway wiring is not implemented yet.
+  and the full organization chain. The Gateway now uses this boundary for all
+  accepted Intents, Evaluations, Decisions, Audit writes, and Decision reads.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
   Audit into one request path: `POST /v1/intents` and
-  `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. Identity
-  verification is not wired in yet (no way to register an Agent's key
-  through this service). Never executes anything — evaluate-only.
+  `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. PostgreSQL is
+  required at startup, `/readyz` verifies live storage/schema compatibility,
+  and restart/second-instance reads return the committed Decision. GET uses
+  `X-ATF-Organization-ID` to select the tenant record, but that header is not
+  authentication; identity and organization authorization are still missing.
+  Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
 [`ADR-0002`](docs/decisions/0002-durable-state-contract.md): PostgreSQL is the
 single authority, Audit chains are serialized per organization, and admission
 and finalization use separate atomic transactions with fenced evaluator
 recovery. `DS-002` provides the store/migration/schema foundation; the
-`DS-003` concurrent append/verifier and `DS-004` admission/finalization
-repositories are complete. Gateway cutover remains `DS-005`; lifecycle,
-leases/fencing and completed idempotency responses land in their later tasks.
+`DS-003` concurrent append/verifier, `DS-004` admission/finalization
+repositories, and `DS-005` Gateway cutover are complete. Lifecycle,
+leases/fencing, typed Policy/Risk events, and completed idempotency responses
+land in their later tasks; `DS-006` is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -115,7 +122,8 @@ semantics (evaluate only, never execute).
    `*.json` cases (inline intent + expected Cedar permit/forbid), runs them
    against a declared policy bundle, exits non-zero on any failure.
 4. ~~Risk rules that need history/state (PRD §12.2).~~ Partly done:
-   `atf_risk::evaluate_with_history` adds a duplicate-purchase check
+   `atf_risk::evaluate_with_history`/`evaluate_with_events` add a
+   duplicate-purchase check
    (same Organization + Agent + Resource within 24h, reading only prior
    `DecisionRecorded(PERMIT)` events) — verified end-to-end through
    `services/gateway`; a prior DENY does not poison a later valid request,
@@ -134,17 +142,17 @@ semantics (evaluate only, never execute).
    `atf-audit` respectively).
 7. ~~`atf-audit` — the Audit Ledger (PRD §16).~~ Done as a library:
    hash-chained `AuditEvent`s, append-only, `verify_chain()` detects
-   after-the-fact tampering. The Gateway still uses that in-memory ledger;
-   durable per-organization append/reload and atomic repository transactions
-   now exist separately in `atf-store` and are waiting for the DS-005
-   request-path cutover.
+   after-the-fact tampering. The Gateway now writes and verifies the durable
+   per-organization chain through `atf-store`; the in-memory ledger is not a
+   production fallback.
 8. ~~`services/gateway` — wire Policy/Risk/Decision/Audit into one request
    path.~~ Done: `POST /v1/intents` runs Policy → (if permitted) Risk →
-   Decision merge, records `IntentReceived`/`PolicyEvaluated`/
-   `RiskEvaluated`/`DecisionRecorded` audit events for every request, and
-   stores the Decision for `GET /v1/intents/{id}/decision` to retrieve.
-   Verified live against a
-   real bound socket, not just in-process tests. **Not** wired in:
+   Decision merge, atomically persists `IntentReceived`, Evaluation, Decision,
+   and bound `DecisionRecorded`, and reads the verified Decision back for
+   `GET /v1/intents/{id}/decision`. Policy/Risk results are currently stored
+   inside canonical Evaluation evidence; typed lifecycle Audit events are
+   DS-006/DS-007 work. Verified across two real Gateway processes sharing one
+   PostgreSQL database, not just in-process tests. **Not** wired in:
    `atf-identity` (no endpoint to register an Agent's key yet — that's an
    Admin API concern, PRD §17.3), Simulation, Approval.
 
@@ -154,12 +162,10 @@ semantics (evaluate only, never execute).
   allowed the two new permissive transitive licenses, exact-versioned every
   local workspace dependency, retained wildcard/source denial, and pinned CI
   to the official cargo-deny 0.20.2 Action release commit.
-- PostgreSQL persistence and a transactional Intent lifecycle; process
-  restart and multiple instances must preserve the same Decision/Audit state.
-  ADR-0002, the initial `atf-store` Schema/migration, concurrent
-  per-organization Audit append/reload verification, and atomic admission/
-  finalization repositories are complete; Gateway cutover and lifecycle/
-  recovery state remain.
+- ~~PostgreSQL request-path persistence and restart/second-instance Decision
+  recovery.~~ Done through DS-005 with no process-local Decision/Audit
+  fallback. Transactional lifecycle state, evaluator leases/fencing, exact
+  idempotent retry, and recovery of admitted-but-unfinalized work remain.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
@@ -182,10 +188,10 @@ implementation plan and executable checklist are in
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Durable Shadow Mode, in progress)**: the in-memory Gateway and
-  core libraries exist; the release gate is persistence, lifecycle,
-  idempotency, Gateway identity, deterministic replay, provenance, versioned
-  bundles, Audit query/metrics, and security re-audit.
+- **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
+  Gateway foundation and core libraries exist; the remaining release gate is
+  lifecycle/recovery, idempotency, Gateway identity, deterministic replay,
+  provenance, versioned bundles, Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -203,6 +209,12 @@ ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
 # Apply/verify the embedded durable-state migration
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   cargo run -p atf-store --bin atf-store-migrate
+
+# Provision a development organization, then run the durable Gateway
+psql postgres://postgres:postgres@localhost:5432/atf \
+  -c "INSERT INTO organizations (organization_id) VALUES ('alpha-lab') ON CONFLICT DO NOTHING"
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
+  ATF_POLICIES_DIR=policies/examples PORT=8080 cargo run -p atf-gateway
 
 # Validate an intent against the JSON Schema + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json

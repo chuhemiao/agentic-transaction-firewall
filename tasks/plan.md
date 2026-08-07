@@ -33,8 +33,8 @@ order. In particular, Policy Bundle and Risk Rule Set hashes must exist before
 - Basic Cedar Policy evaluation and Policy conformance CLI.
 - Five stateless Risk rules plus organization-scoped duplicate-purchase
   detection based on prior `DecisionRecorded(PERMIT)` events.
-- Policy/Risk Decision merge, in-memory hash-chained Audit, and a live
-  evaluate-only Gateway with four routes.
+- Policy/Risk Decision merge, hash-chained Audit, and a live evaluate-only
+  Gateway with four PostgreSQL-backed routes.
 - CI workflow jobs for fmt, clippy, tests and `cargo deny`.
 
 Planning-time verification found that fmt, clippy and all 80 tests passed,
@@ -54,7 +54,10 @@ row-locked per-organization append, consistent-snapshot reload/verification,
 explicit event occurrence time, and real concurrent/corruption PostgreSQL
 tests. DS-004 was completed on 2026-08-08 with two coarse-grained repository
 transactions, canonical record verification, evidence-gated reads, and
-injected Audit-failure rollback tests. The next task is DS-005.
+injected Audit-failure rollback tests. DS-005 was completed on 2026-08-08 by
+making those repositories the Gateway's only Decision/Audit path, adding live
+storage readiness, and proving restart/second-instance reads plus durable Risk
+history on real PostgreSQL. The next task is DS-006.
 
 ### Present but incomplete or unwired
 
@@ -63,16 +66,17 @@ injected Audit-failure rollback tests. The next task is DS-005.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
-- Audit and Decision state use process-local `Mutex`/`HashMap` storage.
-- `atf-store` has the base Schema, migration/Audit machinery, and atomic
-  admission/finalization repositories, but no Gateway caller. Full lifecycle,
-  leased idempotency/fencing, and versioned Evaluation Context remain later
-  tasks.
+- Gateway Policy/Risk evidence is canonical but not yet represented by typed
+  lifecycle Audit payloads or explicit persisted transitions.
+- `atf-store` is wired for admission/finalization, but has no lifecycle,
+  evaluator lease/fencing, exact idempotent result, or admitted-work recovery.
+- GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
+  non-health routes remain unsafe for shared deployment.
 
 ### Missing release controls
 
-- PostgreSQL Gateway cutover, lifecycle transactions, durable idempotency and
-  nonce replay protection.
+- Lifecycle transactions, durable idempotency, evaluator recovery, and nonce
+  replay protection.
 - Rust semantic validation and supported action profiles.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
@@ -263,6 +267,8 @@ while Policy/Risk executes.
 
 ### DS-005 — Move Gateway state to PostgreSQL `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Replace the in-memory Decision map and Audit ledger in the
 request path with the store. Configure database connection/migrations and make
 readiness reflect dependency health.
@@ -277,7 +283,17 @@ readiness reflect dependency health.
   3. The production request path contains no Decision/Audit `Mutex<HashMap>` fallback.
 - **Verification:** run two real Gateway processes against one DB and curl POST/GET/restart; full DoD.
 
+**Delivered boundary:** PostgreSQL is required and pre-migrated at startup;
+organizations are explicitly provisioned. POST uses the DS-004 admission and
+finalization transactions, Risk consumes verified durable Audit events, GET
+requires `X-ATF-Organization-ID`, and readiness checks live schema access. The
+header is only a transitional tenant selector until DS-017/DS-018 add an
+authenticated organization boundary. Duplicate retry and admitted-work
+recovery remain DS-012/DS-013 work.
+
 ### DS-006 — Define lifecycle states and typed Audit payloads `[M]`
+
+**Status:** Next.
 
 **Description:** Add stable lifecycle states, terminal states and a pure
 transition validator covering the complete PRD lifecycle while allowing
@@ -636,9 +652,10 @@ the original and clearly marked non-authoritative.
 
 ### DS-028 — Move duplicate-purchase history to durable snapshots `[S]`
 
-**Description:** Replace the in-memory AuditLedger dependency with an
-organization-scoped repository query using `evaluation_time` and explicit
-`PERMITTED` accounting semantics.
+**Description:** Replace the Gateway's full-chain durable Audit scan (and the
+legacy in-memory caller interface) with an organization-scoped repository
+snapshot query using `evaluation_time` and explicit `PERMITTED` accounting
+semantics.
 
 - **Dependencies:** DS-024, DS-025.
 - **Likely files:** `crates/atf-store/src/history.rs`,

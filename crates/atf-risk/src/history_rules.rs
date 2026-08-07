@@ -1,4 +1,4 @@
-use atf_audit::{AuditLedger, EventType};
+use atf_audit::{AuditEvent, AuditLedger, EventType};
 use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
 use chrono::Duration;
@@ -16,7 +16,14 @@ pub(crate) fn history_findings(
     intent: &TransactionIntent,
     ledger: &AuditLedger,
 ) -> Vec<RiskFinding> {
-    duplicate_purchase_within_24h(intent, ledger)
+    history_findings_from_events(intent, ledger.iter())
+}
+
+pub(crate) fn history_findings_from_events<'a>(
+    intent: &TransactionIntent,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+) -> Vec<RiskFinding> {
+    duplicate_purchase_with_events(intent, events)
         .into_iter()
         .collect()
 }
@@ -31,14 +38,22 @@ pub(crate) fn history_findings(
 /// than `IntentReceived`, so a previously denied request cannot poison a
 /// later valid request. Execution- or settlement-based semantics can replace
 /// this boundary once those lifecycle stages exist.
+#[cfg(test)]
 fn duplicate_purchase_within_24h(
     intent: &TransactionIntent,
     ledger: &AuditLedger,
 ) -> Option<RiskFinding> {
+    duplicate_purchase_with_events(intent, ledger.iter())
+}
+
+fn duplicate_purchase_with_events<'a>(
+    intent: &TransactionIntent,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+) -> Option<RiskFinding> {
     let window_start =
         Timestamp::from_datetime(Timestamp::now().as_datetime() - Duration::hours(24));
 
-    let duplicate_of = ledger.iter().find(|event| {
+    let duplicate_of = events.into_iter().find(|event| {
         event.event_type == EventType::DecisionRecorded
             && event.intent_id.as_deref() != Some(intent.intent_id.as_str())
             && event.occurred_at >= window_start

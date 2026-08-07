@@ -7,7 +7,7 @@
 核心语言：Rust
 开源许可：Apache License 2.0
 文档版本：PRD v1.2（Durable Shadow Mode 修订版）
-更新日期：2026-08-05
+更新日期：2026-08-08
 项目阶段：Phase 2 — Durable Shadow Mode
 目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
 
@@ -26,9 +26,9 @@
 
 截至 PRD v1.2：
 
-1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、内存 Hash Chain Audit、Identity Library、CLI 和 Shadow Gateway 已有真实代码与测试。
-2. Gateway 已记录 `IntentReceived`、`PolicyEvaluated`、`RiskEvaluated` 和 `DecisionRecorded`；重复购买只统计同组织此前 `PERMIT` 的 Decision。
-3. Identity 尚未接入 Gateway；PostgreSQL 基础 Schema 和并发安全的 Audit Append/重载验证已实现，但 Admission/Finalization Repository、Gateway 持久化切换、真实幂等、确定性 Replay、Context Provenance、Policy Bundle Versioning 和 Metrics 尚未完成。
+1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
+2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `IntentReceived`，Finalization 原子提交 Evaluation + Decision + 绑定的 `DecisionRecorded`；重启或第二实例可读取原始 Decision，重复购买读取同组织的已验证持久化 Audit 链。
+3. Policy/Risk 结果当前保存在 Canonical Evaluation Evidence 中，尚未成为类型化 Lifecycle Audit Payload；Identity、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -303,7 +303,7 @@ ATF 不阻止交易，也不掌握签名权限。
 4. 风险误报与漏报分析。
 5. 设计伙伴验证。
 
-当前仓库的 Shadow Gateway 只实现 Intent Schema Validation、Policy、部分 Risk、Policy/Risk Decision Merge 和内存 Audit；它不等同于本节的完整目标态 Shadow Mode。
+当前仓库的 Shadow Gateway 只实现 Intent Schema Validation、Policy、部分 Risk、Policy/Risk Decision Merge，以及 PostgreSQL 中的基础 Intent/Evaluation/Decision/Audit 持久化；Lifecycle Recovery、Identity、Idempotency、Replay、Simulation 与完整可观测性仍缺失，因此不等同于本节的完整目标态 Shadow Mode。
 
 ### 7.2 Review Mode
 
@@ -1011,7 +1011,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前 Gateway 实现仍是进程内 Append-only Hash Chain。`atf-store` 和初始 PostgreSQL Migration 已提供每组织独立的 Audit Head/Event 表、租户复合外键与禁止 UPDATE/DELETE/TRUNCATE 的触发器，但并发链头 Append、Gateway 持久化接入、Query API、Checkpoint 和完整 Lifecycle 尚未实现。
+当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。当前请求路径持久化 `IntentReceived` 与绑定的 `DecisionRecorded`；类型化 Policy/Risk Lifecycle Event、Query API、Checkpoint、完整 Lifecycle 与恢复仍未实现。
 
 ### 16.1 目标
 
@@ -1283,9 +1283,9 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 
 1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
-3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`；`atf-store` 的基础 Schema、Migration Runner、兼容性检查，以及每组织行锁 Audit Append/重载验证。
+3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
 4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
-5. `PARTIALLY_IMPLEMENTED`：PostgreSQL 基础 Schema 与 Audit Append/Restart Verification 已落地；Admission/Finalization Repository、Gateway 接入和完整 Request-path Restart Recovery 尚未实现。
+5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository 和 Gateway 请求路径接入已落地；Lifecycle、Evaluator Lease/Fencing、原子幂等结果和 admitted-but-unfinalized Recovery 尚未实现。
 6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
@@ -1430,6 +1430,11 @@ MVP 必须实现：
 2. GET /v1/intents/{intent_id}/decision
 3. GET /healthz
 4. GET /readyz
+
+当前实现要求启动前设置 `DATABASE_URL`、执行 Migration 并显式 Provision
+Organization。GET Decision 必须携带 `X-ATF-Organization-ID` 才能按复合租户键
+查询，但该 Header 只是 DS-005 的过渡 Tenant Selector，不构成身份或授权；在
+DS-017/DS-018 完成前，业务接口不得暴露到共享或不可信网络。
 
 Durable Shadow Mode 必须补充：
 
@@ -1699,7 +1704,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 
 按以下顺序一次交付一个可验证的垂直功能：
 
-1. **P0.1 PostgreSQL Persistence**：持久化 Intent、Evaluation、Decision、Audit，证明 Restart Recovery 与并发 Append。
+1. **P0.1 PostgreSQL Persistence（基础能力已完成）**：持久化 Intent、Evaluation、Decision、Audit，已证明 Final Decision 的 Restart/Second-instance Recovery 与并发 Append；未完成 Evaluation 的恢复属于后续 Lifecycle/Idempotency 工作。
 2. **P0.2 Lifecycle State Machine**：定义并事务性执行合法状态转换。
 3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
 4. **P0.4 Idempotency & Replay Protection**：同 Key 同 Hash 返回原 Decision；不同 Hash 返回 409；并发只有一个 Evaluator。

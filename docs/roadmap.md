@@ -38,15 +38,20 @@ order. The executable order is:
   Decision + bound `DecisionRecorded` in separate short transactions; gate
   reads on canonical/hash/Audit verification and prove rollback at injected
   Audit failures.
+- [x] DS-005 Make PostgreSQL the Gateway's only Decision/Audit path; prove
+  restart/second-instance reads and fail readiness/requests closed when the
+  required store is unavailable.
 
-- [~] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
-  append-only Audit chain. The base schema and concurrent Audit writer/verifier
-  plus admission/finalization repositories are real; Gateway cutover and
-  complete request-path restart proof remain.
+- [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
+  append-only Audit chain. The Gateway has no process-local fallback, and real
+  PostgreSQL tests cover concurrent append, restart, second-instance reads,
+  tenant scoping, and unavailable-storage readiness.
 - [~] P0.2 Intent lifecycle state machine. `IntentReceived`,
-  `PolicyEvaluated`, `RiskEvaluated`, and `DecisionRecorded` exist; identity,
-  simulation, approval, execution, settlement, expiry, and cancellation
-  transitions do not.
+  `PolicyEvaluated`, `RiskEvaluated`, and `DecisionRecorded` event kinds exist,
+  but the durable Gateway currently emits only admission/finalization events
+  and stores Policy/Risk results in Evaluation evidence. Typed transitions,
+  identity, simulation, approval, execution, settlement, expiry, and
+  cancellation do not exist.
 - [x] P0.3 Record every gateway outcome as `DecisionRecorded`, bound to the
   Intent hash. Duplicate-purchase history counts only same-organization
   `PERMIT` decisions; DENY does not poison later requests.
@@ -63,8 +68,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-005` — move the Gateway to the atomic PostgreSQL
-repository path and prove restart/second-instance reads.
+**Immediate next task:** `DS-006` — define lifecycle states and typed,
+schema-validated Audit payloads before enforcing transitions in DS-007.
 
 ## Later releases
 

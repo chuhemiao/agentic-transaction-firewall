@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use atf_audit::AuditLedger;
+use atf_audit::{AuditEvent, AuditLedger};
 use atf_core::{Amount, Timestamp};
 use atf_intent::TransactionIntent;
 use rust_decimal::Decimal;
@@ -44,6 +44,19 @@ pub fn evaluate_with_history(
 ) -> Vec<RiskFinding> {
     let mut findings = evaluate(intent, config);
     findings.extend(history_rules::history_findings(intent, ledger));
+    findings
+}
+
+/// Evaluate against Audit events that were loaded and verified by a durable
+/// store. This keeps history authority outside the Risk crate while preserving
+/// the same rule semantics as [`evaluate_with_history`].
+pub fn evaluate_with_events<'a>(
+    intent: &TransactionIntent,
+    config: &RiskConfig,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+) -> Vec<RiskFinding> {
+    let mut findings = evaluate(intent, config);
+    findings.extend(history_rules::history_findings_from_events(intent, events));
     findings
 }
 
@@ -133,6 +146,7 @@ fn high_risk_network_or_protocol(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atf_audit::{EventType, NewAuditEvent};
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
 
     fn base_intent() -> TransactionIntent {
@@ -180,6 +194,31 @@ mod tests {
             context: serde_json::json!({}),
             metadata: serde_json::json!({}),
         }
+    }
+
+    #[test]
+    fn verified_audit_events_can_drive_history_without_a_process_ledger() {
+        let mut intent = base_intent();
+        intent.intent_id = "01J0000000000000000000N2".into();
+        intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
+        let prior = NewAuditEvent::new(
+            EventType::DecisionRecorded,
+            Timestamp::now(),
+            Some("01J0000000000000000000N1".into()),
+            serde_json::json!({
+                "decision": "PERMIT",
+                "organization_id": "alpha-lab",
+                "agent_id": "research-agent-01",
+                "resource_id": "btc-orderbook-2026-07-01",
+            }),
+        )
+        .chain(None);
+
+        let findings = evaluate_with_events(&intent, &RiskConfig::default(), [&prior]);
+
+        assert!(findings
+            .iter()
+            .any(|finding| finding.code == "DUPLICATE_PURCHASE"));
     }
 
     #[test]

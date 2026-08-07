@@ -1,14 +1,15 @@
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 
-use atf_audit::EventType;
+use atf_core::Timestamp;
 use atf_decision::Decision;
 use atf_policy::PolicyDecision;
+use atf_store::{AdmissionInput, EvaluationInput, FinalizationInput, StoreError};
 
 use crate::state::AppState;
 
@@ -25,11 +26,14 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
-/// Always ready today: every dependency is in-memory. A persistent-store
-/// version of this service would check that store's connectivity here
-/// instead (PRD §22.9).
-async fn readyz() -> &'static str {
-    "ready"
+async fn readyz(State(state): State<AppState>) -> Response {
+    match state.store.check_ready().await {
+        Ok(()) => (StatusCode::OK, "ready").into_response(),
+        Err(error) => {
+            tracing::warn!(error = %error, "Gateway readiness check failed");
+            (StatusCode::SERVICE_UNAVAILABLE, "not ready").into_response()
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -65,118 +69,142 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
         Err(err) => return error_response(StatusCode::BAD_REQUEST, err.to_string()),
     };
 
+    let admitted = match state
+        .store
+        .admit_intent(AdmissionInput {
+            intent: intent.clone(),
+            received_at: Timestamp::now(),
+        })
+        .await
     {
-        let mut ledger = state
-            .audit_ledger
-            .lock()
-            .expect("audit ledger lock poisoned");
-        // agent_id/resource_id are recorded here specifically so
-        // atf_risk::evaluate_with_history's duplicate-purchase rule has
-        // something to match future requests against.
-        ledger.append(
-            EventType::IntentReceived,
-            Some(intent.intent_id.clone()),
-            serde_json::json!({
-                "idempotency_key": intent.idempotency_key,
-                "agent_id": intent.principal.agent_id,
-                "organization_id": intent.principal.organization_id,
-                "resource_id": intent.resource.resource_id,
-                "amount": intent.transaction.amount.to_string(),
-            }),
-        );
-    }
+        Ok(admitted) => admitted,
+        Err(error) => return store_error_response("admit Intent", error),
+    };
 
     let policy_result = state.policy_bundle.evaluate(&intent);
-    {
-        let data = match &policy_result {
-            Ok(outcome) => serde_json::json!({
-                "decision": format!("{:?}", outcome.decision),
-                "policy_ids": outcome.policy_ids,
-            }),
-            Err(err) => serde_json::json!({ "error": err.to_string() }),
-        };
-        let mut ledger = state
-            .audit_ledger
-            .lock()
-            .expect("audit ledger lock poisoned");
-        ledger.append(
-            EventType::PolicyEvaluated,
-            Some(intent.intent_id.clone()),
-            data,
-        );
-    }
+    let policy_evidence = match &policy_result {
+        Ok(outcome) => serde_json::json!({
+            "status": "SUCCEEDED",
+            "decision": format!("{:?}", outcome.decision).to_uppercase(),
+            "policy_ids": outcome.policy_ids,
+        }),
+        Err(error) => serde_json::json!({
+            "status": "ERROR",
+            "error": error.to_string(),
+        }),
+    };
 
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
-    let risk_findings = match &policy_result {
+    let (risk_findings, risk_status) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
-            let ledger = state
-                .audit_ledger
-                .lock()
-                .expect("audit ledger lock poisoned");
-            atf_risk::evaluate_with_history(&intent, &state.risk_config, &ledger)
+            let chain = match state
+                .store
+                .load_verified_audit_chain(&intent.principal.organization_id)
+                .await
+            {
+                Ok(chain) => chain,
+                Err(error) => return store_error_response("load Risk history", error),
+            };
+            (
+                atf_risk::evaluate_with_events(
+                    &intent,
+                    &state.risk_config,
+                    chain.iter().map(|stored| &stored.event),
+                ),
+                "SUCCEEDED",
+            )
         }
-        _ => Vec::new(),
+        _ => (Vec::new(), "NOT_RUN"),
     };
-    {
-        let mut ledger = state
-            .audit_ledger
-            .lock()
-            .expect("audit ledger lock poisoned");
-        ledger.append(
-            EventType::RiskEvaluated,
-            Some(intent.intent_id.clone()),
-            serde_json::json!({ "findings": risk_findings }),
-        );
-    }
+    let risk_evidence = serde_json::json!({
+        "status": risk_status,
+        "findings": &risk_findings,
+    });
 
     let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
+    let evaluated_at = Timestamp::now();
+    let finalized = match state
+        .store
+        .finalize_decision(FinalizationInput {
+            organization_id: intent.principal.organization_id.clone(),
+            intent_id: intent.intent_id.clone(),
+            expected_intent_hash: admitted.intent_hash,
+            evaluation: EvaluationInput {
+                evaluation_id: atf_core::new_ulid(),
+                evaluated_at,
+                evidence: serde_json::json!({
+                    "policy": policy_evidence,
+                    "risk": risk_evidence,
+                }),
+            },
+            decision,
+            decided_at: Timestamp::now(),
+        })
+        .await
     {
-        let mut ledger = state
-            .audit_ledger
-            .lock()
-            .expect("audit ledger lock poisoned");
-        ledger.append(
-            EventType::DecisionRecorded,
-            Some(intent.intent_id.clone()),
-            serde_json::json!({
-                "decision_id": decision.decision_id,
-                "decision": decision.decision,
-                "intent_hash": intent.canonical_hash(),
-                "organization_id": intent.principal.organization_id,
-                "agent_id": intent.principal.agent_id,
-                "resource_id": intent.resource.resource_id,
-                "amount": intent.transaction.amount.to_string(),
-                "destination": intent.transaction.destination,
-                "action_category": intent.action.category,
-            }),
-        );
-    }
+        Ok(finalized) => finalized,
+        Err(error) => return store_error_response("finalize Decision", error),
+    };
 
-    state
-        .decisions
-        .lock()
-        .expect("decisions map lock poisoned")
-        .insert(intent.intent_id.clone(), decision.clone());
-
-    Json(decision).into_response()
+    Json(finalized.decision).into_response()
 }
 
 /// `GET /v1/intents/{intent_id}/decision` (PRD §22.2).
 async fn get_decision(
     State(state): State<AppState>,
     Path(intent_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Decision>, Response> {
-    state
-        .decisions
-        .lock()
-        .expect("decisions map lock poisoned")
-        .get(&intent_id)
-        .cloned()
-        .map(Json)
-        .ok_or_else(|| {
-            error_response(
-                StatusCode::NOT_FOUND,
-                format!("no decision recorded for intent `{intent_id}`"),
-            )
-        })
+    let organization_id = organization_header(&headers).ok_or_else(|| {
+        error_response(
+            StatusCode::BAD_REQUEST,
+            "x-atf-organization-id must be a non-empty trimmed header",
+        )
+    })?;
+    match state
+        .store
+        .load_finalized_decision(organization_id, &intent_id)
+        .await
+    {
+        Ok(Some(finalized)) => Ok(Json(finalized.decision)),
+        Ok(None) => Err(error_response(
+            StatusCode::NOT_FOUND,
+            format!("no decision recorded for intent `{intent_id}`"),
+        )),
+        Err(error) => Err(store_error_response("load Decision", error)),
+    }
+}
+
+fn organization_header(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-atf-organization-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.trim() == *value && value.len() <= 128)
+}
+
+fn store_error_response(operation: &'static str, error: StoreError) -> Response {
+    tracing::warn!(operation, error = %error, "durable Gateway operation failed");
+    match error {
+        StoreError::OrganizationNotFound { .. } => error_response(
+            StatusCode::BAD_REQUEST,
+            "the Intent organization is not provisioned",
+        ),
+        StoreError::IntentConflict { .. }
+        | StoreError::IntentHashMismatch { .. }
+        | StoreError::DecisionConflict { .. }
+        | StoreError::FinalizationConflict { .. } => error_response(
+            StatusCode::CONFLICT,
+            "the request conflicts with existing durable state",
+        ),
+        StoreError::InvalidRepositoryInput { .. }
+        | StoreError::DecisionBindingMismatch { .. }
+        | StoreError::Json(_) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the request could not be recorded safely",
+        ),
+        _ => error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "durable state is unavailable",
+        ),
+    }
 }

@@ -42,17 +42,18 @@ Agent Intent
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol) via `evaluate`, plus one history-dependent rule
   (duplicate purchase: same Organization + Agent + Resource within 24h) via
-  `evaluate_with_history`, which reads only prior
-  `DecisionRecorded(PERMIT)` events in an `atf_audit::AuditLedger`.
+  `evaluate_with_history` or `evaluate_with_events`. The Gateway supplies the
+  latter with the organization's verified durable Audit events and reads only
+  prior `DecisionRecorded(PERMIT)` outcomes.
   *Implemented (partial — daily cumulative spend, first-time destination
   address, and order frequency, PRD §12.2, still need an explicit
   PERMITTED/EXECUTED/SETTLED accounting boundary).*
 - **`atf-audit`** — `AuditEvent`/`EventType` (PRD §16.2 plus
   `DecisionRecorded`), a store-safe `NewAuditEvent` envelope, and an in-memory,
   append-only `AuditLedger` that hash-chains events and can `verify_chain()`
-  to detect after-the-fact tampering (PRD §16.3). *Implemented as a
-  library and called from `services/gateway`, but that request path still
-  uses only the in-memory ledger; `atf-store`'s durable writer is not wired.*
+  to detect after-the-fact tampering (PRD §16.3). *Implemented as a domain
+  library. The Gateway does not use its in-memory `AuditLedger`; it commits
+  and verifies the same event envelope through `atf-store`.*
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
@@ -67,22 +68,22 @@ Agent Intent
   finalization repository transactions: immutable Intent + `IntentReceived`,
   then canonical Evaluation + Decision + foreign-key-bound
   `DecisionRecorded`. Read APIs expose only records whose canonical
-  bytes/hashes and matching verified Audit evidence agree. *Implemented but
-  unwired; Gateway cutover is DS-005.*
+  bytes/hashes and matching verified Audit evidence agree. It also exposes a
+  live schema/connectivity readiness check. *Implemented and wired into the
+  Gateway for admission, finalization, history, reads, and readiness.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Intent validation -> Policy -> (if permitted)
-  Risk (via `evaluate_with_history`, so duplicate-purchase detection is
-  live) -> Decision merge, records four audit events per request including
-  the resulting `DecisionRecorded`, and stores the Decision;
-  `GET /v1/intents/{id}/decision` retrieves it;
-  `/healthz`/`/readyz`. *Implemented — verified against a real bound
-  socket, not just in-process tests (including the duplicate-purchase path:
-  posting the same Agent+Resource twice really does turn `PERMIT` into
-  `REVIEW` on the second request). Does not call `atf-identity` (see above)
-  and has no persistent store (PRD §22): a process restart loses every
-  recorded Decision and the whole audit ledger.*
+  Risk (via verified durable Audit history) -> Decision merge. PostgreSQL
+  admission commits Intent + `IntentReceived`; finalization commits Evaluation
+  + Decision + bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
+  requires `X-ATF-Organization-ID` and returns only a fully verified durable
+  Decision; `/readyz` checks live database/schema compatibility. *Implemented
+  and verified through restart and two real Gateway processes. Does not call
+  `atf-identity`; the organization header is an unauthenticated tenant hint,
+  not an authorization boundary. Exact idempotent retry, lifecycle recovery,
+  typed Policy/Risk events, limits, and metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -96,9 +97,9 @@ Agent Intent
   PostgreSQL ownership boundary, per-organization Audit serialization, short
   admission/finalization transactions, and evaluator fencing/recovery rules.
   `atf-store`, the base migration, durable Audit writer/verifier, and the
-  DS-004 admission/finalization transaction subset now exist. Gateway wiring,
-  lifecycle/idempotency result state, leases/fencing, and typed Policy/Risk
-  finalization events remain unimplemented.
+  DS-004 admission/finalization transaction subset and DS-005 Gateway cutover
+  now exist. Lifecycle/idempotency result state, leases/fencing, and typed
+  Policy/Risk finalization events remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -125,8 +126,8 @@ DS-004 reuses that writer as the last lock in both repository transactions. A
 failed `IntentReceived` insert rolls back the new Intent; a failed
 `DecisionRecorded` insert rolls back both Evaluation and Decision. Final reads
 reverify the immutable Intent, Evaluation and Decision documents plus the
-complete chain in one repeatable-read snapshot. Gateway traffic still does not
-use this path.
+complete chain in one repeatable-read snapshot. DS-005 makes this the only
+Gateway Decision/Audit path; there is no process-local fallback.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -155,8 +156,8 @@ implementation order are in ADR-0002.
 4. `atf-policy::evaluate` loads a Cedar policy set + schema and evaluates the
    Intent's principal/action/resource/context against it, returning a Cedar
    `Decision` (Allow/Deny) plus the policy IDs that fired.
-5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or
-   `evaluate_with_history`, if the caller has a ledger — see step 10) runs
+5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or a
+   history-aware variant when the caller has verified events — see step 10) runs
    the MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
    request never reaches Risk scoring).
 6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
@@ -177,18 +178,17 @@ implementation order are in ADR-0002.
    validates real output of all four decision kinds against it in CI, so the
    schema can't silently drift from the type. `atf-audit` does the same for
    `schemas/audit-event.schema.json`.
-10. `services/gateway`'s `POST /v1/intents` is the second caller of steps
-    1-6, and the first thing in this repo that also writes to
-    `atf-audit::AuditLedger`: it appends `IntentReceived` right after step 2
-    with `agent_id`/`organization_id`/`resource_id`/`amount` in the event's
-    `data` so the request boundary is auditable — `PolicyEvaluated` right
-    after step 4, and `RiskEvaluated` right after step 5 (skipping the Risk
-    call itself when Policy already denied, exactly like step 5 does), then
-    appends `DecisionRecorded` with the decision kind, Intent hash, and
-    organization-scoped history fields, then stores the final `Decision` in
-    an in-memory map keyed by `intent_id` for
-    `GET /v1/intents/{id}/decision` to return. Everything here is in-memory:
-    a process restart loses both the ledger and every stored Decision.
+10. `services/gateway`'s `POST /v1/intents` is the durable caller of steps
+    1-6. After validation, admission atomically stores canonical Intent plus
+    `IntentReceived`. Policy runs next; when permitted, Risk reads the complete
+    verified organization chain through `atf-store`. Finalization atomically
+    stores canonical Policy/Risk evidence in an Evaluation, the Decision, and
+    a foreign-key-bound `DecisionRecorded`. Only that committed Decision is
+    returned. GET reads the same verified record by organization + Intent ID,
+    so restart or a second process observes the original result. A crash after
+    admission but before finalization can still strand work until lifecycle,
+    leases, and idempotent recovery are implemented in DS-006/DS-007/DS-012/
+    DS-013.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -214,7 +214,8 @@ complete Decision Engine:
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
 - Risk rules that need history/state (PRD §12.2) — duplicate purchase is
-  done (`atf_risk::evaluate_with_history`, wired into `services/gateway`);
+  done (`atf_risk::evaluate_with_events`, wired to verified PostgreSQL Audit
+  history in `services/gateway`);
   daily cumulative spend, first-time destination address, and order
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields, but each rule still needs an explicit
@@ -228,15 +229,14 @@ complete Decision Engine:
   Admin API (PRD §17.3), which doesn't exist. It also has no key-rotation
   *policy* (expiry windows, forced revocation) — only the mechanism to hold
   multiple keys at once (PRD §17.2.4).
-- `services/gateway` has no persistent store: `atf-audit::AuditLedger` and
-  the Decision-by-`intent_id` map are both plain in-memory state behind a
-  `Mutex`, so a process restart loses everything (PRD §16.3's MVP design
-  calls for PostgreSQL). There is also no rate limiting, no TLS termination
-  config, and no multi-instance story — this is a reference wiring, not a
-  production deployment target. ADR-0002 and migration 0001 resolve the
-  target transaction and constrained table design, and DS-003 implements the
-  Audit append guarantee, but the Gateway does not receive durable guarantees
-  until DS-005 lands.
+- `services/gateway` is durable but not production-ready. It requires an
+  already migrated database and explicitly provisioned organizations; GET's
+  organization header is not authenticated. It loads the full organization
+  Audit chain for history rules, has no request/body/rate limits, and has no
+  lifecycle recovery or exact retry semantics. A duplicate POST currently
+  conflicts, and a failure between admission and finalization can leave an
+  admitted Intent without a Decision. These are explicit DS-006 onward gaps,
+  not reasons to reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

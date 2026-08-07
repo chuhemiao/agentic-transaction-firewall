@@ -2,8 +2,8 @@
 //!
 //! Cross-table admission and finalization operations live here rather than in
 //! the Gateway. Schema migration/compatibility, durable Audit append, and the
-//! DS-004 short repository transactions are implemented; Gateway cutover and
-//! later lifecycle/idempotency state remain separate milestones.
+//! DS-004 short repository transactions and the DS-005 Gateway cutover are
+//! implemented; later lifecycle/idempotency state remains separate work.
 
 mod audit;
 mod error;
@@ -56,6 +56,13 @@ impl Store {
 
     pub fn is_closed(&self) -> bool {
         self.pool.is_closed()
+    }
+
+    /// Check the live PostgreSQL dependency and schema compatibility. This is
+    /// intentionally read-only and is the Gateway readiness boundary.
+    pub async fn check_ready(&self) -> Result<(), StoreError> {
+        verify_schema(&self.pool).await?;
+        Ok(())
     }
 
     pub async fn close(self) {

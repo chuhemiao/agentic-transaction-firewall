@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use atf_gateway::{build_router, AppState};
 use atf_policy::PolicyBundle;
 use atf_risk::RiskConfig;
+use atf_store::Store;
 
 #[tokio::main]
 async fn main() {
@@ -18,7 +19,12 @@ async fn main() {
         )
     });
 
-    let state = AppState::new(policy_bundle, RiskConfig::default());
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL is required; run atf-store-migrate before starting the Gateway");
+    let store = Store::connect(&database_url)
+        .await
+        .expect("failed to connect to a compatible ATF PostgreSQL schema");
+    let state = AppState::new(policy_bundle, RiskConfig::default(), store);
     let app = build_router(state);
 
     let port: u16 = std::env::var("PORT")

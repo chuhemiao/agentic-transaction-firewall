@@ -1,5 +1,5 @@
 //! atf-gateway: the HTTP entry point that wires Policy, Risk, Decision, and
-//! Audit into one request path (PRD §22).
+//! durable Audit into one PostgreSQL-backed request path (PRD §22).
 //!
 //! Deliberately not wired in yet: Identity verification (`atf-identity`),
 //! Simulation (no `atf-simulator`), Approval (no `atf-approval`), and

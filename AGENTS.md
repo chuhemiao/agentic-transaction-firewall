@@ -95,7 +95,9 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf cargo run -p atf-st
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --policies policies/examples
 cargo run -p atf-cli -- policy test
-PORT=8080 ATF_POLICIES_DIR=policies/examples cargo run -p atf-gateway   # then curl :8080/healthz, POST :8080/v1/intents
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf cargo run -p atf-store --bin atf-store-migrate
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf PORT=8080 ATF_POLICIES_DIR=policies/examples cargo run -p atf-gateway
+# Provision the Intent's organization first; GET Decision also requires X-ATF-Organization-ID.
 ```
 
 ## Where to look for more
