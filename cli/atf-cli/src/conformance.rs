@@ -129,8 +129,17 @@ mod tests {
             "human_authorized": true
         },
         "action": { "category": "payment", "operation": "purchase_api_resource" },
-        "resource": { "protocol": "x402", "resource_id": "btc-orderbook-2026-07-01" },
-        "transaction": { "network": "base", "asset": "eip155:8453/erc20:0x0", "amount": "12.50" }
+        "resource": {
+            "protocol": "x402",
+            "resource_id": "btc-orderbook-2026-07-01",
+            "resource_type": "dataset"
+        },
+        "transaction": {
+            "network": "eip155:8453",
+            "asset": "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            "amount": "12.50",
+            "destination": "eip155:8453:0x1111111111111111111111111111111111111111"
+        }
     }"#;
 
     const POLICY: &str = r#"

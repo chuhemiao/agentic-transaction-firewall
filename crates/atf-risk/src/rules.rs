@@ -181,10 +181,10 @@ mod tests {
                 resource_type: None,
             },
             transaction: Transaction {
-                network: "base".into(),
-                asset: "eip155:8453/erc20:0x0".into(),
+                network: "eip155:8453".into(),
+                asset: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".into(),
                 amount: Amount::from_str("12.50").unwrap(),
-                destination: None,
+                destination: Some("eip155:8453:0x1111111111111111111111111111111111111111".into()),
                 contract: None,
                 calldata_hash: None,
                 max_fee: Some(Amount::from_str("0.25").unwrap()),
@@ -296,7 +296,7 @@ mod tests {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         let config = RiskConfig {
-            high_risk_networks: vec!["BASE".to_string()],
+            high_risk_networks: vec!["EIP155:8453".to_string()],
             ..RiskConfig::default()
         };
         let findings = evaluate(&intent, &config);

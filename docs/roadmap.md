@@ -54,6 +54,10 @@ order. The executable order is:
   bounds, ordered/limited timestamps, ULIDs, identifiers and purpose text;
   return stable structured codes and reject invalid Gateway input before
   durable admission or Policy/Risk.
+- [x] DS-010 Dispatch the versioned Agent-Commerce Payment profile, enforce
+  typed-resource and same-chain CAIP-2/10/19 relationships, forbid fields owned
+  by other financial profiles, and reject every unsupported action pair before
+  durable admission or Policy/Risk.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -81,9 +85,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-010` — dispatch versioned Intent Profiles,
-implement the Payment/Agent-Commerce profile used by x402, and reject every
-action/profile pair that does not yet have enforceable semantics.
+**Immediate next task:** `DS-011` — stabilize the Gateway error envelope and
+prove the full Schema → common semantics → profile ordering before durable
+admission and Policy/Risk without exposing internal error details.
 
 ## Later releases
 

@@ -50,7 +50,10 @@ Only the following crates are implemented so far:
   only inside object-valued `context` or `metadata` and are hash-bound.
   Financial bounds, millisecond-aligned ordered timestamps with a 24-hour
   maximum TTL, valid ULIDs, and bounded nonblank identifiers/text fail closed
-  with stable machine-readable codes. Versioned action Profiles remain open.
+  with stable machine-readable codes. A closed profile dispatcher now accepts
+  exactly the versioned Agent-Commerce Payment profile
+  (`payment/purchase_api_resource`), enforces its resource and CAIP-2/10/19
+  chain-binding rules, and rejects every other action pair as unsupported.
 - `crates/atf-identity` — Agent registration records and Ed25519
   identity-signature verification over an Intent's canonical hash.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
@@ -114,10 +117,15 @@ closes the Intent envelope/version contract. `DS-009` adds common semantic
 validation before durable admission and Policy/Risk. Its documented fixture
 migration replaces historical 24-character pseudo-ULIDs and multi-decade TTLs
 with a valid ULID and five-minute lifetime, so the fixture's locked canonical
-hash changes intentionally. Versioned action Profiles remain; `DS-010` is
-next.
+hash changes intentionally. `DS-010` adds the protocol-neutral
+`atf.agent-commerce.payment` v1.0 profile used by the example, migrates its
+network/asset/destination identifiers to CAIP form, and locks the resulting
+new hash. x402 proof/delivery semantics remain a later Adapter concern.
+`DS-011`, stable Gateway API errors and validation ordering, is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
+`profiles/payment-intent-v1.schema.json` (the structural companion to the
+Rust profile validator),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -182,6 +190,12 @@ semantics (evaluate only, never execute).
    financial/time/ULID/text invariants produce stable ordered codes, CLI
    failures exit non-zero, and Gateway integration proves invalid input leaves
    no Intent, Evaluation, Decision, or Audit row before Policy/Risk.
+10. ~~Versioned Intent Profile dispatch and the supported Agent-Commerce
+    Payment profile.~~ Done in DS-010: only
+    `payment/purchase_api_resource` under `spec_version: "1.0"` is accepted;
+    typed resource, CAIP-2 network, same-chain CAIP-19 asset and CAIP-10 payee
+    relationships are enforced, fields belonging to contract/trading profiles
+    are forbidden, and every other action pair fails closed before admission.
 
 ### Remaining before Phase 2 can close out
 
@@ -211,8 +225,10 @@ semantics (evaluate only, never execute).
   text invariants.~~ Done in DS-009 with deterministic structured violations
   and stable codes. The valid x402 fixture received a documented ULID/TTL
   migration and a new locked golden hash.
-- Versioned Intent Profiles for action-specific invariants; unsupported action
-  categories must fail closed rather than inherit only the common validator.
+- ~~Versioned Intent Profiles for action-specific invariants.~~ Done for the
+  supported Agent-Commerce Payment profile in DS-010; all other action pairs
+  now fail closed. Protocol-specific x402, Safe, Hyperliquid and additional
+  financial profiles remain Phase 3 work.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
   protection.
 - Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
@@ -261,7 +277,7 @@ psql postgres://postgres:postgres@localhost:5432/atf \
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   ATF_POLICIES_DIR=policies/examples PORT=8080 cargo run -p atf-gateway
 
-# Validate an intent against the JSON Schema + common semantics + canonical hash
+# Validate an intent against the JSON Schema + common/profile semantics + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 
 # Evaluate an intent against an example Cedar policy bundle

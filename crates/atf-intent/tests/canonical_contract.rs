@@ -90,8 +90,8 @@ fn accepted_v1_fields_survive_typed_round_trip() {
     assert_eq!(reparsed.canonical_hash(), intent.canonical_hash());
     assert_eq!(
         intent.canonical_hash(),
-        "a09bc1964b07806bd0498fb71d49220e24ba4a4e578959aa45735e66c4b3a410",
-        "the compatible v1 fixture's canonical identity must not drift"
+        "4d34e15d03e2d56353d42d41fc1f136c41e8edf4464299737f5d52949d5b3d4c",
+        "the profile-compatible v1 fixture's canonical identity must not drift"
     );
     assert_eq!(
         reparsed.context,
@@ -107,7 +107,7 @@ fn accepted_v1_fields_survive_typed_round_trip() {
 }
 
 #[test]
-fn every_mutable_v1_field_is_bound_into_the_canonical_hash() {
+fn every_typed_v1_field_is_bound_even_when_the_current_profile_forbids_it() {
     let original = validate(V1_FIXTURE).expect("existing v1 fixture remains compatible");
     let mutations = [
         ("/intent_id", json!("01J00000000000000000000900")),
@@ -148,8 +148,8 @@ fn every_mutable_v1_field_is_bound_into_the_canonical_hash() {
         *value
             .pointer_mut(pointer)
             .unwrap_or_else(|| panic!("fixture must contain {pointer}")) = replacement;
-        let changed = validate(&value.to_string())
-            .unwrap_or_else(|error| panic!("mutation at {pointer} must stay valid: {error}"));
+        let changed: TransactionIntent = serde_json::from_value(value)
+            .unwrap_or_else(|error| panic!("mutation at {pointer} must stay typed: {error}"));
         assert_ne!(
             changed.canonical_hash(),
             original.canonical_hash(),

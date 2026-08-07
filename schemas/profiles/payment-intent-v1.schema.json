@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/profiles/payment-intent-v1.schema.json",
+  "title": "ATF Agent-Commerce Payment Intent Profile v1.0",
+  "description": "Structural constraints for atf.agent-commerce.payment v1.0. Validate together with transaction-intent.schema.json; Rust owns cross-field CAIP binding and stable semantic errors.",
+  "x-atf-profile-id": "atf.agent-commerce.payment",
+  "x-atf-profile-version": "1.0",
+  "type": "object",
+  "required": ["spec_version", "action", "resource", "transaction"],
+  "properties": {
+    "spec_version": { "const": "1.0" },
+    "action": {
+      "type": "object",
+      "required": ["category", "operation"],
+      "properties": {
+        "category": { "const": "payment" },
+        "operation": { "const": "purchase_api_resource" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "required": ["protocol", "resource_id", "resource_type"],
+      "properties": {
+        "resource_type": { "type": "string" }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "required": ["network", "asset", "amount", "destination"],
+      "properties": {
+        "network": {
+          "type": "string",
+          "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$"
+        },
+        "asset": {
+          "type": "string",
+          "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}/[-a-z0-9]{3,8}:[-.%a-zA-Z0-9]{1,128}(/[-.%a-zA-Z0-9]{1,78})?$"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}:[-.%a-zA-Z0-9]{1,128}$"
+        },
+        "contract": { "type": "null" },
+        "calldata_hash": { "type": "null" },
+        "slippage_bps": { "type": "null" },
+        "leverage": { "type": "null" }
+      }
+    }
+  }
+}

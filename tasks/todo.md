@@ -55,9 +55,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-009:** added deterministic common Rust semantic validation, stable
   structured codes, boundary tests, CLI failure behavior, and
   validation-before-durable-admission Gateway evidence. Depends: DS-008.
-- [ ] **NEXT — DS-010:** add profile dispatch and supported
-  Payment/Agent-Commerce profile. Depends: DS-009.
-- [ ] **DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.
+- [x] **DS-010:** added closed profile dispatch and the supported
+  Agent-Commerce Payment profile, including CAIP chain binding and unsupported
+  action rejection before durable admission. Depends: DS-009.
+- [ ] **NEXT — DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.
 - [ ] **DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.
 - [ ] **DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
 - [ ] **DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.

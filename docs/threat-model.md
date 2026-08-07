@@ -21,7 +21,7 @@ real network request path, but no execution path or production secret.
 
 | # | Threat | Status in this repo |
 |---|---|---|
-| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by common semantic validation, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny; Identity, action-specific Profiles, and execution enforcement are still absent |
+| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported; Identity and execution enforcement are still absent |
 | 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` canonical hash is tamper-evident and `atf-identity` can verify Ed25519 signatures, but identity is not wired into the gateway and the signed message still lacks domain separation |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
@@ -35,8 +35,8 @@ real network request path, but no execution path or production secret.
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, and DS-007 atomically binds lifecycle state/version/event pointers then replays typed events on reads. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
-| 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
-| 16 | Malicious contract call | Not applicable yet — no Simulator (Phase 3) |
+| 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
+| 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
 | 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, and the 24-hour rule counts only prior same-organization `PERMIT` decisions; deterministic snapshot time plus execution- and settlement-based accounting do not exist yet |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
@@ -58,8 +58,12 @@ secret. The realistic attack surface today includes:
   only in object-valued hash-bound `context`/`metadata`. DS-009 rejects common
   financial/time/ULID/text violations with stable ordered codes before durable
   admission and Policy/Risk; it does not trim, truncate, round, or downgrade
-  precision to make an invalid value pass. Action-profile semantics remain
-  DS-010, while fuzz/property expansion remains DS-037.
+  precision to make an invalid value pass. DS-010 accepts only the versioned
+  Agent-Commerce Payment selector, requires a typed resource, checks strict
+  CAIP-2/10/19 syntax and same-chain asset/payee binding, forbids fields owned
+  by other profiles, and rejects all unsupported action pairs before durable
+  admission. Namespace-specific address/asset validation and fuzz/property
+  expansion remain Adapter-profile and DS-037 work.
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.

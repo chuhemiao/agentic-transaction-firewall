@@ -98,10 +98,10 @@ pub struct Mandate {
     pub human_authorized: bool,
 }
 
-/// `category` intentionally stays a plain string rather than a Rust enum:
-/// the MVP/next-phase category list (PRD §9.3) is expected to grow, and the
-/// JSON Schema (`schemas/transaction-intent.schema.json`) is the place that
-/// enumerates allowed values without requiring a Rust code change per entry.
+/// `category` intentionally stays a plain string rather than a Rust enum.
+/// The common JSON Schema enumerates the envelope vocabulary; the closed
+/// profile dispatcher separately decides which category/operation pairs have
+/// enforceable semantics in this release.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {

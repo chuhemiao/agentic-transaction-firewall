@@ -2,7 +2,7 @@ use std::fmt;
 
 use thiserror::Error;
 
-/// Stable machine-readable codes for common Intent semantic violations.
+/// Stable machine-readable codes for common and profile Intent violations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticErrorCode {
     AmountNotPositive,
@@ -16,6 +16,14 @@ pub enum SemanticErrorCode {
     FieldBlank,
     FieldTooLong,
     FieldInvalidCharacters,
+    UnsupportedIntentProfile,
+    ProfileFieldRequired,
+    ProfileFieldForbidden,
+    NetworkIdInvalid,
+    AssetIdInvalid,
+    AssetNetworkMismatch,
+    DestinationIdInvalid,
+    DestinationNetworkMismatch,
 }
 
 impl SemanticErrorCode {
@@ -32,6 +40,14 @@ impl SemanticErrorCode {
             Self::FieldBlank => "FIELD_BLANK",
             Self::FieldTooLong => "FIELD_TOO_LONG",
             Self::FieldInvalidCharacters => "FIELD_INVALID_CHARACTERS",
+            Self::UnsupportedIntentProfile => "UNSUPPORTED_INTENT_PROFILE",
+            Self::ProfileFieldRequired => "PROFILE_FIELD_REQUIRED",
+            Self::ProfileFieldForbidden => "PROFILE_FIELD_FORBIDDEN",
+            Self::NetworkIdInvalid => "NETWORK_ID_INVALID",
+            Self::AssetIdInvalid => "ASSET_ID_INVALID",
+            Self::AssetNetworkMismatch => "ASSET_NETWORK_MISMATCH",
+            Self::DestinationIdInvalid => "DESTINATION_ID_INVALID",
+            Self::DestinationNetworkMismatch => "DESTINATION_NETWORK_MISMATCH",
         }
     }
 }

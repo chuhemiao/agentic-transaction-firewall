@@ -698,10 +698,10 @@ fn sample_intent(
             resource_type: Some("dataset".into()),
         },
         transaction: Transaction {
-            network: "base".into(),
-            asset: "eip155:8453/erc20:0x0".into(),
+            network: "eip155:8453".into(),
+            asset: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".into(),
             amount: Amount::from_str(amount).expect("test amount is valid"),
-            destination: Some("0x0000000000000000000000000000000000000001".into()),
+            destination: Some("eip155:8453:0x1111111111111111111111111111111111111111".into()),
             contract: None,
             calldata_hash: None,
             max_fee: Some(Amount::from_str("0.25").expect("test amount is valid")),

@@ -60,14 +60,19 @@ DS-008 then closed the Intent envelope/version contract. DS-009 adds
 deterministic common semantics on 2026-08-08: financial/time/ULID/text
 violations have stable codes and fixed order, the CLI fails non-zero, and a
 real Gateway/PostgreSQL test proves invalid input produces no durable business
-or Audit record before Policy/Risk. Action Profiles remain DS-010.
+or Audit record before Policy/Risk. DS-010 then adds a closed versioned Profile
+dispatcher and the protocol-neutral Agent-Commerce Payment v1.0 contract:
+typed resources, strict CAIP-2/10/19 syntax, exact asset/payee chain binding,
+forbidden contract/trading fields, and unsupported-action rejection all occur
+before admission. Protocol-specific and other financial Profiles remain later
+work; the next admission task is DS-011.
 
 ## Module inventory
 
 | Module | State | Evidence |
 |---|---|---|
 | `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 22-state lifecycle transition contract; used throughout the workspace. |
-| `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, and common financial/time/ULID/text semantic validation are wired with stable ordered errors; action-specific Profiles are missing. |
+| `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, common financial/time/ULID/text semantics, and the versioned Agent-Commerce Payment Profile are wired with stable ordered errors; every other action pair fails closed until its Profile exists. |
 | `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | In-memory Agent records and raw-hash Ed25519 verification exist; Gateway never calls them. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
@@ -80,7 +85,7 @@ or Audit record before Policy/Risk. Action Profiles remain DS-010.
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
 | Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
-| SDKs and most target documentation | `MISSING` | No implementation; `intent-spec.md`, `policy-model.md`, quickstart, SDKs, and adapter manifest Schema are absent. `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
+| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` now fixes the DS-010 Payment Profile, while `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
 ## Gap matrix
@@ -88,30 +93,30 @@ or Audit record before Policy/Risk. Action Profiles remain DS-010.
 ### GAP-INT-001 — Intent Schema Validation
 
 - **module:** `atf-intent`, `schemas/transaction-intent.schema.json`
-- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-008 structural contract complete; Action Profiles remain DS-010.
-- **evidence:** top-level and nested core objects are closed in both JSON Schema and direct Serde parsing; only `spec_version: "1.0"` is accepted. `context`/`metadata` must be objects, remain open inside, survive typed round trips, and are included in the canonical hash. The x402 v1 fixture has a golden hash and mutation tests cover every mutable v1 field. Per-action Profile Schemas are not implemented.
-- **security_impact:** structural data is no longer silently dropped, but callers can still mistake a hash-bound extension for an enforced semantic constraint before Profiles exist.
-- **financial_impact:** an amount qualifier, fee asset, or destination constraint placed in `context`/`metadata` is preserved as evidence but is not enforced by an Action Profile.
+- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-008 structural contract and the DS-010 Agent-Commerce Payment companion Schema are complete; additional Action Profile Schemas remain release-specific work.
+- **evidence:** top-level and nested core objects are closed in both JSON Schema and direct Serde parsing; only `spec_version: "1.0"` is accepted. `context`/`metadata` must be objects, remain open inside, survive typed round trips, and are included in the canonical hash. The x402 v1 fixture has a golden hash and mutation tests cover every mutable v1 field. `schemas/profiles/payment-intent-v1.schema.json` fixes the supported selector and structural field ownership, with cross-field rules enforced by Rust.
+- **security_impact:** structural data is not silently dropped; an extension remains hash-bound but untrusted and cannot select or override the derived Payment Profile. Other action pairs are rejected rather than accepted under an incomplete shape.
+- **financial_impact:** Payment fee denomination, resource/payee presence and field ownership are explicit. A qualifier placed only in `context`/`metadata` remains evidence and cannot change financial semantics; additional behavior requires a new versioned Profile.
 - **severity:** `HIGH`
-- **recommended_change:** keep the closed core contract; define the versioned extension convention and add per-action Profile Schemas in DS-010.
-- **required_tests:** unknown-core-field rejection, context/metadata hash sensitivity, and Schema/Rust round-trip are implemented; profile compatibility remains DS-010.
-- **dependencies:** semantic version policy and profile design.
+- **recommended_change:** keep the closed core and derived-profile convention; add a companion Schema, Rust validator and conformance fixtures together whenever another action is enabled.
+- **required_tests:** unknown-core-field rejection, context/metadata hash sensitivity, Schema/Rust round-trip, supported-profile metadata, structural compatibility and unsupported-selector rejection are implemented.
+- **dependencies:** final semantics for each future action and Adapter capability.
 - **target_release:** Durable Shadow Mode, immediately after persistence semantics are fixed.
 - **acceptance_criteria:** no unvalidated core field is silently ignored; every accepted field affecting intent meaning is present in the canonical hash.
 
 ### GAP-INT-002 — Cross-field Semantic Validation
 
 - **module:** `atf-intent`
-- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-009 common invariants are complete; DS-010 action Profiles remain.
-- **evidence:** after closed Schema and typed parsing, `validate` rejects non-positive amount/leverage, negative fee, out-of-range slippage, non-millisecond/reversed/over-24-hour times, invalid ULIDs, and blank/oversized/unsafe common identifiers or purpose text. It accumulates deterministic `SemanticViolation { code, field }` entries, never trims or coerces invalid values, and the CLI/Gateway fail closed. A PostgreSQL route test proves semantic rejection leaves the Intent, Evaluation, Decision, and Audit chain empty. Transfer, Contract Call, Token Approval, Exchange, Treasury and other action-specific relationships are not yet dispatched or enforced.
-- **security_impact:** common malformed financial values no longer reach durable admission or Policy/Risk, but a Schema-listed action can still appear meaningful without its required Profile unless DS-010 rejects it.
-- **financial_impact:** common negative/zero/bounds bypasses are closed; incomplete destination, allowance, fee-asset, or order semantics remain unsafe and unsupported.
+- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-009 common invariants and DS-010 closed dispatch/Agent-Commerce Payment semantics are complete; additional action Profiles remain unsupported.
+- **evidence:** after closed Schema and typed parsing, `validate` rejects common financial/time/ULID/text violations, then derives exactly `atf.agent-commerce.payment` v1.0 for `payment/purchase_api_resource`. It requires a typed resource, strict CAIP-2/19/10 IDs with exact chain equality, and forbids contract/calldata/slippage/leverage fields. Errors are stable and deterministic without coercion. CLI conformance and a PostgreSQL route test prove semantic or unsupported-profile rejection leaves Intent, Evaluation, Decision and Audit state empty. Transfer, Contract Call, Token Approval, Exchange, Treasury and other actions return `UNSUPPORTED_INTENT_PROFILE`.
+- **security_impact:** malformed common fields, cross-chain payment confusion, action-field smuggling and every semantically unimplemented action fail before durable admission or Policy/Risk. Namespace-specific address/asset validity remains a later protocol/Adapter responsibility.
+- **financial_impact:** common bounds and the supported Payment resource/asset/payee/fee relationships are enforced. Allowance, order, swap and other financial semantics remain unavailable rather than ambiguously accepted.
 - **severity:** `HIGH`
-- **recommended_change:** retain the common validator and add versioned Action Profile dispatch that rejects unsupported pairs.
-- **required_tests:** common table/boundary, structured-order, CLI and Gateway/PostgreSQL tests are implemented; add profile conformance and unsupported-profile tests in DS-010.
-- **dependencies:** final field shapes for approval, exchange, and prediction-market profiles.
+- **recommended_change:** retain closed dispatch; enable a new action only with versioned semantics, stable codes, a companion Schema and protocol conformance tests.
+- **required_tests:** common and profile boundary/order tests, profile metadata/Schema tests, all-category unsupported checks, CLI smoke and Gateway/PostgreSQL pre-admission tests are implemented.
+- **dependencies:** final field shapes and trusted namespace/protocol validation for future approval, exchange, prediction-market and Adapter profiles.
 - **target_release:** Durable Shadow Mode P0.
-- **acceptance_criteria:** common invalid combinations now never reach admission or Policy/Risk and return stable structured errors; this gap closes only when action-specific combinations also fail closed through Profiles.
+- **acceptance_criteria:** achieved for the advertised surface: common invalid combinations and unsupported actions never reach admission or Policy/Risk, and the one accepted Payment profile enforces its cross-field contract. The inventory remains partial because additional product actions have no implemented semantics.
 
 ### GAP-IDN-001 — Agent Identity Verification
 
@@ -418,8 +423,8 @@ or Audit record before Policy/Risk. Action Profiles remain DS-010.
 
 ## Next vertical feature
 
-`DS-010` is next: dispatch versioned Intent Profiles, implement the
-Payment/Agent-Commerce profile used by x402, and reject every unsupported
-action/profile pair before admission. Identity, idempotency, replay, and
-budget work must continue to build on the durable-only boundary rather than
-add process-local authority.
+`DS-011` is next: stabilize the Gateway error envelope and explicitly prove
+Schema, common-semantic and profile validation ordering before admission and
+Policy/Risk while keeping internal SQL/policy/key details out of responses.
+Identity, idempotency, replay, and budget work must continue to build on the
+durable-only boundary rather than add process-local authority.

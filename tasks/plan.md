@@ -62,7 +62,9 @@ domain contract. DS-007 completed transactional lifecycle persistence, typed
 phase emission, replay verification, and stale-writer rejection. DS-008 closed
 the Intent envelope/version contract. DS-009 added deterministic common
 semantic validation and migrated the valid fixture from a pseudo-ULID and
-multi-decade TTL to the declared contract; the next task is DS-010.
+multi-decade TTL to the declared contract. DS-010 added closed Profile
+dispatch, the supported Agent-Commerce Payment profile, CAIP-bound fixtures,
+and unsupported-action rejection; the next task is DS-011.
 
 ### Present but incomplete or unwired
 
@@ -384,7 +386,8 @@ the canonical hash. Tests mutate every mutable v1 leaf, exercise both parse
 paths, and lock the then-current x402 fixture hash. Cross-field semantics and
 stable library error codes were deferred to DS-009 and are now complete; the
 fixture received DS-009's documented ULID/TTL migration. Action profiles
-remain DS-010, while the HTTP error-envelope contract remains DS-011.
+were deferred to DS-010; that task now supports one Payment profile and
+rejects every other action. The HTTP error-envelope contract remains DS-011.
 
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
 
@@ -416,13 +419,13 @@ values without trimming or coercion. CLI failures exit non-zero; a real
 Gateway/PostgreSQL test proves semantic rejection occurs before admission and
 therefore before Policy/Risk. Previously valid-looking fixtures used
 24-character pseudo-ULIDs and multi-decade TTLs, so they received a documented
-migration and new golden hash. Action-specific validation remains DS-010; the
-Gateway-wide `{code,message,request_id,details}` response shape remains
-DS-011.
+migration and new golden hash. DS-010 now adds the supported Payment-specific
+validation and rejects all other actions; the Gateway-wide
+`{code,message,request_id,details}` response shape remains DS-011.
 
 ### DS-010 — Add profile dispatch and the supported Payment profile `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Introduce versioned Intent Profile selection. Implement the
 Payment/Agent-Commerce profile used by the x402 example and reject action
@@ -438,6 +441,19 @@ categories without an implemented profile instead of pretending they are safe.
   2. Unsupported action/profile pairs return `UNSUPPORTED_INTENT_PROFILE`.
   3. Profile ID/version is derivable and later bindable to Evaluation/Decision.
 - **Verification:** profile conformance fixtures and x402 example CLI smoke; full DoD.
+
+**Delivered boundary:** `atf_intent::validate` now dispatches a closed profile
+set after common semantic validation. The supported
+`atf.agent-commerce.payment` v1.0 selector is exactly
+`spec_version=1.0` + `payment/purchase_api_resource`; it requires a typed
+resource, CAIP-2 network, same-chain CAIP-19 asset and CAIP-10 destination,
+and forbids contract/calldata/slippage/leverage fields. Profile ID/version is
+read-only derivable metadata. Every other category/operation returns
+`UNSUPPORTED_INTENT_PROFILE` before Gateway durable admission. The public
+profile Schema and specification document structural/cross-field ownership;
+the x402 example and conformance fixtures use CAIP identifiers and a newly
+locked canonical hash. x402 proof/delivery semantics remain RA-005, while the
+Gateway-wide safe error envelope remains DS-011.
 
 ### DS-011 — Stabilize API errors and validation ordering `[S]`
 

@@ -7,6 +7,14 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Closed, versioned Intent Profile dispatch plus
+  `atf.agent-commerce.payment` v1.0. It requires a typed resource, strict
+  CAIP-2 network, same-chain CAIP-19 asset and CAIP-10 destination, forbids
+  contract/trading fields, exposes derivable profile metadata, and rejects all
+  unsupported action pairs before durable admission.
+- A public Payment Profile Schema, normative `docs/intent-spec.md`, profile
+  boundary/conformance tests, and Gateway/PostgreSQL proof that unsupported
+  profiles leave durable state untouched.
 - Deterministic common Transaction Intent semantic validation for financial
   bounds, millisecond-safe ordered timestamps with a 24-hour maximum TTL,
   valid ULIDs, and bounded nonblank identifier/purpose text. Violations expose
@@ -57,6 +65,9 @@ This project has not yet made a tagged release.
 
 ### Changed
 
+- Migrated the x402 and internal Payment fixtures from informal
+  network/asset/destination strings to the supported CAIP-bound profile; the
+  x402 fixture's locked canonical hash changed intentionally.
 - Migrated valid Intent fixtures from historical 24-character pseudo-ULIDs and
   multi-decade lifetimes to valid 26-character ULIDs and five-minute TTLs; the
   x402 fixture's golden canonical hash changed intentionally.
@@ -71,6 +82,10 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Schema-listed but semantically unimplemented actions can no longer inherit
+  only common validation. Cross-chain Payment asset/payee mismatch, malformed
+  CAIP IDs, missing typed resource/payee, and smuggled contract/trading fields
+  now fail closed before persistence or Policy/Risk.
 - Non-positive amounts/leverage, negative fees, invalid slippage, unsafe time
   windows, invalid ULIDs, and blank/oversized/unsafe common text can no longer
   reach Gateway persistence or Policy/Risk evaluation.

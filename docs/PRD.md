@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界，并在 Durable Admission 与 Policy/Risk 前返回确定性稳定错误。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。Action Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。其他 Action Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -398,7 +398,7 @@ Review Mode 当前不可用。`REVIEW` Decision 只表示“需要额外控制�
 
 ## 9. Transaction Intent Specification
 
-当前 `atf-intent` 已实现封闭且相互校验的 JSON Schema/Rust Type、`spec_version: "1.0"` 支持集合、Canonical Serialization/Hash 和通用 Semantic Validator。未知核心字段会 Fail Closed；对象型 `context`/`metadata` 是当前仅有的开放扩展区并完整进入 Hash。Action Profile 尚未实现，因此 Schema 已列出的 Action Category 仍不等于获得完整语义支持。
+当前 `atf-intent` 已实现封闭且相互校验的 JSON Schema/Rust Type、`spec_version: "1.0"` 支持集合、Canonical Serialization/Hash、通用 Semantic Validator 和封闭 Action Profile Dispatcher。未知核心字段会 Fail Closed；对象型 `context`/`metadata` 是当前仅有的开放扩展区并完整进入 Hash。当前唯一受支持的 Profile 是 `atf.agent-commerce.payment` v1.0；Schema 已列出的其他 Action Category 会返回 `UNSUPPORTED_INTENT_PROFILE`，不等于获得完整语义支持。
 
 ### 9.1 设计原则
 
@@ -538,7 +538,7 @@ Budget 层级：
 
 ### 9.5 Semantic Validation 与 Intent Profile
 
-通用 Intent Envelope 保持跨协议稳定，具体金融行为通过 Profile 定义必填字段、标识规则和跨字段语义：
+通用 Intent Envelope 保持跨协议稳定，具体金融行为通过 Profile 定义必填字段、标识规则和跨字段语义。目标 Profile 集合包括：
 
 1. ATF Payment Intent Profile。
 2. ATF EVM Transaction Profile。
@@ -546,6 +546,12 @@ Budget 层级：
 4. ATF Treasury Intent Profile。
 5. ATF Prediction Market Intent Profile。
 6. ATF Agent Commerce Intent Profile。
+
+当前实现将 Payment 与 Agent Commerce 的最小协议中立交集固定为
+`atf.agent-commerce.payment` v1.0，Selector 必须同时满足
+`spec_version = 1.0`、`action.category = payment`、
+`action.operation = purchase_api_resource`。其完整契约见
+`docs/intent-spec.md`；其他目标 Profile 仍未实现且必须 Fail Closed。
 
 最低通用校验包括：
 
@@ -572,10 +578,14 @@ DS-009 当前实现固定以下跨 Action 边界：Intent 生命周期上限为 
 `TTL_EXCEEDS_LIMIT`、`INTENT_ID_INVALID`、`FIELD_BLANK`、
 `FIELD_TOO_LONG` 与 `FIELD_INVALID_CHARACTERS`。
 
-以上仅是通用 Envelope 语义。DS-010 必须增加版本化 Profile Dispatch，
-并让尚未实现 Profile 的 Action/Profile 组合以
-`UNSUPPORTED_INTENT_PROFILE` Fail Closed；不得把“通过通用校验”解释为
-该金融动作已可安全评估或执行。
+DS-010 已在上述通用语义之后增加版本化 Profile Dispatch。当前 Payment
+Profile 要求 `resource.resource_type`，要求 `transaction.network` 为
+CAIP-2、`transaction.asset` 为同链 CAIP-19、`transaction.destination` 为
+同链 CAIP-10，并禁止 Contract、Calldata Hash、Slippage 与 Leverage 字段；
+`max_fee` 按 `transaction.asset` 计价，v1 不允许扩展字段改变手续费资产。
+Profile 校验不执行 trim、大小写折叠、Percent Decode 或 Canonicalization。
+未实现的 Action/Profile 组合统一以 `UNSUPPORTED_INTENT_PROFILE` Fail
+Closed；不得把“通过通用校验”解释为该金融动作已可安全评估或执行。
 
 具体 Profile 在独立 Specification 中版本化；Profile 变更不得通过向通用 Envelope 随意添加可选字段完成。
 
@@ -1312,7 +1322,7 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
 4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
 5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放和 Gateway 请求路径接入已落地；Evaluator Lease/Fencing、原子幂等结果和 admitted-but-unfinalized Recovery 尚未实现。
-6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
+6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和除已落地 `intent-spec.md` 外的大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
 

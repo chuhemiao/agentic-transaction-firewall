@@ -1,4 +1,4 @@
-use atf_intent::{validate, IntentError, SemanticErrorCode};
+use atf_intent::{validate, validate_semantics, IntentError, SemanticErrorCode, TransactionIntent};
 use serde_json::{json, Value};
 
 const V1_FIXTURE: &str = include_str!("../../../examples/x402-research-agent/intent.json");
@@ -12,9 +12,13 @@ fn valid_value() -> Value {
 }
 
 fn semantic_message(value: &Value) -> String {
-    validate(&value.to_string())
+    validate_semantics(&typed_value(value))
         .expect_err("the semantic mutation must be rejected")
         .to_string()
+}
+
+fn typed_value(value: &Value) -> TransactionIntent {
+    serde_json::from_value(value.clone()).expect("semantic test input remains structurally typed")
 }
 
 #[test]
@@ -80,7 +84,7 @@ fn financial_boundaries_fail_closed_with_stable_codes() {
     ] {
         let mut value = valid_value();
         *value.pointer_mut(pointer).expect("fixture contains field") = boundary;
-        validate(&value.to_string())
+        validate_semantics(&typed_value(&value))
             .unwrap_or_else(|error| panic!("valid boundary at {pointer} was rejected: {error}"));
     }
 }
@@ -125,7 +129,7 @@ fn timestamp_order_precision_and_ttl_are_enforced_without_normalization() {
     let mut exact_limit = valid_value();
     exact_limit["created_at"] = json!("2098-12-31T00:00:00Z");
     exact_limit["expires_at"] = json!("2099-01-01T00:00:00Z");
-    validate(&exact_limit.to_string()).expect("an exact 24-hour TTL is valid");
+    validate_semantics(&typed_value(&exact_limit)).expect("an exact 24-hour TTL is valid");
 }
 
 #[test]
@@ -185,7 +189,7 @@ fn every_common_identifier_rejects_blank_input_without_trimming() {
 fn identifier_and_purpose_size_and_character_boundaries_are_explicit() {
     let mut identifier_at_limit = valid_value();
     identifier_at_limit["idempotency_key"] = json!("a".repeat(256));
-    validate(&identifier_at_limit.to_string()).expect("256-byte identifier is valid");
+    validate_semantics(&typed_value(&identifier_at_limit)).expect("256-byte identifier is valid");
 
     let mut identifier_too_long = valid_value();
     identifier_too_long["principal"]["organization_id"] = json!("a".repeat(257));
@@ -210,7 +214,7 @@ fn identifier_and_purpose_size_and_character_boundaries_are_explicit() {
 
     let mut purpose_at_limit = valid_value();
     purpose_at_limit["mandate"]["purpose"] = json!("p".repeat(1024));
-    validate(&purpose_at_limit.to_string()).expect("1024-byte purpose is valid");
+    validate_semantics(&typed_value(&purpose_at_limit)).expect("1024-byte purpose is valid");
 
     let mut purpose_too_long = valid_value();
     purpose_too_long["mandate"]["purpose"] = json!("p".repeat(1025));

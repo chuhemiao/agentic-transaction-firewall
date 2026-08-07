@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use jsonschema::Validator;
 
 use crate::error::IntentError;
+use crate::profile::validate_profile;
 use crate::semantic::validate_semantics;
 use crate::types::TransactionIntent;
 
@@ -38,6 +39,7 @@ pub fn validate(raw: &str) -> Result<TransactionIntent, IntentError> {
 
     let intent = serde_json::from_value(value).map_err(IntentError::Malformed)?;
     validate_semantics(&intent)?;
+    validate_profile(&intent)?;
     Ok(intent)
 }
 
@@ -62,8 +64,17 @@ mod tests {
                 "human_authorized": true
             },
             "action": { "category": "payment", "operation": "purchase_api_resource" },
-            "resource": { "protocol": "x402", "resource_id": "btc-orderbook-2026-07-01" },
-            "transaction": { "network": "base", "asset": "eip155:8453/erc20:0x0", "amount": "12.50" }
+            "resource": {
+                "protocol": "x402",
+                "resource_id": "btc-orderbook-2026-07-01",
+                "resource_type": "dataset"
+            },
+            "transaction": {
+                "network": "eip155:8453",
+                "asset": "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                "amount": "12.50",
+                "destination": "eip155:8453:0x1111111111111111111111111111111111111111"
+            }
         }"#
     }
 

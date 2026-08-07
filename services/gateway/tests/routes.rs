@@ -238,6 +238,46 @@ async fn posting_a_semantically_invalid_intent_stops_before_durable_admission(
 }
 
 #[tokio::test]
+async fn posting_an_unsupported_intent_profile_stops_before_durable_admission(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("unsupported_profile").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+    let intent_id = "01J0000000000000000000S200";
+    let mut intent = sample_intent_json(intent_id, "12.50");
+    intent["action"] = serde_json::json!({
+        "category": "transfer",
+        "operation": "transfer_asset"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/intents")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&intent)?))?,
+        )
+        .await?;
+    let status = response.status();
+    let body = body_json(response).await?;
+    let admitted = store.load_admitted_intent("alpha-lab", intent_id).await?;
+    let chain = store.load_verified_audit_chain("alpha-lab").await?;
+
+    store.close().await;
+    database.destroy().await?;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["error"]
+        .as_str()
+        .expect("error is a string")
+        .contains("UNSUPPORTED_INTENT_PROFILE"));
+    assert!(admitted.is_none());
+    assert!(chain.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn decision_can_be_looked_up_by_organization_and_intent_id() -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("lookup").await?;
     let store = database.connect().await?;
