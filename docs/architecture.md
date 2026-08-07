@@ -9,7 +9,8 @@ document translates it into the current and target code layout.
 Agent Intent
   -> Canonical Transaction Intent   (atf-intent)
   -> Identity Verification          (atf-identity)
-  -> Semantic Validation            (atf-intent profiles, planned)
+  -> Common Semantic Validation     (atf-intent, implemented)
+  -> Action Profile Validation      (atf-intent profiles, planned)
   -> Versioned Evaluation Context   (planned)
   -> Policy Evaluation              (atf-policy, Cedar)
   -> Financial Risk Evaluation      (atf-risk)
@@ -30,8 +31,13 @@ Agent Intent
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
-  extensions, canonical serialization + SHA-256 hash. Structural contract is
-  *implemented*; semantic and action-profile validation remain planned.
+  extensions, canonical serialization + SHA-256 hash, and deterministic
+  common semantic validation. It enforces positive amount/leverage,
+  non-negative fees, slippage bounds, ordered millisecond timestamps with a
+  24-hour maximum TTL, ULIDs, and bounded nonblank identifier/purpose text.
+  Violations expose stable ordered codes and fields. Structural and common
+  semantic contracts are *implemented*; action-profile validation remains
+  planned.
 - **`atf-identity`** — Agent registration records (`AgentRecord`,
   `AgentStatus`) and an in-memory `IdentityRegistry` verifying a raw
   Ed25519 signature over `intent.canonical_hash()`, with key-rotation
@@ -83,7 +89,8 @@ Agent Intent
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
-  `POST /v1/intents` runs Intent validation -> Policy -> (if permitted)
+  `POST /v1/intents` runs Schema/type/common semantic validation -> durable
+  admission -> Policy -> (if permitted)
   Risk (via verified durable Audit history) -> Decision merge. PostgreSQL
   admission commits Intent + `IntentReceived`; finalization commits Evaluation,
   typed Identity/Policy/Risk/Simulation events, Decision, lifecycle state, and
@@ -110,7 +117,8 @@ Agent Intent
   `atf-store`, the base migration, durable Audit writer/verifier, and the
   DS-004 admission/finalization transaction subset and DS-005 Gateway cutover
   plus the DS-006 domain contract, DS-007 persisted/replayable lifecycle, and
-  DS-008 closed Intent envelope/version contract now exist. Semantic profiles,
+  DS-008 closed Intent envelope/version contract plus DS-009 common semantic
+  validator now exist. Action profiles,
   idempotency result state, leases/fencing, and recovery remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
@@ -172,7 +180,9 @@ implementation order are in ADR-0002.
 2. `atf-intent::validate` checks it against the closed JSON Schema, accepts
    only `spec_version: "1.0"`, rejects unknown core fields, and then parses the
    same fail-closed Rust shape. Arbitrary extensions are accepted only under
-   object-valued `context`/`metadata`.
+   object-valued `context`/`metadata`. It then applies the common financial,
+   time, ULID, identifier, and purpose invariants and returns deterministically
+   ordered `SemanticViolation` codes without normalizing invalid input.
 3. `atf-intent::canonical_hash` produces a deterministic SHA-256 hash over a
    canonical (sorted-key, fixed-point) serialization — this is the value that
    will later bind Decisions and Approvals to a specific Intent (PRD §9.1,
@@ -240,6 +250,9 @@ complete Decision Engine:
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
+- Common Intent semantics are implemented; versioned Action Profiles are not.
+  Until DS-010, an action category present in the common Schema must not be
+  interpreted as semantically supported.
 - Risk rules that need history/state (PRD §12.2) — duplicate purchase is
   done (`atf_risk::evaluate_with_events`, wired to verified PostgreSQL Audit
   history in `services/gateway`);

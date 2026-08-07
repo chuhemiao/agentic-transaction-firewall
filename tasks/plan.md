@@ -60,8 +60,9 @@ storage readiness, and proving restart/second-instance reads plus durable Risk
 history on real PostgreSQL. DS-006 completed the lifecycle and typed Audit
 domain contract. DS-007 completed transactional lifecycle persistence, typed
 phase emission, replay verification, and stale-writer rejection. DS-008 closed
-the Intent envelope/version contract without changing the compatible v1
-fixture identity; the next task is DS-009.
+the Intent envelope/version contract. DS-009 added deterministic common
+semantic validation and migrated the valid fixture from a pseudo-ULID and
+multi-decade TTL to the declared contract; the next task is DS-010.
 
 ### Present but incomplete or unwired
 
@@ -82,7 +83,7 @@ fixture identity; the next task is DS-009.
 ### Missing release controls
 
 - Durable idempotency, evaluator recovery, and nonce replay protection.
-- Rust semantic validation and supported action profiles.
+- Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
 - Simulator, Approval, Adapter execution, reconciliation and SDKs.
@@ -380,12 +381,14 @@ reject unknown fields during direct Serde parsing, and Schema plus Rust accept
 only `spec_version: "1.0"`. `context` and `metadata` remain arbitrary but must
 be JSON objects; their complete content survives typed round trips and affects
 the canonical hash. Tests mutate every mutable v1 leaf, exercise both parse
-paths, and lock the existing x402 fixture hash. Cross-field semantics and
-stable API error codes remain DS-009; action profiles remain DS-010.
+paths, and lock the then-current x402 fixture hash. Cross-field semantics and
+stable library error codes were deferred to DS-009 and are now complete; the
+fixture received DS-009's documented ULID/TTL migration. Action profiles
+remain DS-010, while the HTTP error-envelope contract remains DS-011.
 
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Validate positive amount/leverage, non-negative fee,
 slippage bounds, time ordering/max TTL, ULID and bounded nonblank identifiers.
@@ -394,14 +397,32 @@ Return stable machine-readable errors rather than formatted library strings.
 - **Dependencies:** DS-008.
 - **Likely files:** `crates/atf-intent/src/semantic.rs`,
   `crates/atf-intent/src/error.rs`, `crates/atf-intent/src/lib.rs`,
-  `crates/atf-intent/tests/semantic.rs`.
+  `crates/atf-intent/tests/semantic.rs`,
+  `schemas/transaction-intent.schema.json`.
 - **Acceptance criteria:**
   1. Every PRD §9.5 common invariant has a stable error code and boundary test.
   2. Multiple invalid fields are reported deterministically.
   3. Validation never normalizes a dangerous value into a valid one.
-- **Verification:** table/property tests and `atf validate-intent` negative fixtures; full DoD.
+- **Verification:** table/boundary tests, structured error-order tests,
+  `atf validate-intent` negative smoke, Gateway/PostgreSQL pre-admission test,
+  and full DoD.
+
+**Delivered boundary:** `atf_intent::validate` now performs deterministic
+common semantic validation after Schema and typed parsing. Positive financial
+values, fee/slippage bounds, millisecond-safe ordered timestamps with a
+24-hour maximum lifetime, ULID syntax, 256-byte identifier limits, and
+1024-byte purpose limits return ordered `SemanticViolation { code, field }`
+values without trimming or coercion. CLI failures exit non-zero; a real
+Gateway/PostgreSQL test proves semantic rejection occurs before admission and
+therefore before Policy/Risk. Previously valid-looking fixtures used
+24-character pseudo-ULIDs and multi-decade TTLs, so they received a documented
+migration and new golden hash. Action-specific validation remains DS-010; the
+Gateway-wide `{code,message,request_id,details}` response shape remains
+DS-011.
 
 ### DS-010 — Add profile dispatch and the supported Payment profile `[M]`
+
+**Status:** Next.
 
 **Description:** Introduce versioned Intent Profile selection. Implement the
 Payment/Agent-Commerce profile used by the x402 example and reject action

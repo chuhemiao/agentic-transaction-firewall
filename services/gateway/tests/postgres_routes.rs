@@ -17,7 +17,7 @@ async fn second_gateway_state_reads_the_first_states_committed_decision(
     let first_store = database.connect().await?;
     let first = build_router(test_state(first_store.clone()));
     let response = first
-        .oneshot(post_intent_request("01J0000000000000000000R1", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000R100", "12.50"))
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     let original = body_json(response).await?;
@@ -27,7 +27,7 @@ async fn second_gateway_state_reads_the_first_states_committed_decision(
     let second = build_router(test_state(second_store.clone()));
     let response = second
         .oneshot(get_decision_request(
-            "01J0000000000000000000R1",
+            "01J0000000000000000000R100",
             "alpha-lab",
         ))
         .await?;
@@ -72,7 +72,7 @@ async fn requests_fail_closed_without_exposing_database_details() -> Result<(), 
     store.close().await;
 
     let response = app
-        .oneshot(post_intent_request("01J0000000000000000000U1", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000V100", "12.50"))
         .await?;
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);

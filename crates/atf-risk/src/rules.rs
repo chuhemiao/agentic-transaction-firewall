@@ -152,7 +152,7 @@ mod tests {
     fn base_intent() -> TransactionIntent {
         TransactionIntent {
             spec_version: "1.0".into(),
-            intent_id: "01J000000000000000000000".into(),
+            intent_id: "01J00000000000000000000000".into(),
             idempotency_key: "idem-1".into(),
             created_at: Timestamp::from_str("2026-07-18T08:00:00Z").unwrap(),
             expires_at: Timestamp::from_str("2026-07-18T08:05:00Z").unwrap(),
@@ -199,12 +199,12 @@ mod tests {
     #[test]
     fn verified_audit_events_can_drive_history_without_a_process_ledger() {
         let mut intent = base_intent();
-        intent.intent_id = "01J0000000000000000000N2".into();
+        intent.intent_id = "01J0000000000000000000N200".into();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         let prior = NewAuditEvent::new(
             EventType::DecisionRecorded,
             Timestamp::now(),
-            Some("01J0000000000000000000N1".into()),
+            Some("01J0000000000000000000N100".into()),
             serde_json::json!({
                 "decision": "PERMIT",
                 "organization_id": "alpha-lab",

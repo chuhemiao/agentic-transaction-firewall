@@ -50,6 +50,10 @@ order. The executable order is:
 - [x] DS-008 Close the Intent core envelope in both Schema and Rust parsing,
   support only v1.0, retain extensions only in object-valued hash-bound
   `context`/`metadata`, and lock the compatible fixture's canonical hash.
+- [x] DS-009 Add deterministic common semantic validation for financial
+  bounds, ordered/limited timestamps, ULIDs, identifiers and purpose text;
+  return stable structured codes and reject invalid Gateway input before
+  durable admission or Policy/Risk.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -77,9 +81,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-009` — add common Rust semantic validation for
-financial values, time ordering, identifiers and bounds, returning stable
-machine-readable error codes before Policy/Risk.
+**Immediate next task:** `DS-010` — dispatch versioned Intent Profiles,
+implement the Payment/Agent-Commerce profile used by x402, and reject every
+action/profile pair that does not yet have enforceable semantics.
 
 ## Later releases
 

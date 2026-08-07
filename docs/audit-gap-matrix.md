@@ -56,13 +56,18 @@ producers. DS-007 extends that contract to 22 states/28 events, persists
 state/version/event pointers, emits all current phase events, replays them on
 reads, rejects stale finalizers, and rolls back injected partial batches.
 Fenced idempotency completion and authenticated tenant binding remain open.
+DS-008 then closed the Intent envelope/version contract. DS-009 adds
+deterministic common semantics on 2026-08-08: financial/time/ULID/text
+violations have stable codes and fixed order, the CLI fails non-zero, and a
+real Gateway/PostgreSQL test proves invalid input produces no durable business
+or Audit record before Policy/Risk. Action Profiles remain DS-010.
 
 ## Module inventory
 
 | Module | State | Evidence |
 |---|---|---|
 | `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 22-state lifecycle transition contract; used throughout the workspace. |
-| `atf-intent` | `PARTIALLY_IMPLEMENTED` | Schema parsing and canonical hash are wired; semantic/cross-field validation and action profiles are missing. |
+| `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, and common financial/time/ULID/text semantic validation are wired with stable ordered errors; action-specific Profiles are missing. |
 | `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | In-memory Agent records and raw-hash Ed25519 verification exist; Gateway never calls them. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
@@ -97,16 +102,16 @@ Fenced idempotency completion and authenticated tenant binding remain open.
 ### GAP-INT-002 — Cross-field Semantic Validation
 
 - **module:** `atf-intent`
-- **current_state:** `MISSING`
-- **evidence:** `validate` performs closed JSON Schema validation then fail-closed deserialization and now rejects unsupported versions. It still does not reject non-positive amount/leverage, negative fee, invalid slippage, reversed times, invalid ULID, whitespace IDs, or incomplete action-specific fields.
-- **security_impact:** malformed financial intents reach Policy and may receive `PERMIT`.
-- **financial_impact:** negative/zero values and incomplete operations can bypass threshold logic or be interpreted differently by downstream systems.
+- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-009 common invariants are complete; DS-010 action Profiles remain.
+- **evidence:** after closed Schema and typed parsing, `validate` rejects non-positive amount/leverage, negative fee, out-of-range slippage, non-millisecond/reversed/over-24-hour times, invalid ULIDs, and blank/oversized/unsafe common identifiers or purpose text. It accumulates deterministic `SemanticViolation { code, field }` entries, never trims or coerces invalid values, and the CLI/Gateway fail closed. A PostgreSQL route test proves semantic rejection leaves the Intent, Evaluation, Decision, and Audit chain empty. Transfer, Contract Call, Token Approval, Exchange, Treasury and other action-specific relationships are not yet dispatched or enforced.
+- **security_impact:** common malformed financial values no longer reach durable admission or Policy/Risk, but a Schema-listed action can still appear meaningful without its required Profile unless DS-010 rejects it.
+- **financial_impact:** common negative/zero/bounds bypasses are closed; incomplete destination, allowance, fee-asset, or order semantics remain unsafe and unsupported.
 - **severity:** `HIGH`
-- **recommended_change:** add a Rust semantic validator with stable machine-readable codes and versioned action profiles.
-- **required_tests:** table/boundary/property tests for every invariant; Gateway and CLI fail-closed tests.
+- **recommended_change:** retain the common validator and add versioned Action Profile dispatch that rejects unsupported pairs.
+- **required_tests:** common table/boundary, structured-order, CLI and Gateway/PostgreSQL tests are implemented; add profile conformance and unsupported-profile tests in DS-010.
 - **dependencies:** final field shapes for approval, exchange, and prediction-market profiles.
 - **target_release:** Durable Shadow Mode P0.
-- **acceptance_criteria:** invalid cross-field combinations never reach Policy/Risk and return stable structured error codes.
+- **acceptance_criteria:** common invalid combinations now never reach admission or Policy/Risk and return stable structured errors; this gap closes only when action-specific combinations also fail closed through Profiles.
 
 ### GAP-IDN-001 — Agent Identity Verification
 
@@ -413,8 +418,8 @@ Fenced idempotency completion and authenticated tenant binding remain open.
 
 ## Next vertical feature
 
-`DS-009` is next: add deterministic common semantic validation and stable
-machine-readable errors for financial values, time ordering, identifiers and
-bounds before Policy/Risk. Identity, idempotency, replay, and budget work must
-continue to build on the durable-only boundary rather than add process-local
-authority.
+`DS-010` is next: dispatch versioned Intent Profiles, implement the
+Payment/Agent-Commerce profile used by x402, and reject every unsupported
+action/profile pair before admission. Identity, idempotency, replay, and
+budget work must continue to build on the durable-only boundary rather than
+add process-local authority.

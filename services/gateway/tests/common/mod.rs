@@ -41,7 +41,7 @@ pub fn sample_intent_json(intent_id: &str, amount: &str) -> serde_json::Value {
         "spec_version": "1.0",
         "intent_id": intent_id,
         "idempotency_key": format!("idem-{intent_id}"),
-        "created_at": "2026-07-18T08:00:00Z",
+        "created_at": "2098-12-31T23:55:00Z",
         "expires_at": "2099-01-01T00:00:00Z",
         "principal": { "organization_id": "alpha-lab", "agent_id": "research-agent-01" },
         "mandate": {

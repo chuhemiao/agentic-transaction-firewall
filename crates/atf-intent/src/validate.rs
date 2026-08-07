@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use jsonschema::Validator;
 
 use crate::error::IntentError;
+use crate::semantic::validate_semantics;
 use crate::types::TransactionIntent;
 
 const SCHEMA_STR: &str = include_str!("../../../schemas/transaction-intent.schema.json");
@@ -35,7 +36,9 @@ pub fn validate(raw: &str) -> Result<TransactionIntent, IntentError> {
         return Err(IntentError::SchemaViolation(errors.join("; ")));
     }
 
-    serde_json::from_value(value).map_err(IntentError::Malformed)
+    let intent = serde_json::from_value(value).map_err(IntentError::Malformed)?;
+    validate_semantics(&intent)?;
+    Ok(intent)
 }
 
 #[cfg(test)]
@@ -45,10 +48,10 @@ mod tests {
     fn valid_intent_json() -> &'static str {
         r#"{
             "spec_version": "1.0",
-            "intent_id": "01J000000000000000000000",
+            "intent_id": "01J00000000000000000000000",
             "idempotency_key": "idem-1",
-            "created_at": "2026-07-18T08:00:00Z",
-            "expires_at": "2026-07-18T08:05:00Z",
+            "created_at": "2098-12-31T23:55:00Z",
+            "expires_at": "2099-01-01T00:00:00Z",
             "principal": {
                 "organization_id": "alpha-lab",
                 "agent_id": "research-agent-01"

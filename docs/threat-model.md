@@ -21,7 +21,7 @@ real network request path, but no execution path or production secret.
 
 | # | Threat | Status in this repo |
 |---|---|---|
-| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by mandatory Policy/Risk evaluation and no LLM in Permit/Deny; identity, semantic validation, and execution enforcement are still absent |
+| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by common semantic validation, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny; Identity, action-specific Profiles, and execution enforcement are still absent |
 | 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` canonical hash is tamper-evident and `atf-identity` can verify Ed25519 signatures, but identity is not wired into the gateway and the signed message still lacks domain separation |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
@@ -55,9 +55,11 @@ secret. The realistic attack surface today includes:
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
   parsing, rejects unsupported Intent versions, and retains arbitrary data
-  only in object-valued hash-bound `context`/`metadata`. Amount/time/ID and
-  action-profile semantics remain DS-009/010; fuzz targets for the
-  parser/normalizer are tracked in `fuzz/` (Phase 1+).
+  only in object-valued hash-bound `context`/`metadata`. DS-009 rejects common
+  financial/time/ULID/text violations with stable ordered codes before durable
+  admission and Policy/Risk; it does not trim, truncate, round, or downgrade
+  precision to make an invalid value pass. Action-profile semantics remain
+  DS-010, while fuzz/property expansion remains DS-037.
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.

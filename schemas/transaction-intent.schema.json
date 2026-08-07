@@ -3,6 +3,7 @@
   "$id": "https://atf.dev/schemas/transaction-intent.schema.json",
   "title": "ATF Transaction Intent",
   "description": "Canonical Transaction Intent (PRD docs/PRD.md §9).",
+  "$comment": "String blankness, size, and character invariants are owned by the Rust semantic validator so public validation returns stable machine-readable codes.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,8 +20,8 @@
   ],
   "properties": {
     "spec_version": { "type": "string", "enum": ["1.0"] },
-    "intent_id": { "type": "string", "minLength": 1 },
-    "idempotency_key": { "type": "string", "minLength": 1 },
+    "intent_id": { "type": "string" },
+    "idempotency_key": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" },
     "expires_at": { "type": "string", "format": "date-time" },
     "principal": {
@@ -28,9 +29,9 @@
       "additionalProperties": false,
       "required": ["organization_id", "agent_id"],
       "properties": {
-        "organization_id": { "type": "string", "minLength": 1 },
+        "organization_id": { "type": "string" },
         "user_id": { "type": ["string", "null"] },
-        "agent_id": { "type": "string", "minLength": 1 },
+        "agent_id": { "type": "string" },
         "agent_version": { "type": ["string", "null"] },
         "strategy_id": { "type": ["string", "null"] }
       }
@@ -40,9 +41,9 @@
       "additionalProperties": false,
       "required": ["mandate_id", "purpose", "human_authorized"],
       "properties": {
-        "mandate_id": { "type": "string", "minLength": 1 },
+        "mandate_id": { "type": "string" },
         "task_id": { "type": ["string", "null"] },
-        "purpose": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string" },
         "budget_id": { "type": ["string", "null"] },
         "human_authorized": { "type": "boolean" }
       }
@@ -73,7 +74,7 @@
             "withdrawal"
           ]
         },
-        "operation": { "type": "string", "minLength": 1 }
+        "operation": { "type": "string" }
       }
     },
     "resource": {
@@ -81,9 +82,9 @@
       "additionalProperties": false,
       "required": ["protocol", "resource_id"],
       "properties": {
-        "protocol": { "type": "string", "minLength": 1 },
+        "protocol": { "type": "string" },
         "venue": { "type": ["string", "null"] },
-        "resource_id": { "type": "string", "minLength": 1 },
+        "resource_id": { "type": "string" },
         "resource_type": { "type": ["string", "null"] }
       }
     },
@@ -92,8 +93,8 @@
       "additionalProperties": false,
       "required": ["network", "asset", "amount"],
       "properties": {
-        "network": { "type": "string", "minLength": 1 },
-        "asset": { "type": "string", "minLength": 1 },
+        "network": { "type": "string" },
+        "asset": { "type": "string" },
         "amount": { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$" },
         "destination": { "type": ["string", "null"] },
         "contract": { "type": ["string", "null"] },

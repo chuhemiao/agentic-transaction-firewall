@@ -142,7 +142,7 @@ mod tests {
         let mut ledger = AuditLedger::new();
         ledger.append(
             EventType::DecisionRecorded,
-            Some("01J0000000000000000000P0".to_string()),
+            Some("01J0000000000000000000P000".to_string()),
             serde_json::json!({
                 "decision": decision,
                 "organization_id": organization_id,
@@ -162,7 +162,7 @@ mod tests {
             "PERMIT",
         );
         let new_intent = intent(
-            "01J0000000000000000000P1",
+            "01J0000000000000000000P100",
             "research-agent-01",
             "btc-orderbook-2026-07-01",
         );
@@ -181,7 +181,7 @@ mod tests {
             "PERMIT",
         );
         let new_intent = intent(
-            "01J0000000000000000000P2",
+            "01J0000000000000000000P200",
             "research-agent-01",
             "eth-orderbook-2026-07-01",
         );
@@ -198,7 +198,7 @@ mod tests {
             "PERMIT",
         );
         let new_intent = intent(
-            "01J0000000000000000000P3",
+            "01J0000000000000000000P300",
             "research-agent-02",
             "btc-orderbook-2026-07-01",
         );
@@ -210,7 +210,7 @@ mod tests {
     fn does_not_flag_an_empty_ledger() {
         let ledger = AuditLedger::new();
         let new_intent = intent(
-            "01J0000000000000000000P4",
+            "01J0000000000000000000P400",
             "research-agent-01",
             "btc-orderbook-2026-07-01",
         );
@@ -227,7 +227,7 @@ mod tests {
             "DENY",
         );
         let new_intent = intent(
-            "01J0000000000000000000P6",
+            "01J0000000000000000000P600",
             "research-agent-01",
             "btc-orderbook-2026-07-01",
         );
@@ -244,7 +244,7 @@ mod tests {
             "PERMIT",
         );
         let new_intent = intent(
-            "01J0000000000000000000P7",
+            "01J0000000000000000000P700",
             "research-agent-01",
             "btc-orderbook-2026-07-01",
         );
@@ -258,7 +258,7 @@ mod tests {
         // the current Intent. It must not count as its own duplicate.
         let mut ledger = AuditLedger::new();
         let this_intent = intent(
-            "01J0000000000000000000P5",
+            "01J0000000000000000000P500",
             "research-agent-01",
             "btc-orderbook-2026-07-01",
         );

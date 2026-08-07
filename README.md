@@ -45,9 +45,12 @@ Only the following crates are implemented so far:
   and the fail-closed pure transition validator.
 - `crates/atf-intent` — canonical Transaction Intent type, closed JSON Schema
   and matching fail-closed Serde shape, supported `spec_version` set (`1.0`),
-  canonical serialization and hashing. Unknown core fields are rejected;
-  arbitrary extensions survive only inside object-valued `context` or
-  `metadata` and are hash-bound.
+  canonical serialization and hashing, plus deterministic common semantic
+  validation. Unknown core fields are rejected; arbitrary extensions survive
+  only inside object-valued `context` or `metadata` and are hash-bound.
+  Financial bounds, millisecond-aligned ordered timestamps with a 24-hour
+  maximum TTL, valid ULIDs, and bounded nonblank identifiers/text fail closed
+  with stable machine-readable codes. Versioned action Profiles remain open.
 - `crates/atf-identity` — Agent registration records and Ed25519
   identity-signature verification over an Intent's canonical hash.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
@@ -107,8 +110,12 @@ recovery. `DS-002` provides the store/migration/schema foundation; the
 repositories, `DS-005` Gateway cutover, and `DS-006` lifecycle/typed Audit
 domain contract are complete. `DS-007` persists and replays lifecycle state
 and atomically emits Identity/Policy/Risk/Simulation/Decision events. `DS-008`
-closes the Intent envelope/version contract without changing the compatible
-v1 fixture hash. Semantic validation is still incomplete; `DS-009` is next.
+closes the Intent envelope/version contract. `DS-009` adds common semantic
+validation before durable admission and Policy/Risk. Its documented fixture
+migration replaces historical 24-character pseudo-ULIDs and multi-decade TTLs
+with a valid ULID and five-minute lifetime, so the fixture's locked canonical
+hash changes intentionally. Versioned action Profiles remain; `DS-010` is
+next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -171,6 +178,10 @@ semantics (evaluate only, never execute).
    tests. **Not** wired in:
    `atf-identity` (no endpoint to register an Agent's key yet — that's an
    Admin API concern, PRD §17.3), Simulation, Approval.
+9. ~~Common Transaction Intent semantic validation.~~ Done in DS-009:
+   financial/time/ULID/text invariants produce stable ordered codes, CLI
+   failures exit non-zero, and Gateway integration proves invalid input leaves
+   no Intent, Evaluation, Decision, or Audit row before Policy/Risk.
 
 ### Remaining before Phase 2 can close out
 
@@ -196,8 +207,12 @@ semantics (evaluate only, never execute).
   Rust parsing, only `spec_version: "1.0"` is accepted, object-valued
   `context`/`metadata` remain hash-bound extension points, and the existing v1
   fixture has a locked golden canonical hash.
-- Rust semantic validation and versioned Intent Profiles for cross-field and
-  action-specific invariants.
+- ~~Common Rust semantic validation for financial, time, ULID, identifier and
+  text invariants.~~ Done in DS-009 with deterministic structured violations
+  and stable codes. The valid x402 fixture received a documented ULID/TTL
+  migration and a new locked golden hash.
+- Versioned Intent Profiles for action-specific invariants; unsupported action
+  categories must fail closed rather than inherit only the common validator.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
   protection.
 - Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
@@ -246,7 +261,7 @@ psql postgres://postgres:postgres@localhost:5432/atf \
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   ATF_POLICIES_DIR=policies/examples PORT=8080 cargo run -p atf-gateway
 
-# Validate an intent against the JSON Schema + canonical hash
+# Validate an intent against the JSON Schema + common semantics + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 
 # Evaluate an intent against an example Cedar policy bundle

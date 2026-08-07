@@ -118,9 +118,9 @@ mod tests {
 
     const INTENT: &str = r#"{
         "spec_version": "1.0",
-        "intent_id": "01J0000000000000000000TT",
+        "intent_id": "01J0000000000000000000TT00",
         "idempotency_key": "conformance-runner-test",
-        "created_at": "2026-07-18T08:00:00Z",
+        "created_at": "2098-12-31T23:55:00Z",
         "expires_at": "2099-01-01T00:00:00Z",
         "principal": { "organization_id": "alpha-lab", "agent_id": "research-agent-01" },
         "mandate": {

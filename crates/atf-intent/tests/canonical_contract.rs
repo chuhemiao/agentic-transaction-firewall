@@ -90,7 +90,7 @@ fn accepted_v1_fields_survive_typed_round_trip() {
     assert_eq!(reparsed.canonical_hash(), intent.canonical_hash());
     assert_eq!(
         intent.canonical_hash(),
-        "591102a5ef84d6624484484e4fd0ee792a755e7197e5cd65a87e4bd80b6ed9e1",
+        "a09bc1964b07806bd0498fb71d49220e24ba4a4e578959aa45735e66c4b3a410",
         "the compatible v1 fixture's canonical identity must not drift"
     );
     assert_eq!(
@@ -110,10 +110,10 @@ fn accepted_v1_fields_survive_typed_round_trip() {
 fn every_mutable_v1_field_is_bound_into_the_canonical_hash() {
     let original = validate(V1_FIXTURE).expect("existing v1 fixture remains compatible");
     let mutations = [
-        ("/intent_id", json!("01J000000000000000000009")),
+        ("/intent_id", json!("01J00000000000000000000900")),
         ("/idempotency_key", json!("research-2026-07-18-002")),
-        ("/created_at", json!("2026-07-18T07:59:59Z")),
-        ("/expires_at", json!("2099-01-02T00:00:00Z")),
+        ("/created_at", json!("2098-12-31T23:54:59Z")),
+        ("/expires_at", json!("2099-01-01T00:00:01Z")),
         ("/principal/organization_id", json!("beta-lab")),
         ("/principal/user_id", json!("user-002")),
         ("/principal/agent_id", json!("research-agent-02")),

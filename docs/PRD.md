@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。Intent Semantic Validator/Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界，并在 Durable Admission 与 Policy/Risk 前返回确定性稳定错误。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。Action Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -398,7 +398,7 @@ Review Mode 当前不可用。`REVIEW` Decision 只表示“需要额外控制�
 
 ## 9. Transaction Intent Specification
 
-当前 `atf-intent` 已实现封闭且相互校验的 JSON Schema/Rust Type、`spec_version: "1.0"` 支持集合、Canonical Serialization 和 Hash。未知核心字段会 Fail Closed；对象型 `context`/`metadata` 是当前仅有的开放扩展区并完整进入 Hash。Semantic Validator 和 Action Profile 尚未实现。
+当前 `atf-intent` 已实现封闭且相互校验的 JSON Schema/Rust Type、`spec_version: "1.0"` 支持集合、Canonical Serialization/Hash 和通用 Semantic Validator。未知核心字段会 Fail Closed；对象型 `context`/`metadata` 是当前仅有的开放扩展区并完整进入 Hash。Action Profile 尚未实现，因此 Schema 已列出的 Action Category 仍不等于获得完整语义支持。
 
 ### 9.1 设计原则
 
@@ -558,6 +558,24 @@ Budget 层级：
 7. Transfer 必须有 Destination；Contract Call 必须有 Contract 与 Calldata Hash；Token Approval 必须有 Spender 与 Allowance；Exchange/Prediction Order 必须有完整订单语义。
 8. `amount`、`max_fee`、`fee_asset` 的计价关系必须明确；跨资产手续费必须绑定可验证报价 Snapshot。
 9. Metadata 或 Agent Context 中的未知字段可以作为证据进入 Hash，但在没有可信 Provenance 映射前不得影响最终 Permit。
+
+DS-009 当前实现固定以下跨 Action 边界：Intent 生命周期上限为 24
+小时；输入时间戳必须能以毫秒精度无损进入 Canonical Serialization；
+通用 Identifier 不得为空白、不得超过 256 bytes，字符集限定为 ASCII
+字母数字和 RFC 3986 的保留/非保留安全字符；`mandate.purpose` 不得为空白、
+不得包含控制字符且不得超过 1024 bytes。校验不执行 trim、截断、金额取整
+或时间精度降级。多个错误按固定规则顺序返回
+`SemanticViolation { code, field }`；稳定代码包括
+`AMOUNT_NOT_POSITIVE`、`MAX_FEE_NEGATIVE`、
+`LEVERAGE_NOT_POSITIVE`、`SLIPPAGE_BPS_OUT_OF_RANGE`、
+`TIMESTAMP_PRECISION_UNSUPPORTED`、`TIME_ORDER_INVALID`、
+`TTL_EXCEEDS_LIMIT`、`INTENT_ID_INVALID`、`FIELD_BLANK`、
+`FIELD_TOO_LONG` 与 `FIELD_INVALID_CHARACTERS`。
+
+以上仅是通用 Envelope 语义。DS-010 必须增加版本化 Profile Dispatch，
+并让尚未实现 Profile 的 Action/Profile 组合以
+`UNSUPPORTED_INTENT_PROFILE` Fail Closed；不得把“通过通用校验”解释为
+该金融动作已可安全评估或执行。
 
 具体 Profile 在独立 Specification 中版本化；Profile 变更不得通过向通用 Envelope 随意添加可选字段完成。
 

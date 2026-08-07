@@ -97,7 +97,7 @@ mod tests {
     fn sample_intent(amount: &str) -> TransactionIntent {
         TransactionIntent {
             spec_version: "1.0".into(),
-            intent_id: "01J000000000000000000000".into(),
+            intent_id: "01J00000000000000000000000".into(),
             idempotency_key: "idem-1".into(),
             created_at: Timestamp::from_str("2026-07-18T08:00:00Z").unwrap(),
             expires_at: Timestamp::from_str("2026-07-18T08:05:00Z").unwrap(),

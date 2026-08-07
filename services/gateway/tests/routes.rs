@@ -46,13 +46,13 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
     let app = build_router(test_state(store.clone()));
 
     let response = app
-        .oneshot(post_intent_request("01J0000000000000000000G1", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000G100", "12.50"))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     let decision = body_json(response).await?;
     assert_eq!(decision["decision"], "PERMIT");
-    assert_eq!(decision["intent_id"], "01J0000000000000000000G1");
+    assert_eq!(decision["intent_id"], "01J0000000000000000000G100");
 
     let chain = store.load_verified_audit_chain("alpha-lab").await?;
     let event_types: Vec<EventType> = chain.iter().map(|stored| stored.event.event_type).collect();
@@ -75,7 +75,7 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
     assert_eq!(recorded.data["intent_hash"].as_str().unwrap().len(), 64);
 
     let finalized = store
-        .load_finalized_decision("alpha-lab", "01J0000000000000000000G1")
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000G100")
         .await?
         .expect("Decision must be durably readable");
     assert_eq!(
@@ -113,13 +113,13 @@ async fn posting_an_over_budget_intent_denies_and_records_risk_as_not_run(
     let app = build_router(test_state(store.clone()));
 
     let response = app
-        .oneshot(post_intent_request("01J0000000000000000000G2", "999.00"))
+        .oneshot(post_intent_request("01J0000000000000000000G200", "999.00"))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(body_json(response).await?["decision"], "DENY");
     let finalized = store
-        .load_finalized_decision("alpha-lab", "01J0000000000000000000G2")
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000G200")
         .await?
         .expect("denial must be durable");
     assert_eq!(
@@ -144,13 +144,16 @@ async fn policy_evaluation_failure_commits_an_explicit_fail_closed_terminal_stat
     let app = build_router(test_state(store.clone()));
 
     let response = app
-        .oneshot(post_intent_request("01J0000000000000000000PE", "12.123456"))
+        .oneshot(post_intent_request(
+            "01J0000000000000000000PE00",
+            "12.123456",
+        ))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(body_json(response).await?["decision"], "ERROR");
     let finalized = store
-        .load_finalized_decision("alpha-lab", "01J0000000000000000000PE")
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000PE00")
         .await?
         .expect("fail-closed Decision must be durable when PostgreSQL is healthy");
     assert_eq!(
@@ -205,17 +208,47 @@ async fn posting_malformed_json_returns_bad_request_without_durable_state(
 }
 
 #[tokio::test]
+async fn posting_a_semantically_invalid_intent_stops_before_durable_admission(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("semantic").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+
+    let response = app
+        .oneshot(post_intent_request("01J0000000000000000000S100", "0"))
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(body_json(response).await?["error"]
+        .as_str()
+        .expect("error is a string")
+        .contains("AMOUNT_NOT_POSITIVE"));
+    assert!(store
+        .load_admitted_intent("alpha-lab", "01J0000000000000000000S100")
+        .await?
+        .is_none());
+    assert!(store
+        .load_verified_audit_chain("alpha-lab")
+        .await?
+        .is_empty());
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn decision_can_be_looked_up_by_organization_and_intent_id() -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("lookup").await?;
     let store = database.connect().await?;
     let app = build_router(test_state(store.clone()));
 
     app.clone()
-        .oneshot(post_intent_request("01J0000000000000000000G3", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000G300", "12.50"))
         .await?;
     let response = app
         .oneshot(get_decision_request(
-            "01J0000000000000000000G3",
+            "01J0000000000000000000G300",
             "alpha-lab",
         ))
         .await?;
@@ -274,10 +307,13 @@ async fn organization_scope_prevents_cross_tenant_decision_reads() -> Result<(),
     let app = build_router(test_state(store.clone()));
 
     app.clone()
-        .oneshot(post_intent_request("01J0000000000000000000T1", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000T100", "12.50"))
         .await?;
     let response = app
-        .oneshot(get_decision_request("01J0000000000000000000T1", "beta-lab"))
+        .oneshot(get_decision_request(
+            "01J0000000000000000000T100",
+            "beta-lab",
+        ))
         .await?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -298,7 +334,7 @@ async fn a_second_process_uses_durable_history_to_flag_a_duplicate() -> Result<(
     let first = build_router(test_state(first_store.clone()));
 
     let response = first
-        .oneshot(post_intent_request("01J0000000000000000000D1", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000D100", "12.50"))
         .await?;
     assert_eq!(body_json(response).await?["decision"], "PERMIT");
     first_store.close().await;
@@ -306,7 +342,7 @@ async fn a_second_process_uses_durable_history_to_flag_a_duplicate() -> Result<(
     let second_store = database.connect().await?;
     let second = build_router(test_state(second_store.clone()));
     let response = second
-        .oneshot(post_intent_request("01J0000000000000000000D2", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000D200", "12.50"))
         .await?;
 
     let decision = body_json(response).await?;
@@ -330,12 +366,12 @@ async fn a_denied_request_does_not_count_as_a_duplicate_purchase() -> Result<(),
 
     let response = app
         .clone()
-        .oneshot(post_intent_request("01J0000000000000000000N1", "999.00"))
+        .oneshot(post_intent_request("01J0000000000000000000N100", "999.00"))
         .await?;
     assert_eq!(body_json(response).await?["decision"], "DENY");
 
     let response = app
-        .oneshot(post_intent_request("01J0000000000000000000N2", "12.50"))
+        .oneshot(post_intent_request("01J0000000000000000000N200", "12.50"))
         .await?;
     let decision = body_json(response).await?;
     assert_eq!(decision["decision"], "PERMIT");
@@ -356,7 +392,7 @@ async fn an_unprovisioned_organization_is_rejected_without_database_details(
     let database = TestDatabase::create("organization").await?;
     let store = database.connect().await?;
     let app = build_router(test_state(store.clone()));
-    let intent = sample_intent_json("01J0000000000000000000O1", "12.50");
+    let intent = sample_intent_json("01J0000000000000000000Q100", "12.50");
 
     let response = app
         .oneshot(
