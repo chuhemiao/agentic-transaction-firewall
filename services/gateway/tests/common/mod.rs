@@ -29,8 +29,12 @@ const POLICY: &str = r#"
 "#;
 
 pub fn test_state(store: Store) -> AppState {
+    test_state_with_policy(store, POLICY)
+}
+
+pub fn test_state_with_policy(store: Store, policy: &str) -> AppState {
     AppState::new(
-        POLICY.parse::<PolicyBundle>().expect("policy is valid"),
+        policy.parse::<PolicyBundle>().expect("policy is valid"),
         RiskConfig::default(),
         store,
     )

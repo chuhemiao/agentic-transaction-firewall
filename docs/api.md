@@ -82,16 +82,15 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
 | 409 | `DURABLE_STATE_CONFLICT` | Immutable durable state conflicts with the request |
 | 409 | `IDEMPOTENCY_CONFLICT` | Organization/key is already bound to another Intent hash |
-| 409 | `IDEMPOTENCY_IN_PROGRESS` | The same organization/key/hash is evaluating or awaiting expired-work recovery |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | The same organization/key/hash has an active evaluator or recovery lease |
 | 413 | `REQUEST_BODY_TOO_LARGE` | Active body limit rejected the request |
 | 500 | `DURABLE_STATE_INTEGRITY_ERROR` | Persisted evidence failed verification |
 | 500 | `INTERNAL_ERROR` | An internal invariant failed safely |
 | 503 | `DURABLE_STATE_UNAVAILABLE` | Required durable state is unavailable/incompatible |
 
-Future authentication, authorization, exact retry/recovery, replay and
-dependency features add codes to this one envelope. Changing or removing an
-existing code or field is a compatibility decision and requires an explicit
-migration.
+Future authentication, authorization, nonce replay protection and dependency
+features add codes to this one envelope. Changing or removing an existing code
+or field is a compatibility decision and requires an explicit migration.
 
 ## Admission ordering
 
@@ -103,15 +102,26 @@ migration.
 4. Derive and validate the supported Action Profile.
 5. Atomically reserve the organization/idempotency key, acquire one evaluator
    lease, persist the Intent and append admission evidence.
-6. Evaluate Policy; evaluate Risk only when Policy permits.
-7. Atomically finalize Evaluation, Decision, lifecycle and Audit evidence.
+6. Resolve the durable reservation before evaluation:
+   - a completed same-hash reservation loads and returns its fully verified
+     original Decision without Policy/Risk or new Audit evidence;
+   - an active evaluator/recovery lease returns
+     `409 IDEMPOTENCY_IN_PROGRESS`;
+   - an expired lease is conditionally reclaimed with a higher fencing
+     generation and, until immutable Evaluation Context exists, finalized once
+     as `Decision(ERROR)` with `RECOVERY_CONTEXT_UNAVAILABLE` evidence.
+7. For a new admission, evaluate Policy; renew the lease in an independent
+   short transaction; evaluate Risk only when Policy permits; renew again.
+8. Atomically finalize Evaluation, Decision, lifecycle, Audit evidence and the
+   idempotency result.
 
 Steps 1–4 cannot create an Intent, Evaluation, Decision, or Audit event.
 Integration tests inspect the reservation plus all four business PostgreSQL
 tables for Schema, common
 semantic and unsupported-Profile failures. Internal failure after durable
 admission remains fail closed. DS-012 provides the durable lease/fencing and
-completed-result foundation: an `IN_PROGRESS` duplicate stops before
-Policy/Risk and a different hash returns `IDEMPOTENCY_CONFLICT`. Until DS-013,
-an expired reservation is not automatically reclaimed, and a completed
-same-hash POST is not yet translated into the original Decision.
+completed-result foundation. DS-013 wires its request semantics: completed
+same-hash retry is exact, active work is bounded, and expired work is reclaimed
+only through the generation-fenced fail-closed path. This is request-driven
+recovery, not a background worker. A different hash always returns
+`IDEMPOTENCY_CONFLICT`. Signed nonce replay protection remains DS-016.

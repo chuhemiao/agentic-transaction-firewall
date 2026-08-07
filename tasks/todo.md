@@ -64,8 +64,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-012:** added atomic durable idempotency reservations, database-clock
   evaluator leases, renewal/reclaim, fencing and immutable completed results.
   Depends: DS-004, DS-011.
-- [ ] **NEXT — DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
-- [ ] **DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
+- [x] **DS-013:** wired exact completed retry, active-work conflict,
+  stage-boundary heartbeat, concurrent single-result convergence and
+  request-driven fail-closed recovery after restart. Depends: DS-012.
+- [ ] **NEXT — DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
 - [ ] **DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.
 - [ ] **DS-016:** wire Identity + nonce/idempotency semantics before Policy/Risk. Depends: DS-012..DS-015.
 - [ ] **DS-017:** decide operator authentication and tenant trust boundary. Depends: DS-015.

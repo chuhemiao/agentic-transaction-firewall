@@ -9,13 +9,18 @@ use atf_gateway::build_router;
 use atf_store::AdmissionInput;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use std::{error::Error, time::Duration};
+use std::{error::Error, sync::Arc, time::Duration};
+use tokio::sync::Barrier;
 use tower::ServiceExt;
 
 use common::{
     body_json, error_json, get_decision_request, post_intent_request, sample_intent_json,
-    test_state, TestDatabase,
+    test_state, test_state_with_policy, TestDatabase,
 };
+
+const FORBID_ALL_POLICY: &str = r#"
+    forbid (principal, action, resource);
+"#;
 
 #[tokio::test]
 async fn healthz_and_readyz_report_ok() -> Result<(), Box<dyn Error>> {
@@ -610,6 +615,105 @@ async fn immutable_intent_conflicts_have_a_stable_safe_response() -> Result<(), 
 }
 
 #[tokio::test]
+async fn completed_same_hash_retry_returns_the_original_decision_without_new_evidence(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("completed_retry").await?;
+    let first_store = database.connect().await?;
+    let intent_id = "01J0000000000000000000J100";
+    let first_gateway = build_router(test_state(first_store.clone()));
+
+    let first_response = first_gateway
+        .oneshot(post_intent_request(intent_id, "12.50"))
+        .await?;
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let original = body_json(first_response).await?;
+    assert_eq!(original["decision"], "PERMIT");
+    first_store.close().await;
+
+    let restarted_store = database.connect().await?;
+    let restarted_gateway = build_router(test_state_with_policy(
+        restarted_store.clone(),
+        FORBID_ALL_POLICY,
+    ));
+    let retry_response = restarted_gateway
+        .oneshot(post_intent_request(intent_id, "12.50"))
+        .await?;
+
+    assert_eq!(retry_response.status(), StatusCode::OK);
+    assert_eq!(body_json(retry_response).await?, original);
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(
+        restarted_store
+            .load_verified_audit_chain("alpha-lab")
+            .await?
+            .len(),
+        6
+    );
+
+    restarted_store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_same_hash_posts_converge_on_one_decision_and_one_final_audit_transition(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("concurrent_retry").await?;
+    let store = database.connect().await?;
+    let gateway = build_router(test_state(store.clone()));
+    let intent_id = "01J0000000000000000000K200";
+    let barrier = Arc::new(Barrier::new(3));
+
+    let first = {
+        let barrier = barrier.clone();
+        let gateway = gateway.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            gateway
+                .oneshot(post_intent_request(intent_id, "12.50"))
+                .await
+        })
+    };
+    let second = {
+        let barrier = barrier.clone();
+        let gateway = gateway.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            gateway
+                .oneshot(post_intent_request(intent_id, "12.50"))
+                .await
+        })
+    };
+    barrier.wait().await;
+    let (first, second) = tokio::join!(first, second);
+    let responses = [first??, second??];
+    let mut observed_decisions = Vec::new();
+    for response in responses {
+        if response.status() == StatusCode::OK {
+            observed_decisions.push(body_json(response).await?);
+        } else {
+            error_json(response, StatusCode::CONFLICT, "IDEMPOTENCY_IN_PROGRESS").await?;
+        }
+    }
+    assert!(!observed_decisions.is_empty());
+
+    let retry = gateway
+        .oneshot(post_intent_request(intent_id, "12.50"))
+        .await?;
+    assert_eq!(retry.status(), StatusCode::OK);
+    let durable = body_json(retry).await?;
+    for observed in observed_decisions {
+        assert_eq!(observed, durable);
+    }
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(store.load_verified_audit_chain("alpha-lab").await?.len(), 6);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
 ) -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("intent_in_progress").await?;
@@ -636,6 +740,77 @@ async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
     assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 1));
 
     store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decision(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("expired_recovery").await?;
+    let first_store = database.connect().await?;
+    let intent_id = "01J0000000000000000000K100";
+    let intent_json = sample_intent_json(intent_id, "12.50");
+    let intent = atf_intent::validate(&serde_json::to_string(&intent_json)?)?;
+    let grant = first_store
+        .admit_intent(AdmissionInput {
+            intent,
+            received_at: Timestamp::now(),
+            lease_duration: Duration::from_millis(1),
+        })
+        .await?;
+    assert_eq!(grant.evaluator_lease.generation(), 1);
+    first_store.close().await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let restarted_store = database.connect().await?;
+    let restarted_gateway = build_router(test_state_with_policy(
+        restarted_store.clone(),
+        FORBID_ALL_POLICY,
+    ));
+    let response = restarted_gateway
+        .clone()
+        .oneshot(post_intent_request(intent_id, "12.50"))
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let recovered = body_json(response).await?;
+    assert_eq!(recovered["decision"], "ERROR");
+    assert_eq!(
+        recovered["reasons"][0]["code"],
+        "RECOVERY_CONTEXT_UNAVAILABLE"
+    );
+    let finalized = restarted_store
+        .load_finalized_decision("alpha-lab", intent_id)
+        .await?
+        .expect("recovery must produce one durable terminal Decision");
+    assert_eq!(
+        finalized.decision,
+        serde_json::from_value(recovered.clone())?
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["policy"]["outcome"]["error_code"],
+        "RECOVERY_CONTEXT_UNAVAILABLE"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
+        "POLICY_ERROR"
+    );
+    let reservation = restarted_store
+        .load_idempotency_reservation("alpha-lab", &format!("idem-{intent_id}"))
+        .await?
+        .expect("the reclaimed reservation remains queryable");
+    assert_eq!(reservation.lease_generation, 2);
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+
+    let retry = restarted_gateway
+        .oneshot(post_intent_request(intent_id, "12.50"))
+        .await?;
+    assert_eq!(retry.status(), StatusCode::OK);
+    assert_eq!(body_json(retry).await?, recovered);
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+
+    restarted_store.close().await;
     database.destroy().await?;
     Ok(())
 }

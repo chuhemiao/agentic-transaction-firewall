@@ -114,10 +114,13 @@ Only the following crates are implemented so far:
   `docs/api.md`. Every response receives a fresh server-generated
   `X-ATF-Request-ID`; raw Schema, SQL, policy and key/internal error text is
   not returned. Full trace/Audit propagation remains later observability work.
-  A second `IN_PROGRESS` same-hash request stops before Policy/Risk, while a
-  same-key/different-hash request returns `IDEMPOTENCY_CONFLICT`. Returning the
-  original Decision for a completed same-hash retry and Gateway recovery of
-  expired work remain DS-013.
+  A second same-hash request with an active evaluator/recovery lease stops
+  before Policy/Risk, while a same-key/different-hash request returns
+  `IDEMPOTENCY_CONFLICT`. DS-013 now returns the verified original Decision for
+  completed same-hash retries without re-evaluation, renews leases between
+  Policy/Risk stages, and conditionally reclaims expired admissions after a
+  retry. Until immutable Evaluation Context exists, recovered work records one
+  fail-closed `Decision(ERROR)` instead of re-evaluating under current inputs.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -141,8 +144,9 @@ new hash. x402 proof/delivery semantics remain a later Adapter concern.
 proves Schema/common/Profile rejection leaves all durable business tables
 empty before Policy/Risk. `DS-012` adds the atomic durable idempotency
 reservation, evaluator lease/fencing token and immutable completed-result
-binding. `DS-013`, exact retry and admitted-work recovery through that
-foundation, is next.
+binding. `DS-013` adds exact completed retry, stage-boundary lease heartbeats,
+concurrent result convergence, and request-driven fail-closed recovery of
+expired admissions. `DS-014`, the domain-separated Identity Envelope, is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -228,7 +232,13 @@ semantics (evaluate only, never execute).
     admission and finalization include the reservation/result in their atomic
     transactions, concurrent callers produce one lease owner, renew/reclaim
     uses the database clock and generation fencing, and completed result rows
-    are immutable. Exact completed retry and recovery orchestration are DS-013.
+    are immutable.
+13. ~~Exact completed retry and fenced Gateway recovery.~~ Done in DS-013:
+    completed same-hash POSTs return the verified original Decision without
+    Policy/Risk or new Audit events; active work returns bounded 409; normal
+    evaluation renews its lease between stages; and an expired admission is
+    conditionally reclaimed after restart and terminated once as
+    `RECOVERY_CONTEXT_UNAVAILABLE` until Evaluation Context snapshots exist.
 
 ### Remaining before Phase 2 can close out
 
@@ -239,8 +249,8 @@ semantics (evaluate only, never execute).
 - ~~PostgreSQL request-path persistence and restart/second-instance Decision
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
   fallback. DS-012 adds evaluator leases/fencing and atomic idempotency result
-  binding; exact idempotent retry and recovery of admitted-but-unfinalized work
-  remain DS-013.
+  binding; DS-013 adds exact idempotent result return and request-driven,
+  generation-fenced recovery of admitted-but-unfinalized work.
 - ~~Stable lifecycle and typed Audit domain contract.~~ Done in DS-006: 21
   states, an exhaustively tested transition table, explicit `NOT_RUN` module
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
@@ -268,8 +278,9 @@ semantics (evaluate only, never execute).
   IDs, fixed status/code mappings, Router fallbacks, and durable zero-write
   evidence for structural/common/Profile rejection.
 - ~~Concurrent durable idempotency reservation, evaluator fencing, and atomic
-  result binding.~~ Done in DS-012. Same-hash result return/recovery remains
-  DS-013; signed-envelope Nonce replay protection remains DS-014..DS-016.
+  result binding.~~ Done in DS-012. Same-hash result return/recovery is
+  complete in DS-013; signed-envelope Nonce replay protection remains
+  DS-014..DS-016.
 - Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
   including organization binding and key validity windows.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
@@ -290,8 +301,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  recovery/idempotency, Gateway identity, deterministic replay,
-  provenance, versioned bundles, Audit query/metrics, and security re-audit.
+  Gateway identity/nonce protection, deterministic replay, provenance,
+  versioned bundles, Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

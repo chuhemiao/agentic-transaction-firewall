@@ -24,9 +24,10 @@ Migration 0003 adds the DS-012 idempotency reservation table. Each
 `COMPLETED` rows additionally bind the Evaluation, Decision and Decision hash.
 Triggers reject binding changes, completed-row updates, deletion and truncate.
 Historical final Decisions are backfilled as completed; unfinished historical
-admissions receive an expired generation-1 lease so DS-013 can only recover
-them through the fenced fail-closed path. Canonical Intent/Decision/Audit bytes
-are not rewritten.
+admissions receive an expired generation-1 lease. DS-013 request-driven
+recovery must increment that generation and records only a fenced fail-closed
+Decision while Evaluation Context snapshots are unavailable. Canonical
+Intent/Decision/Audit bytes are not rewritten.
 
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate

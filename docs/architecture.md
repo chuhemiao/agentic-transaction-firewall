@@ -112,8 +112,13 @@ Agent Intent
   (`IDENTITY_UNVERIFIED`) and cannot authorize execution. Every response has a
   server-generated request ID; business/Router/Store errors use one fixed safe
   JSON envelope without returning raw Schema, SQL, policy or key/internal
-  diagnostics. Exact idempotent retry, lifecycle recovery, configured limits,
-  full trace/Audit correlation, and metrics remain absent.*
+  diagnostics. Completed same-hash POSTs return the verified original Decision
+  without re-evaluation; active duplicates return bounded 409; normal
+  evaluation renews its lease between Policy/Risk stages; and a request may
+  conditionally reclaim an expired admission and terminate it as one fenced
+  fail-closed `Decision(ERROR)`. Background recovery, authenticated nonce
+  replay protection, configured limits, full trace/Audit correlation, and
+  metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -132,8 +137,9 @@ Agent Intent
   DS-008 closed Intent envelope/version contract plus DS-009 common semantic
   validator, DS-010 Agent-Commerce Payment profile, and DS-011 safe API
   error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
-  foundation now exist. Additional action profiles, exact completed retry and
-  Gateway recovery remain unimplemented.
+  foundation plus DS-013 exact retry/stage-heartbeat/request-driven recovery
+  now exist. Additional action profiles and authenticated nonce replay
+  protection remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -180,6 +186,17 @@ reservation before the Intent, rejects stale/expired owners, and changes it to
 immutable `COMPLETED` with Evaluation/Decision/hash references in the same
 transaction as Audit and lifecycle state. Before provenance-bearing Context
 snapshots exist, a reclaimed generation may only commit `Decision(ERROR)`.
+DS-013 wires that boundary into the HTTP path. Completed same-hash admission
+errors are resolved through `load_finalized_decision`, which re-verifies the
+canonical Intent/Evaluation/Decision, lifecycle replay, Audit chain and
+idempotency result before returning the original Decision. New evaluators
+renew the same owner/generation in independent short transactions after Policy
+and Risk. An `IN_PROGRESS` retry always attempts the database-conditional
+reclaim: an active lease remains a 409, while an expired lease receives the
+next generation, reloads the admitted evidence, renews once, and records
+`RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)` without rerunning current
+Policy/Risk. Recovery is triggered by a retry request; there is no background
+worker yet.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -247,11 +264,13 @@ implementation order are in ADR-0002.
     Evaluation, all intermediate events, the Decision, lifecycle state, and a
     foreign-key-bound typed `DecisionRecorded`. Only that committed Decision is
     returned. GET reads the same verified record by organization + Intent ID,
-    so restart or a second process observes the original result. A crash after
-    admission but before finalization remains visibly `RECEIVED`; DS-012 now
-    leaves it with an expiring, reclaimable fenced reservation, but the Gateway
-    does not yet orchestrate fail-closed recovery or return a completed same-hash
-    Decision. Those request-path semantics are DS-013.
+    so restart or a second process observes the original result. DS-013 also
+    resolves completed same-hash POSTs through that verified read without
+    rerunning Policy/Risk. A crash after admission remains visibly
+    `RECEIVED` until a retry conditionally reclaims the expired lease; before
+    Evaluation Context snapshots exist, that request records exactly one
+    fenced fail-closed `Decision(ERROR)` rather than evaluating with current
+    inputs. Active duplicates continue to receive bounded 409 responses.
 11. `services/gateway` generates a fresh ULID at the HTTP boundary and returns
     it as `X-ATF-Request-ID` on every response. Business errors expose only the
     fixed `{code,message,request_id,details}` contract; validation details are
@@ -304,12 +323,14 @@ complete Decision Engine:
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization
   Audit chain for history rules, has no configured header/timeout/rate limits,
-  and has no lifecycle recovery worker or exact completed-retry semantics. An
-  active same-hash duplicate now stops before evaluation and a different hash
-  returns `IDEMPOTENCY_CONFLICT`; completed same-hash POST still conflicts.
-  A failure between admission and finalization can leave a fenced admitted
-  Intent without a Decision until DS-013 recovery. These are explicit DS-013 onward gaps,
-  not reasons to reintroduce process-local state.
+  and has no background lifecycle recovery worker. Completed same-hash POSTs
+  now return the original verified Decision, an active same-hash duplicate
+  stops before evaluation, and a different hash returns
+  `IDEMPOTENCY_CONFLICT`. A failure between admission and finalization can
+  leave a fenced admitted Intent without a Decision until a retry triggers
+  DS-013 recovery. Authentication, nonce replay protection, deterministic
+  Context-based recovery and operational scanning remain later gaps, not
+  reasons to reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

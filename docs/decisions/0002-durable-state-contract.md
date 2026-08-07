@@ -326,8 +326,9 @@ Costs and residual risks:
 - `DS-012`: implemented persistent organization/key bindings, database-clock
   leases, renewal/reclaim, monotonically increasing fencing generations,
   immutable completed results, and atomic admission/finalization integration.
-- `DS-013`: return the original completed Decision and orchestrate bounded
-  in-progress/fail-closed crash recovery through the DS-012 primitives.
+- `DS-013`: implemented verified original-Decision return, active-work 409,
+  stage-boundary lease renewal, concurrent single-result convergence and
+  request-driven fail-closed crash recovery through the DS-012 primitives.
 - `DS-016`: add identity-key recheck and nonce consumption to admission.
 - `DS-023`: persist immutable Evaluation Context inputs for deterministic
   crash recovery and replay.

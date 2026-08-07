@@ -65,6 +65,10 @@ order. The executable order is:
 - [x] DS-012 Add the atomic PostgreSQL idempotency reservation, database-clock
   evaluator lease renewal/reclaim, generation fencing, fail-closed recovered
   completion, and immutable Evaluation/Decision/hash result binding.
+- [x] DS-013 Return the verified original Decision for completed same-hash
+  retries, renew active leases between evaluation stages, converge concurrent
+  callers on one durable result, and recover expired admissions after restart
+  as one generation-fenced fail-closed `Decision(ERROR)`.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -79,10 +83,10 @@ order. The executable order is:
 - [x] P0.3 Record every gateway outcome as `DecisionRecorded`, bound to the
   Intent hash. Duplicate-purchase history counts only same-organization
   `PERMIT` decisions; DENY does not poison later requests.
-- [ ] P0.4 Durable, concurrent idempotency and replay protection. DS-012
-  completes reservation/lease/fencing/result storage; DS-013 still must return
-  the original result and orchestrate crash recovery, and DS-016 adds nonce
-  replay protection.
+- [ ] P0.4 Durable, concurrent idempotency and replay protection. DS-012/DS-013
+  complete reservation/result storage, lease/fencing, exact completed retry
+  and request-driven fail-closed recovery; DS-016 still must add authenticated
+  nonce replay protection.
 - [ ] P0.5 Domain-separated Agent identity envelopes wired before Policy and
   Risk.
 - [ ] P0.6 Versioned `EvaluationContext`; remove direct wall-clock and
@@ -95,9 +99,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-013` — return the original completed Decision for
-same-hash retries and wire bounded in-progress plus fail-closed expired-lease
-recovery through the DS-012 reservation/fencing primitives.
+**Immediate next task:** `DS-014` — replace raw Intent-hash signatures with a
+domain-separated Identity Envelope binding organization, Agent, key ID,
+audience/environment, issued/expiry times and nonce.
 
 ## Later releases
 

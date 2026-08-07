@@ -27,7 +27,7 @@ real network request path, but no execution path or production secret.
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion. Signed identity envelopes still have no consumed nonce, so an attacker can replay the same signed Intent under a new key until DS-014..DS-016 wire domain-separated identity and atomic nonce consumption |
+| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion; DS-013 returns exact completed results and restrictively recovers expired work. Signed identity envelopes still have no consumed nonce, so an attacker can replay the same signed Intent under a new key until DS-014..DS-016 wire domain-separated identity and atomic nonce consumption |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
@@ -51,8 +51,13 @@ secret. The realistic attack surface today includes:
   reads from `GET /v1/intents/{id}/decision`. GET requires
   `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
   lands. DS-011 replaces caller correlation values with a server-generated ID
-  and makes business errors structurally stable, but there is no configured
-  header/timeout/rate limit or exact completed-idempotency result return.
+  and makes business errors structurally stable. DS-013 makes completed
+  same-hash POST retry exact, but there is no authentication, signed nonce,
+  configured header/timeout/rate limit or principal-bound idempotency. Until
+  DS-018, a caller who possesses an admitted Intent's exact body can trigger
+  its post-expiry fail-closed recovery; this cannot produce Permit but can
+  terminate the Intent as ERROR, so the Gateway remains unsuitable for an
+  untrusted shared network.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -87,9 +92,14 @@ secret. The realistic attack surface today includes:
   the reservation before the Intent, so a late predecessor cannot overwrite a
   recovered result. Until immutable Evaluation Context recovery exists,
   generation greater than one can only finalize a fail-closed
-  `Decision(ERROR)`. A crash still leaves an Intent unavailable until DS-013
-  orchestrates heartbeat/reclaim and returns the completed same-hash result;
-  the durable lease/fencing primitives themselves are implemented in DS-012.
+  `Decision(ERROR)`. DS-013 renews the active generation between Policy/Risk
+  stages, returns the verified original Decision after a completed-response
+  loss, and makes a retry conditionally reclaim an expired admission. Because
+  pinned Evaluation Context does not exist, the recovered worker does not run
+  current Policy/Risk; it records one explicit
+  `RECOVERY_CONTEXT_UNAVAILABLE` error. Recovery is request-driven, so an
+  abandoned Intent remains `RECEIVED` until a retry arrives; no background
+  scanner or operational alert exists yet.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   `cargo deny` in CI; the broader controls listed above remain open.
 

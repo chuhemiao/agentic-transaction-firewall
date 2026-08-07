@@ -67,7 +67,9 @@ dispatch, the supported Agent-Commerce Payment profile, CAIP-bound fixtures,
 and unsupported-action rejection. DS-011 added safe structured Gateway errors,
 server-owned request IDs and validation-order evidence. DS-012 added atomic
 idempotency reservation/result transactions, database-clock evaluator leases,
-renewal/reclaim and generation fencing; the next task is DS-013.
+renewal/reclaim and generation fencing. DS-013 added exact completed retry,
+stage-boundary heartbeat, concurrent result convergence and request-driven
+fail-closed recovery; the next task is DS-014.
 
 ### Present but incomplete or unwired
 
@@ -80,18 +82,21 @@ renewal/reclaim and generation fencing; the next task is DS-013.
   intermediate events; Identity is explicitly recorded as skipped until the
   verifier is wired.
 - `atf-store` is wired for admission/finalization, contract-v1 lifecycle
-  replay, and atomic idempotency lease/result fencing. Gateway exact completed
-  retry and admitted-work recovery remain unwired.
+  replay, and atomic idempotency lease/result fencing. Gateway now returns
+  exact completed results and recovers expired admissions on retry; there is
+  no background recovery scanner or Context-based deterministic recomputation.
 - GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
   non-health routes remain unsafe for shared deployment.
 
 ### Missing release controls
 
-- Exact idempotent result return, evaluator recovery, and nonce replay
-  protection; the durable reservation/fencing substrate is complete.
+- Authenticated nonce replay protection and deterministic Context-based
+  recovery; exact result return and restrictive request-driven recovery are
+  complete.
 - Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
-- Audit query, metrics, request limits, recovery tests and security CI gates.
+- Audit query, metrics, request limits, background recovery operations and
+  security CI gates; request-driven restrictive recovery tests are complete.
 - Simulator, Approval, Adapter execution, reconciliation and SDKs.
 
 ## 3. Non-negotiable delivery rules
@@ -301,8 +306,8 @@ finalization transactions, Risk consumes verified durable Audit events, GET
 requires `X-ATF-Organization-ID`, and readiness checks live schema access. The
 header is only a transitional tenant selector until DS-017/DS-018 add an
 authenticated organization boundary. DS-012 now supplies atomic reservation,
-lease/fencing and result binding; exact completed retry and admitted-work
-recovery remain DS-013 work.
+lease/fencing and result binding; DS-013 now supplies exact completed retry and
+request-driven admitted-work recovery.
 
 ### DS-006 — Define lifecycle states and typed Audit payloads `[M]`
 
@@ -394,7 +399,7 @@ fixture received DS-009's documented ULID/TTL migration. Action profiles
 were deferred to DS-010; that task now supports one Payment profile and
 rejects every other action. DS-011 now supplies the HTTP error-envelope
 contract; DS-012 now supplies atomic idempotency reservation/result and
-evaluator fencing, with exact retry/recovery deferred to DS-013.
+evaluator fencing, while DS-013 supplies exact retry/recovery semantics.
 
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
 
@@ -493,7 +498,7 @@ admission and therefore before authoritative Policy/Risk evidence. Store
 unavailability, immutable conflict, tenant-safe not-found and Router 404/405
 paths have the same contract. Health/readiness retain text bodies; full trace
 and Audit request-ID propagation remains DS-033. Exact idempotency reservation
-is complete in DS-012; exact retry/recovery is next in DS-013.
+is complete in DS-012; exact retry/recovery is complete in DS-013.
 
 ### DS-012 — Add atomic idempotency reservation `[M]`
 
@@ -524,10 +529,12 @@ exists, generation >1 can only commit `Decision(ERROR)`. Finalization changes
 the reservation to immutable `COMPLETED` with Evaluation ID, Decision ID and
 Decision hash in the same transaction as lifecycle/Audit evidence; reads reject
 a Decision missing that result. Gateway currently stops active duplicates and
-returns `IDEMPOTENCY_CONFLICT` for a different hash. Returning the original
-completed Decision and orchestrating expiry recovery remain DS-013.
+returns `IDEMPOTENCY_CONFLICT` for a different hash. DS-013 now returns the
+original completed Decision and orchestrates request-driven expiry recovery.
 
 ### DS-013 — Wire durable retry and evaluator recovery `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Gateway returns the original Decision for same-key/same-hash
 retries, returns 409 for conflict, and exposes bounded in-progress/recovery
@@ -542,6 +549,19 @@ semantics for an evaluator that crashes after admission.
   2. Concurrent callers observe one Decision and one final Audit transition.
   3. An expired evaluator lease can be safely reclaimed after restart.
 - **Verification:** barrier-based route race, kill/restart smoke and Audit count assertions; full DoD.
+
+**Delivered boundary:** completed same-hash POSTs resolve through the verified
+durable Decision read, so a restart or changed current Policy still returns the
+original Decision without Policy/Risk or new Audit events. New evaluation renews
+the same owner/generation in independent short transactions after Policy and
+Risk. An `IN_PROGRESS` retry performs the database-conditional reclaim: an
+active evaluator/recovery owner remains a bounded 409, while expired work gets
+the next generation, reloads admitted evidence, renews once and records one
+`RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)`. Barrier-based concurrent
+HTTP tests converge on one Evaluation, Decision and final Audit transition;
+restart recovery and its exact retry keep record counts unchanged. Recovery is
+request-driven. Background scanning, authenticated nonce consumption and
+Context-based deterministic recomputation remain later tasks.
 
 ### DS-014 — Replace raw-hash signatures with an Identity Envelope `[M]`
 

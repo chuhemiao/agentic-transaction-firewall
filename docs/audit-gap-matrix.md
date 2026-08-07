@@ -77,8 +77,9 @@ expired-lease reclaim with monotonically increasing fencing generations, and
 atomically binds an immutable completed result to its Evaluation/Decision/Audit
 evidence. Real PostgreSQL tests cover races, restart through a second Store,
 rollback, stale-owner rejection, fail-closed recovered work and result
-tampering. DS-013 is next: return the original completed Decision and
-orchestrate Gateway heartbeat/recovery.
+tampering. DS-013 then wires exact completed retry, stage-boundary heartbeat,
+barrier-tested concurrent convergence and request-driven fail-closed recovery
+after restart. DS-014 is next: define the domain-separated Identity Envelope.
 
 ## Module inventory
 
@@ -91,9 +92,9 @@ orchestrate Gateway heartbeat/recovery.
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 28 canonical typed/versioned payloads, intent-scope validation, event effects, and a strict Schema verified against real output. The Gateway persists/verifies all current lifecycle phase events through `atf-store`; queries and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, atomic admission/finalization, persisted/replayed lifecycle, evidence-gated reads, database-clock evaluator lease renewal/reclaim, generation fencing, immutable completed idempotency results, and live readiness are wired into the Gateway; exact completed-result return and request-path recovery orchestration remain absent. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, atomic admission/finalization, persisted/replayed lifecycle, evidence-gated reads, database-clock evaluator lease renewal/reclaim, generation fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness are wired into the Gateway; background scanning and provenance-pinned deterministic recovery remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, and `policy test` exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; restart/second-instance reads, dependency readiness, stable safe errors, server-owned request IDs, Router fallbacks, validation ordering, idempotency conflict/in-progress handling and one-evaluator admission are tested. Identity, exact completed retry, lease heartbeat/lifecycle recovery, auth, configured limits, full correlation, metrics, and query APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; restart/second-instance reads, dependency readiness, stable safe errors, server-owned request IDs, Router fallbacks, validation ordering, exact completed retry, active-work conflict, stage-boundary lease renewal, concurrent single-result convergence and retry-driven fail-closed recovery are tested. Identity/nonce protection, background recovery, auth, configured limits, full correlation, metrics, and query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
@@ -166,16 +167,16 @@ orchestrate Gateway heartbeat/recovery.
 
 - **module:** Gateway persistence and identity envelopes
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-012 migration 0003 persists one immutable `(organization_id,idempotency_key)` to canonical Intent hash binding. Admission atomically creates the reservation, Intent and `IntentReceived`; finalization requires the current owner/generation before atomically binding the completed Evaluation/Decision hash and Audit evidence. Database-clock leases support bounded renewal and conditional expired-lease reclaim with a monotonic fencing generation. Completed rows reject UPDATE/DELETE/TRUNCATE, stale owners cannot finalize, and generation greater than one may only record fail-closed `Decision(ERROR)` before immutable Evaluation Context recovery exists. Concurrent same-hash requests produce one grant plus `IDEMPOTENCY_IN_PROGRESS`; different hashes produce `IDEMPOTENCY_CONFLICT`, both before Policy/Risk. PostgreSQL race, restart/second-Store, rollback, stale-owner and tamper tests are implemented. The Gateway does not yet return the original Decision for a completed same-hash retry, heartbeat/recover incomplete work, or consume a signed nonce.
-- **design evidence:** ADR-0002 specifies unique organization/key binding, finite leases, monotonically increasing fencing generations, same-hash retry semantics, and atomic nonce consumption. DS-012 implements the reservation/result, lease and fencing storage boundary; DS-013 and DS-016 remain for request recovery/exact retry and authenticated nonce consumption.
-- **security_impact:** concurrent evaluation and stale-completion races are fenced at the durable boundary; signed requests can still be replayed, and a crashed Gateway leaves work unavailable until DS-013 recovery runs.
-- **financial_impact:** the same key cannot authorize a different Intent and stale workers cannot overwrite a reclaimed outcome; completed retries are still unavailable rather than returned exactly, and no signed nonce yet prevents replay under a new key.
+- **evidence:** DS-012 migration 0003 persists one immutable `(organization_id,idempotency_key)` to canonical Intent hash binding. Admission atomically creates the reservation, Intent and `IntentReceived`; finalization requires the current owner/generation before atomically binding the completed Evaluation/Decision hash and Audit evidence. Database-clock leases support bounded renewal and conditional expired-lease reclaim with a monotonic fencing generation. Completed rows reject UPDATE/DELETE/TRUNCATE, stale owners cannot finalize, and generation greater than one may only record fail-closed `Decision(ERROR)` before immutable Evaluation Context recovery exists. DS-013 resolves completed same-hash POSTs through the fully verified durable Decision read, renews the current generation after Policy and Risk, keeps active work at `IDEMPOTENCY_IN_PROGRESS`, and conditionally reclaims expired work after restart as one `RECOVERY_CONTEXT_UNAVAILABLE` Decision without current Policy/Risk. Barrier-based HTTP tests prove concurrent callers converge on one Evaluation, Decision and final Audit transition; changed-Policy restart tests prove exact retry does not re-evaluate. Different hashes still produce `IDEMPOTENCY_CONFLICT`. Signed nonce consumption remains absent.
+- **design evidence:** ADR-0002 specifies unique organization/key binding, finite leases, monotonically increasing fencing generations, same-hash retry semantics, and atomic nonce consumption. DS-012 implements the reservation/result, lease and fencing storage boundary; DS-013 implements its HTTP retry/recovery semantics; DS-016 remains for authenticated nonce consumption.
+- **security_impact:** concurrent evaluation, stale completion, completed-response loss and stranded-admission races are fenced at the durable boundary; signed requests can still be replayed under a new idempotency key until Identity/nonce wiring lands.
+- **financial_impact:** the same key cannot authorize a different Intent, stale workers cannot overwrite a reclaimed outcome, and completed retries return the original result even after Policy changes; no signed nonce yet prevents replay under a new key.
 - **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-012 reservation/fencing invariants; add exact completed-result return, bounded heartbeat/fail-closed recovery in DS-013 and single-use authenticated nonce consumption in DS-016.
-- **required_tests:** different-hash 409, active same-hash conflict, concurrent single winner, renewal/reclaim, stale fencing, restart access, transaction rollback and result tamper rejection are implemented; exact same-hash return, Gateway crash recovery and replay Audit remain.
+- **recommended_change:** retain the DS-012/DS-013 reservation, exact-retry and recovery invariants; add domain-separated envelopes and single-use authenticated nonce consumption in DS-014..DS-016.
+- **required_tests:** different-hash 409, active same-hash conflict, concurrent single result, renewal/reclaim, stale fencing, restart exact return, restrictive crash recovery, transaction rollback and result tamper rejection are implemented; signed-nonce replay and authentication Audit remain.
 - **dependencies:** PostgreSQL transaction boundary and Identity envelope.
 - **target_release:** Durable Shadow Mode P0.4.
-- **acceptance_criteria:** exactly one evaluator wins and conflicts return stable durable codes today; this gap closes only when completed duplicates return the original Decision and authenticated nonce replay is rejected or mapped to that exact original binding.
+- **acceptance_criteria:** exactly one evaluator wins, conflicts return stable durable codes, and completed duplicates return the original Decision today; this gap closes only when authenticated nonce replay is rejected or mapped to that exact original binding.
 
 ### GAP-POL-001 — Policy Bundle Validation
 
@@ -349,13 +350,13 @@ orchestrate Gateway heartbeat/recovery.
 
 - **module:** Gateway state, Audit store, migrations/deploy
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** `atf-store`, embedded migrations, schema metadata checks, tenant constraints, canonical JSON/bytes/hash columns, append-only triggers, a concurrent per-organization Audit writer/verifier, atomic admission/finalization, persisted/replayed lifecycle, and DS-012 idempotency reservation/result plus evaluator fencing are implemented and wired. Evidence-gated reads reject canonical/hash/lifecycle/idempotency-result mismatches and Decisions lacking matching Evaluation/Audit evidence. The Gateway has no Decision/Audit `Mutex` fallback; real tests prove restart/second-instance reads, durable duplicate-purchase history, tenant-keyed lookup, unavailable-store readiness, concurrent single-evaluator admission, renewal/reclaim, stale-owner rejection, finalizer race rejection, transaction rollback and completed-result tamper rejection. A crash after admission remains visibly `RECEIVED` with an expiring lease, but Gateway recovery and completed same-hash result return are not yet orchestrated.
-- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner and stale completion is fenced; recovery and authenticated replay guarantees remain incomplete.
-- **financial_impact:** final Decisions no longer disappear and duplicate concurrent evaluation is prevented; stranded evaluations and completed-retry unavailability remain until DS-013.
+- **evidence:** `atf-store`, embedded migrations, schema metadata checks, tenant constraints, canonical JSON/bytes/hash columns, append-only triggers, a concurrent per-organization Audit writer/verifier, atomic admission/finalization, persisted/replayed lifecycle, and DS-012 idempotency reservation/result plus evaluator fencing are implemented and wired. Evidence-gated reads reject canonical/hash/lifecycle/idempotency-result mismatches and Decisions lacking matching Evaluation/Audit evidence. DS-013 adds exact completed-response recovery and request-driven restrictive recovery for expired admissions. The Gateway has no Decision/Audit `Mutex` fallback; real tests prove restart/second-instance reads, changed-Policy exact retry, durable duplicate-purchase history, tenant-keyed lookup, unavailable-store readiness, concurrent single-result admission, renewal/reclaim, stale-owner rejection, finalizer race rejection, transaction rollback and completed-result tamper rejection. A crash after admission remains visibly `RECEIVED` until a retry reclaims it; no background scanner exists.
+- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner, stale completion is fenced and retry recovers stranded work without current-input re-evaluation; authenticated replay guarantees remain incomplete.
+- **financial_impact:** final Decisions no longer disappear, duplicate concurrent evaluation is prevented, and a stranded admission reaches one explicit fail-closed terminal result when retried.
 - **severity:** `CRITICAL`
-- **recommended_change:** build DS-013 exact retry and fail-closed Gateway recovery on the DS-012 fenced reservation boundary without weakening durable-only lifecycle evidence.
+- **recommended_change:** preserve the DS-012/DS-013 durable-only boundary while adding Identity/nonce protection, deterministic Context snapshots and operational recovery scanning.
 - **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency, database-unavailable fail-closed behavior.
-- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, repositories, Gateway cutover, DS-006/DS-007 lifecycle enforcement and DS-012 idempotency/fencing are complete; DS-013 recovery remains.
+- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, repositories, Gateway cutover, DS-006/DS-007 lifecycle enforcement and DS-012/DS-013 idempotency/recovery are complete.
 - **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
 
@@ -436,9 +437,8 @@ orchestrate Gateway heartbeat/recovery.
 
 ## Next vertical feature
 
-`DS-013` is next: return the exact original Decision for a completed same-hash
-retry, heartbeat active evaluator leases, and recover an expired admission
-through the DS-012 generation-fenced, fail-closed boundary without holding an
-evaluation-time database transaction open. Identity, replay, and budget work
-must continue to build on the durable-only boundary rather than add
-process-local authority.
+`DS-014` is next: replace raw Intent-hash signatures with a domain-separated
+Identity Envelope that binds organization, Agent, key ID, Intent hash,
+audience/environment, issued/expiry times and nonce. Identity, replay, and
+budget work must continue to build on the durable-only boundary rather than
+add process-local authority.

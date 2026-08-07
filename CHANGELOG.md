@@ -7,6 +7,16 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Exact durable retry and request-driven evaluator recovery in the Gateway.
+  A completed same-hash POST returns the fully verified original Decision
+  without rerunning Policy/Risk or adding Audit evidence; active work remains
+  a bounded conflict; and expired admissions are conditionally reclaimed after
+  restart with a higher fencing generation and terminated once as
+  `RECOVERY_CONTEXT_UNAVAILABLE` while Evaluation Context snapshots are absent.
+- Stage-boundary evaluator lease renewal plus real PostgreSQL HTTP tests for
+  changed-Policy restart retry, barrier-synchronized concurrent convergence,
+  expired-lease restart recovery, immutable record counts, and exact retry of
+  the recovered fail-closed Decision.
 - Migration 0003 and `atf-store` idempotency reservations that atomically bind
   each organization/key to one canonical Intent hash, grant one
   database-clock evaluator lease, support renewal and conditional
@@ -18,7 +28,7 @@ This project has not yet made a tagged release.
   restart through a second Store, transaction rollback, fail-closed recovered
   work and completed-result tamper rejection. The Gateway now exposes stable
   `IDEMPOTENCY_CONFLICT` and `IDEMPOTENCY_IN_PROGRESS` responses before
-  Policy/Risk; exact completed retry and recovery orchestration remain DS-013.
+  Policy/Risk; DS-013 builds exact retry and recovery on this boundary.
 - A stable Gateway error contract: business-handler, Store, unknown-route and
   method errors return `{code,message,request_id,details}` JSON; every response
   carries a fresh server-generated `X-ATF-Request-ID` and validation details
@@ -101,6 +111,12 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- A response lost after durable finalization no longer causes re-evaluation
+  under changed Policy/Risk inputs. A crashed evaluator cannot strand work
+  indefinitely once the same request is retried: database-conditional reclaim
+  fences the prior owner and records a restrictive, evidence-complete ERROR
+  instead of substituting current context. Signed nonce replay protection is
+  still intentionally deferred to Identity wiring.
 - Concurrent requests can no longer acquire two durable evaluators for the
   same organization/idempotency key, a key cannot be rebound to another
   Intent hash, and a stale evaluator cannot finalize after lease reclaim.
