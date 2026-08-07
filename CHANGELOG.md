@@ -26,6 +26,8 @@ This project has not yet made a tagged release.
 
 ### Changed
 
+- Restored the cargo-deny 0.20.2 baseline by exact-versioning local workspace
+  dependencies and pinning CI to the official v2.1.1 Action commit.
 - Updated the product requirements to PRD v1.2, making Durable Shadow Mode
   the explicit release gate before Simulator/Adapter/Approval/Enforce work.
 - Recorded ADR-0001 for the decision to finish persistence, identity,
@@ -35,6 +37,9 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Reviewed and explicitly allowed `Apache-2.0 WITH LLVM-exception` from the
+  Cedar build path and `MIT-0` from the JSON Schema path while retaining
+  wildcard and unknown-source denial.
 - A previously denied request can no longer poison a later valid request by
   making it look like a duplicate purchase, and histories from different
   organizations no longer collide in that rule.

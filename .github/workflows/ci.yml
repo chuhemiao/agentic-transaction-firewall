@@ -44,8 +44,10 @@ jobs:
       - run: cargo test --all-targets --all-features
 
   deny:
-    name: cargo deny
+    name: cargo deny 0.20.2
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # v2.1.1 is the official cargo-deny 0.20.2 action release. Pin the
+      # immutable commit so local and CI policy semantics cannot drift.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25

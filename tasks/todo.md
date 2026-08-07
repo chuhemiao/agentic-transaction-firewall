@@ -8,7 +8,9 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ## Baseline gate repair
 
-- [ ] **NEXT — BL-001:** restore `cargo deny 0.20.2` by reviewing new licenses, version-binding workspace path dependencies and pinning CI behavior.
+- [x] **BL-001:** restored `cargo deny 0.20.2`; reviewed new licenses,
+  exact-versioned workspace path dependencies, retained restrictive policies,
+  and pinned CI behavior.
 
 ## Verified baseline — do not reopen without evidence
 
@@ -24,7 +26,8 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ### C1 Durable state
 
-- [ ] **DS-001:** decide durable transactions, evaluator recovery and per-org Audit-chain contract. Depends: BL-001.
+- [ ] **NEXT — DS-001:** decide durable transactions, evaluator recovery and
+  per-org Audit-chain contract. Depends: BL-001.
 - [ ] **DS-002:** create `atf-store` and the initial PostgreSQL migration. Depends: DS-001.
 - [ ] **DS-003:** implement concurrent per-organization Audit append/verification. Depends: DS-002.
 - [ ] **DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.

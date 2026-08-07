@@ -21,6 +21,9 @@ order. The executable order is:
 4. stateful Risk, query/observability, operational hardening and re-audit
    (`DS-028`..`DS-040`).
 
+- [x] BL-001 Restore the cargo-deny baseline without weakening wildcard,
+  license, or source policy; pin CI to cargo-deny 0.20.2 semantics.
+
 - [ ] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain.
 - [~] P0.2 Intent lifecycle state machine. `IntentReceived`,
@@ -43,10 +46,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `BL-001` — restore the currently failing
-`cargo deny 0.20.2` gate without weakening license/source policy. Then
-`DS-001` records the PostgreSQL transaction, evaluator-recovery and
-per-organization Audit-chain contract in ADR-0002.
+**Immediate next task:** `DS-001` — record the PostgreSQL transaction,
+evaluator-recovery and per-organization Audit-chain contract in ADR-0002.
 
 ## Later releases
 

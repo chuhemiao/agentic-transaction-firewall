@@ -71,6 +71,13 @@ Agent Intent
   `REVIEW` on the second request). Does not call `atf-identity` (see above)
   and has no persistent store (PRD §22): a process restart loses every
   recorded Decision and the whole audit ledger.*
+- **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
+  cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
+  CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
+  bounds as well as paths, while wildcard and unknown-source denial remain
+  enabled. `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
+  (JSON Schema path) are explicitly reviewed permissive licenses. Broader
+  audit/secret/SAST/SBOM gates remain planned under GAP-CI-001.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, `migrations/`, `fuzz/` is a scaffolded directory with a

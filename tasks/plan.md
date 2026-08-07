@@ -37,11 +37,14 @@ order. In particular, Policy Bundle and Risk Rule Set hashes must exist before
   evaluate-only Gateway with four routes.
 - CI workflow jobs for fmt, clippy, tests and `cargo deny`.
 
-Planning-time verification found that fmt, clippy and all 80 tests pass, while
-`cargo deny 0.20.2` currently fails: two transitive licenses are not explicitly
-reviewed/allowed and local workspace path dependencies are rejected by the
-wildcard rule. `BL-001` repairs this baseline before feature work; this plan
-does not silently treat a configured CI job as a passing gate.
+Planning-time verification found that fmt, clippy and all 80 tests passed,
+while `cargo deny 0.20.2` initially failed: two transitive licenses were not
+explicitly reviewed/allowed and local workspace path dependencies were
+rejected by the wildcard rule. `BL-001` was defined to repair this baseline
+before feature work rather than treat a configured CI job as a passing gate.
+
+BL-001 was completed on 2026-08-07 with the restrictive wildcard/source policy
+intact. The next task is DS-001.
 
 ### Present but incomplete or unwired
 
@@ -151,6 +154,8 @@ flowchart TD
 ## 6. Baseline repair
 
 ### BL-001 — Restore the current `cargo deny` gate `[S]`
+
+**Status:** Complete (2026-08-07).
 
 **Description:** Review and explicitly allow or reject the newly encountered
 `Apache-2.0 WITH LLVM-exception` and `MIT-0` transitive licenses, version local

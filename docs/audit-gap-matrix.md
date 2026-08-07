@@ -6,17 +6,23 @@ Baseline date: 2026-08-05. Baseline commit: `f0a2a3d` plus the
 workspace code and routes, and the audit requirements supplied for this
 review.
 
-The original audit-baseline verification was clean for `cargo fmt --all -- --check`, `cargo
-clippy --all-targets --all-features -- -D warnings`, `cargo test --workspace
---all-targets --all-features`, and `cargo deny check`. GitHub has no open or
-closed Issues or Pull Requests at this baseline.
+The original audit-baseline verification was clean for
+`cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D
+warnings`, `cargo test --workspace --all-targets --all-features`, and `cargo
+deny check`. GitHub has no open or closed Issues or Pull Requests at this
+baseline.
 
-Planning revalidation on 2026-08-05 at `d112e7e` still passes fmt, clippy and
-all 80 tests, but `cargo deny 0.20.2 check` now fails: the dependency graph
-contains unreviewed `Apache-2.0 WITH LLVM-exception` and `MIT-0` licenses, and
-the current tool rejects unversioned local workspace path dependencies under
-`wildcards = "deny"`. `BL-001` in `tasks/plan.md` is the immediate repair; the
-older clean result above must not be interpreted as the current gate state.
+Planning revalidation on 2026-08-05 at `d112e7e` passed fmt, clippy and all 80
+tests, but `cargo deny 0.20.2 check` initially failed: the dependency graph
+contained unreviewed `Apache-2.0 WITH LLVM-exception` and `MIT-0` licenses, and
+the current tool rejected unversioned local workspace path dependencies under
+`wildcards = "deny"`.
+
+BL-001 repaired that regression on 2026-08-07: local workspace dependencies
+now carry exact versions, both new licenses were reviewed from their packaged
+license texts, unused license allowances were removed, and CI is pinned to the
+official v2.1.1 Action commit for cargo-deny 0.20.2. Wildcard and unknown-source
+denial remain enabled; `cargo deny check` passes.
 
 ## Module inventory
 
@@ -324,17 +330,18 @@ older clean result above must not be interpreted as the current gate state.
 
 - **module:** `.github/workflows`, `fuzz`, release pipeline
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** fmt/clippy/test jobs run and pass locally; the configured deny
-  job currently fails under cargo-deny 0.20.2 because license/path-dependency
-  policy needs updating. cargo audit/nextest/fuzz, secret/SAST/container
-  scanning, SBOM, signing, migration and Compose E2E are absent.
+- **evidence:** fmt/clippy/test jobs run; BL-001 restored cargo-deny 0.20.2 by
+  exact-versioning path dependencies, reviewing the Cedar/JSON Schema
+  transitive licenses, and pinning the official Action release commit. cargo
+  audit/nextest/fuzz, secret/SAST/container scanning, SBOM, signing, migration
+  and Compose E2E are still absent.
 - **security_impact:** vulnerable code, secrets, images, or artifacts can escape current gates.
 - **financial_impact:** compromised dependencies/builds can alter financial control behavior.
 - **severity:** `HIGH`
 - **recommended_change:** add staged security/release jobs with pinned actions and generated attestations.
 - **required_tests:** intentional gate-failure fixtures, fuzz smoke, migration E2E, artifact verification.
 - **dependencies:** persistence/container packaging for later jobs.
-- **target_release:** `BL-001` restores deny before feature work; remaining
+- **target_release:** BL-001 deny repair is complete; remaining
   dependency/secret/SAST gates land during Durable Shadow Mode.
 - **acceptance_criteria:** every PR runs declared gates and every release has verifiable SBOM, checksum, and signature/attestation.
 

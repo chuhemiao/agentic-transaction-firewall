@@ -8,13 +8,17 @@ ignore = []
 [licenses]
 allow = [
     "Apache-2.0",
+    # ar_archive_writer (Cedar build dependency): Apache-2.0 with a more
+    # permissive exception for compiled/linked object code.
+    "Apache-2.0 WITH LLVM-exception",
     "MIT",
+    # borrow-or-share (JSON Schema dependency): permissive MIT variant with
+    # no attribution condition.
+    "MIT-0",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "ISC",
     "Unicode-3.0",
     "Zlib",
-    "CC0-1.0",
 ]
 confidence-threshold = 0.8
 

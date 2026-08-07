@@ -21,13 +21,13 @@ repository = "https://github.com/chuhemiao/agentic-transaction-firewall"
 authors = ["ATF Contributors"]
 
 [workspace.dependencies]
-atf-core = { path = "crates/atf-core" }
-atf-intent = { path = "crates/atf-intent" }
-atf-identity = { path = "crates/atf-identity" }
-atf-policy = { path = "crates/atf-policy" }
-atf-risk = { path = "crates/atf-risk" }
-atf-audit = { path = "crates/atf-audit" }
-atf-decision = { path = "crates/atf-decision" }
+atf-core = { path = "crates/atf-core", version = "=0.1.0" }
+atf-intent = { path = "crates/atf-intent", version = "=0.1.0" }
+atf-identity = { path = "crates/atf-identity", version = "=0.1.0" }
+atf-policy = { path = "crates/atf-policy", version = "=0.1.0" }
+atf-risk = { path = "crates/atf-risk", version = "=0.1.0" }
+atf-audit = { path = "crates/atf-audit", version = "=0.1.0" }
+atf-decision = { path = "crates/atf-decision", version = "=0.1.0" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

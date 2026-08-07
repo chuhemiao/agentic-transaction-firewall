@@ -129,9 +129,10 @@ semantics (evaluate only, never execute).
 
 ### Remaining before Phase 2 can close out
 
-- Restore the currently failing `cargo deny 0.20.2` gate by reviewing new
-  transitive licenses and version-binding local workspace dependencies; do not
-  weaken the wildcard/source policy to make the check green.
+- ~~Restore the `cargo deny 0.20.2` baseline.~~ Done: reviewed and explicitly
+  allowed the two new permissive transitive licenses, exact-versioned every
+  local workspace dependency, retained wildcard/source denial, and pinned CI
+  to the official cargo-deny 0.20.2 Action release commit.
 - PostgreSQL persistence and a transactional Intent lifecycle; process
   restart and multiple instances must preserve the same Decision/Audit state.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
