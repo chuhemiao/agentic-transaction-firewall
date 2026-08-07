@@ -7,6 +7,9 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- A closed Transaction Intent v1.0 structural contract across JSON Schema and
+  Rust parsing, plus round-trip, unknown-field, version, extension, mutation,
+  and golden canonical-hash tests for the existing x402 fixture.
 - Migration 0002 and contract-v1 Intent lifecycle persistence with optimistic
   versions, last-event pointers, typed-event replay, compatibility backfill,
   stale-writer rejection, and atomic rollback tests on PostgreSQL.
@@ -60,6 +63,9 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Unknown Intent core fields and unsupported versions can no longer validate
+  and then disappear before canonical hashing; extension data is accepted only
+  inside object-valued, hash-bound `context` or `metadata`.
 - Reviewed and allowed ISC for the ring/WebPKI code and
   CDLA-Permissive-2.0 for the WebPKI trust-anchor data introduced by SQLx's
   Rustls PostgreSQL TLS path; wildcard and unknown-source denial remain.

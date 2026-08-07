@@ -27,8 +27,11 @@ Agent Intent
 - **`atf-core`** — shared domain primitives: fixed-point `Amount`, `Timestamp`
   (RFC 3339), shared Decision kind, 22 stable Intent lifecycle states, and an
   exhaustive fail-closed transition validator. *Implemented.*
-- **`atf-intent`** — `TransactionIntent` type, JSON Schema validation,
-  canonical serialization + SHA-256 hash. *Implemented.*
+- **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
+  matching `deny_unknown_fields` Rust parsing, explicit supported
+  `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
+  extensions, canonical serialization + SHA-256 hash. Structural contract is
+  *implemented*; semantic and action-profile validation remain planned.
 - **`atf-identity`** — Agent registration records (`AgentRecord`,
   `AgentStatus`) and an in-memory `IdentityRegistry` verifying a raw
   Ed25519 signature over `intent.canonical_hash()`, with key-rotation
@@ -106,9 +109,9 @@ Agent Intent
   admission/finalization transactions, and evaluator fencing/recovery rules.
   `atf-store`, the base migration, durable Audit writer/verifier, and the
   DS-004 admission/finalization transaction subset and DS-005 Gateway cutover
-  plus the DS-006 domain contract and DS-007 persisted/replayable lifecycle now
-  exist. Idempotency result state, leases/fencing, and recovery remain
-  unimplemented.
+  plus the DS-006 domain contract, DS-007 persisted/replayable lifecycle, and
+  DS-008 closed Intent envelope/version contract now exist. Semantic profiles,
+  idempotency result state, leases/fencing, and recovery remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -166,7 +169,10 @@ implementation order are in ADR-0002.
 
 1. A caller constructs or receives a `TransactionIntent` JSON document
    matching `schemas/transaction-intent.schema.json`.
-2. `atf-intent::validate` checks it against the JSON Schema.
+2. `atf-intent::validate` checks it against the closed JSON Schema, accepts
+   only `spec_version: "1.0"`, rejects unknown core fields, and then parses the
+   same fail-closed Rust shape. Arbitrary extensions are accepted only under
+   object-valued `context`/`metadata`.
 3. `atf-intent::canonical_hash` produces a deterministic SHA-256 hash over a
    canonical (sorted-key, fixed-point) serialization — this is the value that
    will later bind Decisions and Approvals to a specific Intent (PRD §9.1,

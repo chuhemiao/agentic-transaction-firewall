@@ -53,8 +53,11 @@ secret. The realistic attack surface today includes:
   lands. There is no request-size limit, rate limit, or completed idempotency.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
-  `atf-cli` — mitigated by JSON Schema validation and Rust's memory safety;
-  fuzz targets for the parser/normalizer are tracked in `fuzz/` (Phase 1+).
+  `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
+  parsing, rejects unsupported Intent versions, and retains arbitrary data
+  only in object-valued hash-bound `context`/`metadata`. Amount/time/ID and
+  action-profile semantics remain DS-009/010; fuzz targets for the
+  parser/normalizer are tracked in `fuzz/` (Phase 1+).
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.

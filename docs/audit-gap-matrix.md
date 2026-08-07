@@ -83,13 +83,13 @@ Fenced idempotency completion and authenticated tenant binding remain open.
 ### GAP-INT-001 — Intent Schema Validation
 
 - **module:** `atf-intent`, `schemas/transaction-intent.schema.json`
-- **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** top-level `additionalProperties` is `true`; Serde ignores unknown envelope fields, so an unrecognized field can validate and then disappear from the typed canonical hash.
-- **security_impact:** callers can believe an extension is integrity-bound when ATF silently drops it.
-- **financial_impact:** an amount qualifier, fee asset, or destination constraint in an unknown field could be omitted from the evaluated request.
+- **current_state:** `PARTIALLY_IMPLEMENTED` — DS-008 structural contract complete; Action Profiles remain DS-010.
+- **evidence:** top-level and nested core objects are closed in both JSON Schema and direct Serde parsing; only `spec_version: "1.0"` is accepted. `context`/`metadata` must be objects, remain open inside, survive typed round trips, and are included in the canonical hash. The x402 v1 fixture has a golden hash and mutation tests cover every mutable v1 field. Per-action Profile Schemas are not implemented.
+- **security_impact:** structural data is no longer silently dropped, but callers can still mistake a hash-bound extension for an enforced semantic constraint before Profiles exist.
+- **financial_impact:** an amount qualifier, fee asset, or destination constraint placed in `context`/`metadata` is preserved as evidence but is not enforced by an Action Profile.
 - **severity:** `HIGH`
-- **recommended_change:** close the core envelope, add versioned extension namespaces, and add per-action profile Schemas.
-- **required_tests:** unknown-core-field rejection, context/metadata hash sensitivity, Schema/Rust round-trip, profile compatibility.
+- **recommended_change:** keep the closed core contract; define the versioned extension convention and add per-action Profile Schemas in DS-010.
+- **required_tests:** unknown-core-field rejection, context/metadata hash sensitivity, and Schema/Rust round-trip are implemented; profile compatibility remains DS-010.
 - **dependencies:** semantic version policy and profile design.
 - **target_release:** Durable Shadow Mode, immediately after persistence semantics are fixed.
 - **acceptance_criteria:** no unvalidated core field is silently ignored; every accepted field affecting intent meaning is present in the canonical hash.
@@ -98,7 +98,7 @@ Fenced idempotency completion and authenticated tenant binding remain open.
 
 - **module:** `atf-intent`
 - **current_state:** `MISSING`
-- **evidence:** `validate` performs JSON Schema validation then deserializes; it does not reject non-positive amount/leverage, negative fee, invalid slippage, reversed times, invalid ULID, whitespace IDs, unsupported versions, or incomplete action-specific fields.
+- **evidence:** `validate` performs closed JSON Schema validation then fail-closed deserialization and now rejects unsupported versions. It still does not reject non-positive amount/leverage, negative fee, invalid slippage, reversed times, invalid ULID, whitespace IDs, or incomplete action-specific fields.
 - **security_impact:** malformed financial intents reach Policy and may receive `PERMIT`.
 - **financial_impact:** negative/zero values and incomplete operations can bypass threshold logic or be interpreted differently by downstream systems.
 - **severity:** `HIGH`
@@ -413,7 +413,8 @@ Fenced idempotency completion and authenticated tenant binding remain open.
 
 ## Next vertical feature
 
-`DS-008` is next: close the Intent envelope, define supported spec versions,
-and prove Schema/Rust/canonical round trips do not silently drop hash-bound
-data. Identity, idempotency, replay, and budget work must continue to build on
-the durable-only boundary rather than add process-local authority.
+`DS-009` is next: add deterministic common semantic validation and stable
+machine-readable errors for financial values, time ordering, identifiers and
+bounds before Policy/Risk. Identity, idempotency, replay, and budget work must
+continue to build on the durable-only boundary rather than add process-local
+authority.

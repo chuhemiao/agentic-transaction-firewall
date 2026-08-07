@@ -7,5 +7,7 @@ mod types;
 mod validate;
 
 pub use error::IntentError;
-pub use types::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
+pub use types::{
+    Action, Mandate, Principal, Resource, Transaction, TransactionIntent, SUPPORTED_SPEC_VERSIONS,
+};
 pub use validate::validate;

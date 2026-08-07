@@ -59,8 +59,9 @@ making those repositories the Gateway's only Decision/Audit path, adding live
 storage readiness, and proving restart/second-instance reads plus durable Risk
 history on real PostgreSQL. DS-006 completed the lifecycle and typed Audit
 domain contract. DS-007 completed transactional lifecycle persistence, typed
-phase emission, replay verification, and stale-writer rejection; the next task
-is DS-008.
+phase emission, replay verification, and stale-writer rejection. DS-008 closed
+the Intent envelope/version contract without changing the compatible v1
+fixture identity; the next task is DS-009.
 
 ### Present but incomplete or unwired
 
@@ -358,7 +359,7 @@ until DS-016.
 
 ### DS-008 — Close the Intent envelope and version contract `[S]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Reject unknown core envelope fields, define supported
 `spec_version` values, and keep extensions only in hash-bound `context` or
@@ -374,7 +375,17 @@ until DS-016.
   3. Existing valid v1 fixtures remain compatible or receive a documented migration.
 - **Verification:** Schema/Rust round-trip and mutation tests; CLI fixture smoke; full DoD.
 
+**Delivered boundary:** The top-level Schema is closed, all typed core structs
+reject unknown fields during direct Serde parsing, and Schema plus Rust accept
+only `spec_version: "1.0"`. `context` and `metadata` remain arbitrary but must
+be JSON objects; their complete content survives typed round trips and affects
+the canonical hash. Tests mutate every mutable v1 leaf, exercise both parse
+paths, and lock the existing x402 fixture hash. Cross-field semantics and
+stable API error codes remain DS-009; action profiles remain DS-010.
+
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
+
+**Status:** Next.
 
 **Description:** Validate positive amount/leverage, non-negative fee,
 slippage bounds, time ordering/max TTL, ULID and bounded nonblank identifiers.

@@ -1,6 +1,13 @@
 use atf_core::{Amount, Timestamp};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
+
+/// Intent wire versions accepted by this release.
+///
+/// Adding a value is a compatibility decision: the JSON Schema, Rust parser,
+/// fixtures, profiles, and Gateway support must advance together.
+pub const SUPPORTED_SPEC_VERSIONS: &[&str] = &["1.0"];
 
 /// Canonical Transaction Intent (PRD §9.2).
 ///
@@ -8,7 +15,9 @@ use serde_json::{Map, Value};
 /// without a compatibility plan (§9.1.6, §37). `context` and `metadata` are
 /// deliberately untyped JSON objects — they are the extension points.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransactionIntent {
+    #[serde(deserialize_with = "deserialize_supported_spec_version")]
     pub spec_version: String,
     pub intent_id: String,
     pub idempotency_key: String,
@@ -19,9 +28,15 @@ pub struct TransactionIntent {
     pub action: Action,
     pub resource: Resource,
     pub transaction: Transaction,
-    #[serde(default = "empty_object")]
+    #[serde(
+        default = "empty_object",
+        deserialize_with = "deserialize_extension_object"
+    )]
     pub context: Value,
-    #[serde(default = "empty_object")]
+    #[serde(
+        default = "empty_object",
+        deserialize_with = "deserialize_extension_object"
+    )]
     pub metadata: Value,
 }
 
@@ -29,7 +44,37 @@ fn empty_object() -> Value {
     Value::Object(Map::new())
 }
 
+fn deserialize_supported_spec_version<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let version = String::deserialize(deserializer)?;
+    if SUPPORTED_SPEC_VERSIONS.contains(&version.as_str()) {
+        Ok(version)
+    } else {
+        Err(D::Error::custom(format!(
+            "unsupported spec_version {version:?}; supported versions: {}",
+            SUPPORTED_SPEC_VERSIONS.join(", ")
+        )))
+    }
+}
+
+fn deserialize_extension_object<'de, D>(deserializer: D) -> Result<Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    if value.is_object() {
+        Ok(value)
+    } else {
+        Err(D::Error::custom(
+            "extension namespace must be a JSON object",
+        ))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Principal {
     pub organization_id: String,
     #[serde(default)]
@@ -42,6 +87,7 @@ pub struct Principal {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Mandate {
     pub mandate_id: String,
     #[serde(default)]
@@ -57,12 +103,14 @@ pub struct Mandate {
 /// JSON Schema (`schemas/transaction-intent.schema.json`) is the place that
 /// enumerates allowed values without requiring a Rust code change per entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Action {
     pub category: String,
     pub operation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Resource {
     pub protocol: String,
     #[serde(default)]
@@ -73,6 +121,7 @@ pub struct Resource {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Transaction {
     pub network: String,
     pub asset: String,

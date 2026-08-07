@@ -47,6 +47,9 @@ order. The executable order is:
 - [x] DS-007 Persist lifecycle state/version/event pointers, atomically emit
   the typed evaluation phases, replay evidence on reads, and prove stale-writer
   rejection plus batch rollback on PostgreSQL.
+- [x] DS-008 Close the Intent core envelope in both Schema and Rust parsing,
+  support only v1.0, retain extensions only in object-valued hash-bound
+  `context`/`metadata`, and lock the compatible fixture's canonical hash.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -74,9 +77,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-008` — close unknown Intent envelope fields,
-define supported `spec_version` values, and prove accepted fields survive the
-Schema → Rust → canonical hash round trip.
+**Immediate next task:** `DS-009` — add common Rust semantic validation for
+financial values, time ordering, identifiers and bounds, returning stable
+machine-readable error codes before Policy/Risk.
 
 ## Later releases
 

@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。Intent Semantic Validator/Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -398,7 +398,7 @@ Review Mode 当前不可用。`REVIEW` Decision 只表示“需要额外控制�
 
 ## 9. Transaction Intent Specification
 
-当前 `atf-intent` 已实现 JSON Schema、Rust Type、Canonical Serialization 和 Hash；本节新增的 Semantic Validator、封闭 Core Envelope 和 Action Profile 尚未实现。
+当前 `atf-intent` 已实现封闭且相互校验的 JSON Schema/Rust Type、`spec_version: "1.0"` 支持集合、Canonical Serialization 和 Hash。未知核心字段会 Fail Closed；对象型 `context`/`metadata` 是当前仅有的开放扩展区并完整进入 Hash。Semantic Validator 和 Action Profile 尚未实现。
 
 ### 9.1 设计原则
 
@@ -412,8 +412,8 @@ Review Mode 当前不可用。`REVIEW` Decision 只表示“需要额外控制�
 8. 所有时间使用 RFC 3339。
 9. 所有资产使用标准化 Asset ID。
 10. 所有请求必须有 Idempotency Key。
-11. JSON Schema 只负责结构校验；Rust Semantic Validator 必须负责金额、时间、ID、版本和 Action-specific 跨字段约束。
-12. 核心 Envelope 不接受会被静默忽略的未知字段；扩展字段必须位于版本化命名空间并进入 Canonical Hash。
+11. JSON Schema 与 Rust 反序列化共同负责封闭结构和受支持版本；Rust Semantic Validator 必须负责金额、时间、ID 和 Action-specific 跨字段约束。
+12. 核心 Envelope 不接受会被静默忽略的未知字段；扩展字段必须位于对象型 `context`/`metadata` 并进入 Canonical Hash。新增长期互操作扩展应使用版本化命名空间；现有 v1 非命名空间字段只作为兼容且不可信的证据保留。
 13. Agent 提供的 `context` 默认不可信，不能覆盖 ATF Enricher、Oracle、Adapter 或持久化状态生成的权威字段。
 14. Semantic Validation 失败必须返回稳定、机器可读的 Error Code，并在 Policy/Risk 前终止。
 
@@ -553,7 +553,7 @@ Budget 层级：
 2. `slippage_bps` 必须位于 `0..=10000`。
 3. `created_at < expires_at`，且 Intent 生命周期不得超过 Profile 配置上限。
 4. `intent_id` 必须是合法 ULID；Idempotency Key 和组织/Agent/Mandate ID 必须满足长度、字符和非空白约束。
-5. `spec_version` 必须位于 Gateway 明确支持的版本集合。
+5. `spec_version` 必须位于 Gateway 明确支持的版本集合；当前结构边界只接受 `1.0`，新增版本必须同步 Schema、Rust Parser、Fixture、Profile 与 Gateway。
 6. Asset、Network、Contract、Destination 使用 Profile 声明的标准标识和校验器。
 7. Transfer 必须有 Destination；Contract Call 必须有 Contract 与 Calldata Hash；Token Approval 必须有 Spender 与 Allowance；Exchange/Prediction Order 必须有完整订单语义。
 8. `amount`、`max_fee`、`fee_asset` 的计价关系必须明确；跨资产手续费必须绑定可验证报价 Snapshot。

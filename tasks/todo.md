@@ -49,8 +49,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ### C2 Trusted admission
 
-- [ ] **NEXT — DS-008:** close unknown core fields and supported Intent-version contract. Depends: DS-007.
-- [ ] **DS-009:** add common Rust semantic validation and stable codes. Depends: DS-008.
+- [x] **DS-008:** closed unknown core fields in Schema and Rust parsing,
+  limited the supported Intent version to `1.0`, and proved lossless/hash-bound
+  extension round trips. Depends: DS-007.
+- [ ] **NEXT — DS-009:** add common Rust semantic validation and stable codes. Depends: DS-008.
 - [ ] **DS-010:** add profile dispatch and supported Payment/Agent-Commerce profile. Depends: DS-009.
 - [ ] **DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.
 - [ ] **DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.

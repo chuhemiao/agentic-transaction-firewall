@@ -43,8 +43,11 @@ Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
   and the fail-closed pure transition validator.
-- `crates/atf-intent` — canonical Transaction Intent type, JSON Schema
-  validation, canonical serialization and hashing.
+- `crates/atf-intent` — canonical Transaction Intent type, closed JSON Schema
+  and matching fail-closed Serde shape, supported `spec_version` set (`1.0`),
+  canonical serialization and hashing. Unknown core fields are rejected;
+  arbitrary extensions survive only inside object-valued `context` or
+  `metadata` and are hash-bound.
 - `crates/atf-identity` — Agent registration records and Ed25519
   identity-signature verification over an Intent's canonical hash.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
@@ -102,10 +105,10 @@ and finalization use separate atomic transactions with fenced evaluator
 recovery. `DS-002` provides the store/migration/schema foundation; the
 `DS-003` concurrent append/verifier, `DS-004` admission/finalization
 repositories, `DS-005` Gateway cutover, and `DS-006` lifecycle/typed Audit
-domain contract are complete. `DS-007` now persists and replays lifecycle
-state and atomically emits Identity/Policy/Risk/Simulation/Decision events.
-Leases/fencing and completed idempotency responses remain later tasks;
-`DS-008` is next.
+domain contract are complete. `DS-007` persists and replays lifecycle state
+and atomically emits Identity/Policy/Risk/Simulation/Decision events. `DS-008`
+closes the Intent envelope/version contract without changing the compatible
+v1 fixture hash. Semantic validation is still incomplete; `DS-009` is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -188,6 +191,11 @@ semantics (evaluate only, never execute).
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
   explicit Policy/Risk `DECIDED_ERROR` evidence.
+- ~~Close the Intent envelope and supported-version contract.~~ Done in
+  DS-008: top-level and nested unknown core fields fail both Schema and direct
+  Rust parsing, only `spec_version: "1.0"` is accepted, object-valued
+  `context`/`metadata` remain hash-bound extension points, and the existing v1
+  fixture has a locked golden canonical hash.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
