@@ -4,11 +4,12 @@
 mod common;
 
 use atf_audit::EventType;
-use atf_core::IntentLifecycleState;
+use atf_core::{IntentLifecycleState, Timestamp};
 use atf_gateway::build_router;
+use atf_store::AdmissionInput;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use std::error::Error;
+use std::{error::Error, time::Duration};
 use tower::ServiceExt;
 
 use common::{
@@ -265,7 +266,7 @@ async fn posting_malformed_json_returns_bad_request_without_durable_state(
     let error = error_json(response, StatusCode::BAD_REQUEST, "INVALID_JSON").await?;
     assert_eq!(error["message"], "Request body must be valid JSON.");
     assert_eq!(error["details"], serde_json::json!([]));
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -298,7 +299,7 @@ async fn schema_rejection_uses_the_stable_contract_before_any_durable_record(
     );
     assert_eq!(error["details"], serde_json::json!([]));
     assert!(!serde_json::to_string(&error)?.contains("must fail closed"));
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -323,7 +324,7 @@ async fn invalid_utf8_uses_a_safe_error_without_touching_durable_state(
         .await?;
 
     error_json(response, StatusCode::BAD_REQUEST, "INVALID_UTF8").await?;
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -349,7 +350,7 @@ async fn posting_a_semantically_invalid_intent_stops_before_durable_admission(
             "field": "transaction.amount"
         }])
     );
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -596,12 +597,43 @@ async fn immutable_intent_conflicts_have_a_stable_safe_response() -> Result<(), 
     assert_eq!(first.status(), StatusCode::OK);
 
     let response = app.oneshot(post_intent_request(intent_id, "13.50")).await?;
-    let error = error_json(response, StatusCode::CONFLICT, "DURABLE_STATE_CONFLICT").await?;
+    let error = error_json(response, StatusCode::CONFLICT, "IDEMPOTENCY_CONFLICT").await?;
     assert_eq!(
         error["message"],
-        "The request conflicts with existing durable state."
+        "The idempotency key is already bound to different request content."
     );
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("intent_in_progress").await?;
+    let store = database.connect().await?;
+    let intent_id = "01J0000000000000000000G100";
+    let intent_json = sample_intent_json(intent_id, "12.50");
+    let intent = atf_intent::validate(&serde_json::to_string(&intent_json)?)?;
+    store
+        .admit_intent(AdmissionInput {
+            intent,
+            received_at: Timestamp::now(),
+            lease_duration: Duration::from_secs(30),
+        })
+        .await?;
+    let app = build_router(test_state(store.clone()));
+
+    let response = app.oneshot(post_intent_request(intent_id, "12.50")).await?;
+
+    let error = error_json(response, StatusCode::CONFLICT, "IDEMPOTENCY_IN_PROGRESS").await?;
+    assert_eq!(
+        error["message"],
+        "The idempotent request is in progress or awaiting recovery."
+    );
+    assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 1));
 
     store.close().await;
     database.destroy().await?;

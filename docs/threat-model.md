@@ -27,7 +27,7 @@ real network request path, but no execution path or production secret.
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Unmitigated in code: `idempotency_key` is only schema-level and signed identity envelopes have no nonce. ADR-0002 fixes the target atomic reservation, nonce-consumption, lease, and fencing contract, but DS-012..DS-016 must implement it |
+| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion. Signed identity envelopes still have no consumed nonce, so an attacker can replay the same signed Intent under a new key until DS-014..DS-016 wire domain-separated identity and atomic nonce consumption |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
@@ -52,7 +52,7 @@ secret. The realistic attack surface today includes:
   `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
   lands. DS-011 replaces caller correlation values with a server-generated ID
   and makes business errors structurally stable, but there is no configured
-  header/timeout/rate limit or completed idempotency.
+  header/timeout/rate limit or exact completed-idempotency result return.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -69,7 +69,8 @@ secret. The realistic attack surface today includes:
   error codes/messages and server-owned semantic code/field details; raw
   request values, Schema diagnostics and internal Store/SQL/policy/key text do
   not cross the HTTP response boundary. PostgreSQL tests prove all validation
-  rejection classes leave Intent/Evaluation/Decision/Audit counts at zero.
+  rejection classes leave Idempotency Reservation, Intent, Evaluation,
+  Decision and Audit counts at zero.
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.
@@ -80,15 +81,15 @@ secret. The realistic attack surface today includes:
   queries and request/rate limits are still required to resist growth-based
   denial of service.
 - **Evaluator crash and stale completion** — admission durably records
-  `RECEIVED/v1`; finalization row-locks the Intent and rejects a stale expected
-  lifecycle version, so concurrent stale completions cannot both commit. A
-  crash before finalization remains visible but can still strand an Intent,
-  and a retry currently conflicts because there is no evaluator lease or
-  recovery path.
-  ADR-0002 requires finite leases with
-  monotonically increasing fencing generations and immutable evaluation
-  inputs, so a recovered worker cannot be overwritten by a late predecessor;
-  implementation is still pending.
+  `RECEIVED/v1` and atomically creates a database-clock evaluator lease.
+  Renewal preserves its generation; conditional expiry reclaim rotates the
+  opaque owner and increments that generation. Finalization locks and verifies
+  the reservation before the Intent, so a late predecessor cannot overwrite a
+  recovered result. Until immutable Evaluation Context recovery exists,
+  generation greater than one can only finalize a fail-closed
+  `Decision(ERROR)`. A crash still leaves an Intent unavailable until DS-013
+  orchestrates heartbeat/reclaim and returns the completed same-hash result;
+  the durable lease/fencing primitives themselves are implemented in DS-012.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   `cargo deny` in CI; the broader controls listed above remain open.
 

@@ -54,15 +54,15 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 2);
-    assert_eq!(schema.minimum_writer_version, 2);
+    assert_eq!(schema.minimum_reader_version, 3);
+    assert_eq!(schema.minimum_writer_version, 3);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 2);
+    assert_eq!(migration_count, 3);
 
     let lifecycle_columns: i64 = sqlx::query_scalar(
         r#"
@@ -94,6 +94,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
               'intents',
               'evaluations',
               'decisions',
+              'idempotency_reservations',
               'audit_chain_heads',
               'audit_events'
           )
@@ -101,7 +102,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     )
     .fetch_one(&pool)
     .await?;
-    assert_eq!(table_count, 7);
+    assert_eq!(table_count, 8);
 
     let store = atf_store::Store::connect(&database_url).await?;
     assert_eq!(store.schema(), schema);
@@ -109,7 +110,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 3 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 4 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -119,14 +120,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 2,
-            database_version: 3,
-            minimum_reader_version: 2,
-            minimum_writer_version: 2,
+            binary_version: 3,
+            database_version: 4,
+            minimum_reader_version: 3,
+            minimum_writer_version: 3,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 2 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 3 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -275,6 +276,43 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        INSERT INTO intents (
+            organization_id, intent_id, idempotency_key, spec_version,
+            canonical_intent, canonical_intent_bytes, intent_hash,
+            created_at, expires_at, received_at
+        ) VALUES (
+            'legacy-org', 'legacy-completed', 'legacy-completed-idem', '1.0',
+            '{"legacy": "completed"}'::jsonb, $1, $2,
+            '2026-08-08T00:00:00Z', '2026-08-08T00:05:00Z',
+            '2026-08-08T00:00:01Z'
+        )
+        "#,
+    )
+    .bind(br#"{"legacy":"completed"}"#.as_slice())
+    .bind(HASH_D)
+    .execute(&pool)
+    .await?;
+    insert_evaluation(&pool, "legacy-org", "legacy-evaluation", "legacy-completed").await?;
+    sqlx::query(
+        r#"
+        INSERT INTO decisions (
+            organization_id, decision_id, intent_id, evaluation_id,
+            canonical_decision, canonical_decision_bytes, decision_hash,
+            decided_at
+        ) VALUES (
+            'legacy-org', 'legacy-decision', 'legacy-completed',
+            'legacy-evaluation', '{"decision": "PERMIT"}'::jsonb,
+            $1, $2, '2026-08-08T00:00:02Z'
+        )
+        "#,
+    )
+    .bind(br#"{"decision":"PERMIT"}"#.as_slice())
+    .bind(HASH_C)
+    .execute(&pool)
+    .await?;
+
     connection
         .apply(
             migrator
@@ -299,7 +337,62 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
     assert_eq!(row.2, 0);
     assert_eq!(row.3, None);
     assert_eq!(row.4, canonical_bytes);
-    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 2);
+
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 3)
+                .expect("migration 0003 is embedded"),
+        )
+        .await?;
+
+    let reservation: (String, i64, bool, Vec<u8>) = sqlx::query_as(
+        r#"
+        SELECT
+            reservation.state,
+            reservation.lease_generation,
+            reservation.lease_expires_at <= clock_timestamp(),
+            intent.canonical_intent_bytes
+        FROM idempotency_reservations AS reservation
+        JOIN intents AS intent
+          ON intent.organization_id = reservation.organization_id
+         AND intent.intent_id = reservation.intent_id
+        WHERE reservation.organization_id = 'legacy-org'
+          AND reservation.idempotency_key = 'legacy-idem'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(reservation.0, "IN_PROGRESS");
+    assert_eq!(reservation.1, 1);
+    assert!(reservation.2, "unfinished legacy work must be expired");
+    assert_eq!(reservation.3, canonical_bytes);
+
+    let completed: (String, String, String, String) = sqlx::query_as(
+        r#"
+        SELECT
+            state,
+            result_evaluation_id,
+            result_decision_id,
+            result_decision_hash::text
+        FROM idempotency_reservations
+        WHERE organization_id = 'legacy-org'
+          AND idempotency_key = 'legacy-completed-idem'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        completed,
+        (
+            "COMPLETED".into(),
+            "legacy-evaluation".into(),
+            "legacy-decision".into(),
+            HASH_C.into(),
+        )
+    );
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 3);
 
     connection.close().await?;
     pool.close().await;

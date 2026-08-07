@@ -87,7 +87,7 @@ async fn requests_fail_closed_without_exposing_database_details() -> Result<(), 
     let serialized = serde_json::to_string(&error)?;
     assert!(!serialized.contains("PostgreSQL"));
     assert!(!serialized.contains("postgres"));
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
 
     database.destroy().await?;
     Ok(())

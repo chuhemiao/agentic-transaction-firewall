@@ -7,6 +7,18 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Migration 0003 and `atf-store` idempotency reservations that atomically bind
+  each organization/key to one canonical Intent hash, grant one
+  database-clock evaluator lease, support renewal and conditional
+  expired-lease reclaim with monotonic generation fencing, and bind an
+  immutable completed result to its Evaluation, Decision hash, and Audit
+  evidence in the finalization transaction.
+- Real PostgreSQL idempotency tests covering concurrent single-winner
+  admission, different-hash conflicts, renewal/reclaim, stale-owner fencing,
+  restart through a second Store, transaction rollback, fail-closed recovered
+  work and completed-result tamper rejection. The Gateway now exposes stable
+  `IDEMPOTENCY_CONFLICT` and `IDEMPOTENCY_IN_PROGRESS` responses before
+  Policy/Risk; exact completed retry and recovery orchestration remain DS-013.
 - A stable Gateway error contract: business-handler, Store, unknown-route and
   method errors return `{code,message,request_id,details}` JSON; every response
   carries a fresh server-generated `X-ATF-Request-ID` and validation details
@@ -89,6 +101,12 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Concurrent requests can no longer acquire two durable evaluators for the
+  same organization/idempotency key, a key cannot be rebound to another
+  Intent hash, and a stale evaluator cannot finalize after lease reclaim.
+  Completed result mutation/deletion/truncation is rejected by PostgreSQL;
+  recovered work is restricted to a fail-closed `Decision(ERROR)` until its
+  immutable Evaluation Context can be reproduced.
 - Raw request values, JSON Schema diagnostics, SQL/database information,
   policy text, key material and internal errors are no longer serialized by
   Gateway business errors; fail-closed Policy `Decision(ERROR)` reasons are

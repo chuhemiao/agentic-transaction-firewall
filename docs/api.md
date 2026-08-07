@@ -81,14 +81,17 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 404 | `ROUTE_NOT_FOUND` | Path is not registered |
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
 | 409 | `DURABLE_STATE_CONFLICT` | Immutable durable state conflicts with the request |
+| 409 | `IDEMPOTENCY_CONFLICT` | Organization/key is already bound to another Intent hash |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | The same organization/key/hash is evaluating or awaiting expired-work recovery |
 | 413 | `REQUEST_BODY_TOO_LARGE` | Active body limit rejected the request |
 | 500 | `DURABLE_STATE_INTEGRITY_ERROR` | Persisted evidence failed verification |
 | 500 | `INTERNAL_ERROR` | An internal invariant failed safely |
 | 503 | `DURABLE_STATE_UNAVAILABLE` | Required durable state is unavailable/incompatible |
 
-Future authentication, authorization, idempotency, replay and dependency
-features add codes to this one envelope. Changing or removing an existing code
-or field is a compatibility decision and requires an explicit migration.
+Future authentication, authorization, exact retry/recovery, replay and
+dependency features add codes to this one envelope. Changing or removing an
+existing code or field is a compatibility decision and requires an explicit
+migration.
 
 ## Admission ordering
 
@@ -98,12 +101,17 @@ or field is a compatibility decision and requires an explicit migration.
 2. Validate the closed common JSON Schema and typed Rust envelope.
 3. Validate common financial/time/identifier semantics.
 4. Derive and validate the supported Action Profile.
-5. Begin durable admission.
+5. Atomically reserve the organization/idempotency key, acquire one evaluator
+   lease, persist the Intent and append admission evidence.
 6. Evaluate Policy; evaluate Risk only when Policy permits.
 7. Atomically finalize Evaluation, Decision, lifecycle and Audit evidence.
 
 Steps 1–4 cannot create an Intent, Evaluation, Decision, or Audit event.
-Integration tests inspect all four PostgreSQL tables for Schema, common
+Integration tests inspect the reservation plus all four business PostgreSQL
+tables for Schema, common
 semantic and unsupported-Profile failures. Internal failure after durable
-admission remains fail closed; DS-012/DS-013 add exact idempotent retry and
-recovery for that lifecycle.
+admission remains fail closed. DS-012 provides the durable lease/fencing and
+completed-result foundation: an `IN_PROGRESS` duplicate stops before
+Policy/Risk and a different hash returns `IDEMPOTENCY_CONFLICT`. Until DS-013,
+an expired reservation is not automatically reclaimed, and a completed
+same-hash POST is not yet translated into the original Decision.

@@ -82,9 +82,14 @@ Agent Intent
   chain-head row lock and reloads/verifies the complete persisted chain under
   one consistent snapshot. Migration 0002 adds lifecycle state, optimistic
   version, contract version, last-event pointer, update time, constraints, and
-  an event foreign key. Admission commits immutable Intent + `RECEIVED/v1` +
-  `IntentReceived`; finalization commits canonical Evaluation + Decision +
-  five typed phase events + `DECIDED_*/v6`. Contract-v1 readers replay typed
+  an event foreign key. Migration 0003 adds one immutable
+  `(organization_id,idempotency_key)` reservation per Intent, database-clock
+  lease expiry, monotonically increasing fencing generations, and completed
+  Evaluation/Decision/hash references protected against mutation/deletion.
+  Admission commits reservation + immutable Intent + `RECEIVED/v1` +
+  `IntentReceived`; finalization verifies the active generation and commits
+  canonical Evaluation + Decision + five typed phase events + `DECIDED_*/v6`
+  + completed idempotency result. Contract-v1 readers replay typed
   events and compare materialized state/version/pointer/time. Read APIs expose
   only records whose canonical bytes/hashes, lifecycle replay, and matching
   verified Audit evidence agree. It also exposes a live schema/connectivity
@@ -126,8 +131,9 @@ Agent Intent
   plus the DS-006 domain contract, DS-007 persisted/replayable lifecycle, and
   DS-008 closed Intent envelope/version contract plus DS-009 common semantic
   validator, DS-010 Agent-Commerce Payment profile, and DS-011 safe API
-  error/validation-order contract now exist. Additional action profiles,
-  idempotency result state, leases/fencing, and recovery remain unimplemented.
+  error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
+  foundation now exist. Additional action profiles, exact completed retry and
+  Gateway recovery remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -165,6 +171,15 @@ the same transaction as Evaluation and Decision. Readers replay every typed
 state-producing event and compare state, version, last-event pointer, and
 timestamp. Migrated historical rows remain explicit compatibility contract-v0
 records; immutable canonical/Audit bytes are never rewritten.
+DS-012 implements the two idempotency sides of those transactions. The
+reservation row is inserted before the Intent under a deferred binding foreign
+key and commits with admission evidence. Lease expiry is derived from the
+database clock; renewal preserves its generation, while expired reclaim uses a
+conditional update that increments it. Finalization locks and verifies the
+reservation before the Intent, rejects stale/expired owners, and changes it to
+immutable `COMPLETED` with Evaluation/Decision/hash references in the same
+transaction as Audit and lifecycle state. Before provenance-bearing Context
+snapshots exist, a reclaimed generation may only commit `Decision(ERROR)`.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -233,9 +248,10 @@ implementation order are in ADR-0002.
     foreign-key-bound typed `DecisionRecorded`. Only that committed Decision is
     returned. GET reads the same verified record by organization + Intent ID,
     so restart or a second process observes the original result. A crash after
-    admission but before finalization remains visibly `RECEIVED` but can still
-    strand work until leases and idempotent recovery are implemented in
-    DS-012/DS-013.
+    admission but before finalization remains visibly `RECEIVED`; DS-012 now
+    leaves it with an expiring, reclaimable fenced reservation, but the Gateway
+    does not yet orchestrate fail-closed recovery or return a completed same-hash
+    Decision. Those request-path semantics are DS-013.
 11. `services/gateway` generates a fresh ULID at the HTTP boundary and returns
     it as `X-ATF-Request-ID` on every response. Business errors expose only the
     fixed `{code,message,request_id,details}` contract; validation details are
@@ -288,9 +304,11 @@ complete Decision Engine:
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization
   Audit chain for history rules, has no configured header/timeout/rate limits,
-  and has no lifecycle recovery worker or exact retry semantics. A duplicate
-  POST currently conflicts, and a failure between admission and finalization can leave an
-  admitted Intent without a Decision. These are explicit DS-012 onward gaps,
+  and has no lifecycle recovery worker or exact completed-retry semantics. An
+  active same-hash duplicate now stops before evaluation and a different hash
+  returns `IDEMPOTENCY_CONFLICT`; completed same-hash POST still conflicts.
+  A failure between admission and finalization can leave a fenced admitted
+  Intent without a Decision until DS-013 recovery. These are explicit DS-013 onward gaps,
   not reasons to reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a

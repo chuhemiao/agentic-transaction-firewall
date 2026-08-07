@@ -77,15 +77,22 @@ Only the following crates are implemented so far:
   algorithm (Policy + Risk; no Simulator branch yet).
 - `crates/atf-store` — the SQLx/PostgreSQL persistence boundary, embedded
   migration runner, schema compatibility check, and initial constrained
-  tables for organizations, Intents, Evaluations, Decisions, per-organization
-  Audit heads/events, and schema metadata. It row-locks each organization's
+  tables for organizations, Intents, Evaluations, Decisions, idempotency
+  reservations, per-organization Audit heads/events, and schema metadata. It row-locks each organization's
   head for concurrent Audit append and can reload/verify canonical bytes,
   hashes, sequence, predecessor links, and the head after restart. Its two
   coarse repository transactions atomically commit canonical Intent +
   `RECEIVED/v1` + `IntentReceived`, then typed Identity/Policy/Risk/Simulation
   evidence + Evaluation + Decision + the final lifecycle state at `v6`.
   Migration 0002 stores state, optimistic version, contract version, update
-  time, and the last state-producing Audit event pointer. Contract-v1 reads
+  time, and the last state-producing Audit event pointer. Migration 0003 adds
+  immutable organization/key -> Intent-hash bindings, database-clock evaluator
+  leases, monotonically increasing fencing generations, and completed
+  Evaluation/Decision/hash references. Admission creates the reservation,
+  Intent and `IntentReceived` atomically; finalization verifies the active
+  lease and completes the reservation with the Decision transaction. Expired
+  leases can be conditionally reclaimed, but generation >1 can only finalize
+  a fail-closed `ERROR` until Evaluation Context snapshots exist. Contract-v1 reads
   replay typed events and reject any materialized-state mismatch; concurrent
   finalizers cannot both advance the same Intent. The Gateway uses this
   boundary for all accepted Intents, Evaluations, Decisions, Audit writes, and
@@ -107,6 +114,10 @@ Only the following crates are implemented so far:
   `docs/api.md`. Every response receives a fresh server-generated
   `X-ATF-Request-ID`; raw Schema, SQL, policy and key/internal error text is
   not returned. Full trace/Audit propagation remains later observability work.
+  A second `IN_PROGRESS` same-hash request stops before Policy/Risk, while a
+  same-key/different-hash request returns `IDEMPOTENCY_CONFLICT`. Returning the
+  original Decision for a completed same-hash retry and Gateway recovery of
+  expired work remain DS-013.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -128,8 +139,10 @@ network/asset/destination identifiers to CAIP form, and locks the resulting
 new hash. x402 proof/delivery semantics remain a later Adapter concern.
 `DS-011` centralizes safe Gateway errors, adds server-owned request IDs, and
 proves Schema/common/Profile rejection leaves all durable business tables
-empty before Policy/Risk. `DS-012`, atomic durable idempotency reservation, is
-next.
+empty before Policy/Risk. `DS-012` adds the atomic durable idempotency
+reservation, evaluator lease/fencing token and immutable completed-result
+binding. `DS-013`, exact retry and admitted-work recovery through that
+foundation, is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -210,6 +223,12 @@ semantics (evaluate only, never execute).
     server-owned request ID, internal diagnostics stay out of responses, and
     PostgreSQL tests prove all validation layers finish before any Intent,
     Evaluation, Decision, Audit, Policy or Risk result can become authoritative.
+12. ~~Atomic durable idempotency reservation and evaluator fencing.~~ Done in
+    DS-012: migration 0003 binds each organization/key to one Intent hash,
+    admission and finalization include the reservation/result in their atomic
+    transactions, concurrent callers produce one lease owner, renew/reclaim
+    uses the database clock and generation fencing, and completed result rows
+    are immutable. Exact completed retry and recovery orchestration are DS-013.
 
 ### Remaining before Phase 2 can close out
 
@@ -219,8 +238,9 @@ semantics (evaluate only, never execute).
   to the official cargo-deny 0.20.2 Action release commit.
 - ~~PostgreSQL request-path persistence and restart/second-instance Decision
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
-  fallback. Evaluator leases/fencing, exact idempotent retry, and recovery of
-  admitted-but-unfinalized work remain.
+  fallback. DS-012 adds evaluator leases/fencing and atomic idempotency result
+  binding; exact idempotent retry and recovery of admitted-but-unfinalized work
+  remain DS-013.
 - ~~Stable lifecycle and typed Audit domain contract.~~ Done in DS-006: 21
   states, an exhaustively tested transition table, explicit `NOT_RUN` module
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
@@ -247,8 +267,9 @@ semantics (evaluate only, never execute).
   in DS-011 with an exact documented JSON contract, server-generated request
   IDs, fixed status/code mappings, Router fallbacks, and durable zero-write
   evidence for structural/common/Profile rejection.
-- Concurrent, durable idempotency plus signed-envelope Nonce replay
-  protection.
+- ~~Concurrent durable idempotency reservation, evaluator fencing, and atomic
+  result binding.~~ Done in DS-012. Same-hash result return/recovery remains
+  DS-013; signed-envelope Nonce replay protection remains DS-014..DS-016.
 - Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
   including organization binding and key validity windows.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and

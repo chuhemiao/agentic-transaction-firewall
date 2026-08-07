@@ -7,7 +7,8 @@ use atf_core::{Amount, IntentLifecycleState as State, Timestamp};
 use atf_decision::{Decision, DecisionKind, Reason};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
-    AdmissionInput, EvaluationInput, FinalizationInput, Store, StoreError, StoredEvaluation,
+    AdmissionInput, EvaluationInput, FinalizationInput, IdempotencyState, Store, StoreError,
+    StoredEvaluation,
 };
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -18,7 +19,7 @@ use std::{
     error::Error,
     process,
     str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[tokio::test]
@@ -32,29 +33,33 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         .admit_intent(AdmissionInput {
             intent: intent.clone(),
             received_at: timestamp("2026-08-08T01:00:00.123456Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
-    assert_eq!(admitted.intent, intent);
-    assert_eq!(admitted.intent_hash, intent.canonical_hash());
-    assert_eq!(admitted.received_at.to_string(), "2026-08-08T01:00:00.123Z");
-    assert_eq!(admitted.lifecycle.state, State::Received);
-    assert_eq!(admitted.lifecycle.version, 1);
-    assert_eq!(admitted.lifecycle.contract_version, 1);
+    assert_eq!(admitted.admitted.intent, intent);
+    assert_eq!(admitted.admitted.intent_hash, intent.canonical_hash());
     assert_eq!(
-        admitted.lifecycle.last_event_id.as_deref(),
-        Some(admitted.audit_event.event.event_id.as_str())
+        admitted.admitted.received_at.to_string(),
+        "2026-08-08T01:00:00.123Z"
+    );
+    assert_eq!(admitted.admitted.lifecycle.state, State::Received);
+    assert_eq!(admitted.admitted.lifecycle.version, 1);
+    assert_eq!(admitted.admitted.lifecycle.contract_version, 1);
+    assert_eq!(
+        admitted.admitted.lifecycle.last_event_id.as_deref(),
+        Some(admitted.admitted.audit_event.event.event_id.as_str())
     );
     assert_eq!(
-        admitted.audit_event.event.event_type,
+        admitted.admitted.audit_event.event.event_type,
         atf_audit::EventType::IntentReceived
     );
     assert_eq!(
-        admitted.audit_event.event.intent_id.as_deref(),
+        admitted.admitted.audit_event.event.intent_id.as_deref(),
         Some("intent-a")
     );
     assert!(matches!(
-        admitted.audit_event.event.typed_payload()?,
+        admitted.admitted.audit_event.event.typed_payload()?,
         atf_audit::AuditPayload::IntentReceived(_)
     ));
 
@@ -64,10 +69,11 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         .admit_intent(AdmissionInput {
             intent: conflicting,
             received_at: timestamp("2026-08-08T01:00:01Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await
         .expect_err("an immutable Intent must not be overwritten");
-    assert!(matches!(error, StoreError::IntentConflict { .. }));
+    assert!(matches!(error, StoreError::IdempotencyConflict { .. }));
 
     let reloaded = store
         .load_admitted_intent("org-a", "intent-a")
@@ -82,10 +88,11 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         .admit_intent(AdmissionInput {
             intent: reused_key,
             received_at: timestamp("2026-08-08T01:00:02Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await
         .expect_err("one idempotency key must never bind to a second Intent");
-    assert!(matches!(error, StoreError::IntentConflict { .. }));
+    assert!(matches!(error, StoreError::IdempotencyConflict { .. }));
 
     store.close().await;
     database.destroy().await?;
@@ -130,17 +137,18 @@ async fn admission_audit_failure_rolls_back_the_intent() -> Result<(), Box<dyn E
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await
         .expect_err("the injected Audit insert failure must abort admission");
     assert!(matches!(error, StoreError::Database(_)));
 
-    let (intents, events, heads): (i64, i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM intents), (SELECT count(*) FROM audit_events), (SELECT count(*) FROM audit_chain_heads)",
+    let (reservations, intents, events, heads): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM idempotency_reservations), (SELECT count(*) FROM intents), (SELECT count(*) FROM audit_events), (SELECT count(*) FROM audit_chain_heads)",
     )
     .fetch_one(&database.pool)
     .await?;
-    assert_eq!((intents, events, heads), (0, 0, 0));
+    assert_eq!((reservations, intents, events, heads), (0, 0, 0, 0));
     assert!(store
         .load_admitted_intent("org-a", "intent-a")
         .await?
@@ -162,6 +170,7 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         .admit_intent(AdmissionInput {
             intent: intent.clone(),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
     let decision = sample_decision("decision-a", "intent-a");
@@ -170,8 +179,9 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         .finalize_decision(FinalizationInput {
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
-            expected_intent_hash: admitted.intent_hash.clone(),
-            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: decision.clone(),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
@@ -179,7 +189,10 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         .await?;
 
     assert_eq!(finalized.decision, decision);
-    assert_eq!(finalized.evaluation.intent_hash, admitted.intent_hash);
+    assert_eq!(
+        finalized.evaluation.intent_hash,
+        admitted.admitted.intent_hash
+    );
     assert_eq!(finalized.lifecycle.state, State::DecidedPermit);
     assert_eq!(finalized.lifecycle.version, 6);
     assert_eq!(finalized.lifecycle.contract_version, 1);
@@ -240,6 +253,7 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
         .admit_intent(AdmissionInput {
             intent,
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -275,8 +289,9 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
         .finalize_decision(FinalizationInput {
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
-            expected_intent_hash: admitted.intent_hash,
-            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
@@ -297,6 +312,12 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
     .fetch_one(&database.pool)
     .await?;
     assert_eq!((evaluations, decisions, decision_events), (0, 0, 0));
+    let reservation = store
+        .load_idempotency_reservation("org-a", "idem-a")
+        .await?
+        .expect("the admission reservation remains after rollback");
+    assert_eq!(reservation.state, IdempotencyState::InProgress);
+    assert!(reservation.result.is_none());
     assert!(store
         .load_finalized_decision("org-a", "intent-a")
         .await?
@@ -330,6 +351,7 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
         .admit_intent(AdmissionInput {
             intent,
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -337,8 +359,9 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
         .finalize_decision(FinalizationInput {
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
+            evaluator_lease: admitted.evaluator_lease.clone(),
             expected_intent_hash: "f".repeat(64),
-            expected_lifecycle_version: admitted.lifecycle.version,
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
@@ -369,6 +392,7 @@ async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -376,8 +400,9 @@ async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
         .finalize_decision(FinalizationInput {
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
-            expected_intent_hash: admitted.intent_hash,
-            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:02Z"),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:01Z"),
@@ -408,6 +433,7 @@ async fn read_api_rejects_a_decision_without_bound_audit_evidence() -> Result<()
         .admit_intent(AdmissionInput {
             intent,
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -416,7 +442,7 @@ async fn read_api_rejects_a_decision_without_bound_audit_evidence() -> Result<()
         schema_version: 1,
         evaluation_id: "evaluation-a".into(),
         intent_id: "intent-a".into(),
-        intent_hash: admitted.intent_hash,
+        intent_hash: admitted.admitted.intent_hash.clone(),
         evaluated_at,
         evidence: serde_json::json!({"policy": {"decision": "PERMIT"}}),
     };
@@ -481,14 +507,16 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
     let input_a = FinalizationInput {
         organization_id: "org-a".into(),
         intent_id: "intent-a".into(),
-        expected_intent_hash: admitted.intent_hash.clone(),
-        expected_lifecycle_version: admitted.lifecycle.version,
+        evaluator_lease: admitted.evaluator_lease.clone(),
+        expected_intent_hash: admitted.admitted.intent_hash.clone(),
+        expected_lifecycle_version: admitted.admitted.lifecycle.version,
         evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
         decision: sample_decision("decision-a", "intent-a"),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
@@ -496,8 +524,9 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
     let input_b = FinalizationInput {
         organization_id: "org-a".into(),
         intent_id: "intent-a".into(),
-        expected_intent_hash: admitted.intent_hash,
-        expected_lifecycle_version: admitted.lifecycle.version,
+        evaluator_lease: admitted.evaluator_lease.clone(),
+        expected_intent_hash: admitted.admitted.intent_hash.clone(),
+        expected_lifecycle_version: admitted.admitted.lifecycle.version,
         evaluation: evaluation_input("evaluation-b", "2026-08-08T01:00:01Z"),
         decision: sample_decision("decision-b", "intent-a"),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
@@ -515,7 +544,7 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
     assert_eq!(
         results
             .iter()
-            .filter(|result| matches!(result, Err(StoreError::LifecycleConflict { .. })))
+            .filter(|result| matches!(result, Err(StoreError::EvaluatorLeaseLost { .. })))
             .count(),
         1
     );
@@ -542,6 +571,7 @@ async fn lifecycle_reader_rejects_materialized_state_that_disagrees_with_audit_r
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -576,6 +606,7 @@ async fn generic_audit_append_cannot_create_lifecycle_evidence_without_state(
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
 
@@ -608,6 +639,7 @@ async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(
         .admit_intent(AdmissionInput {
             intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
             received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
         })
         .await?;
     let mut evaluation = evaluation_input("evaluation-a", "2026-08-08T01:00:01Z");
@@ -621,8 +653,9 @@ async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(
         .finalize_decision(FinalizationInput {
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
-            expected_intent_hash: admitted.intent_hash,
-            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation,
             decision,
             decided_at: timestamp("2026-08-08T01:00:02Z"),

@@ -15,6 +15,7 @@ use atf_core::Timestamp;
 use atf_decision::Decision;
 use atf_policy::PolicyDecision;
 use atf_store::{AdmissionInput, EvaluationInput, FinalizationInput, StoreError};
+use std::time::Duration;
 
 use crate::error::ApiError;
 use crate::request_id::RequestId;
@@ -84,6 +85,7 @@ async fn create_intent(
         .admit_intent(AdmissionInput {
             intent: intent.clone(),
             received_at: Timestamp::now(),
+            lease_duration: Duration::from_secs(30),
         })
         .await
     {
@@ -177,8 +179,9 @@ async fn create_intent(
         .finalize_decision(FinalizationInput {
             organization_id: intent.principal.organization_id.clone(),
             intent_id: intent.intent_id.clone(),
-            expected_intent_hash: admitted.intent_hash,
-            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: EvaluationInput {
                 evaluation_id: atf_core::new_ulid(),
                 evaluated_at,

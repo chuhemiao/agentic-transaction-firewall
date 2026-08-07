@@ -125,11 +125,23 @@ impl ApiError {
                 "ORGANIZATION_NOT_FOUND",
                 "The Intent organization is not available.",
             ),
+            StoreError::IdempotencyConflict { .. } => Self::new(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                "The idempotency key is already bound to different request content.",
+            ),
+            StoreError::IdempotencyInProgress { .. } => Self::new(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_IN_PROGRESS",
+                "The idempotent request is in progress or awaiting recovery.",
+            ),
             StoreError::IntentConflict { .. }
             | StoreError::IntentHashMismatch { .. }
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
-            | StoreError::FinalizationConflict { .. } => Self::new(
+            | StoreError::FinalizationConflict { .. }
+            | StoreError::IdempotencyCompleted { .. }
+            | StoreError::EvaluatorLeaseLost { .. } => Self::new(
                 StatusCode::CONFLICT,
                 "DURABLE_STATE_CONFLICT",
                 "The request conflicts with existing durable state.",
@@ -145,6 +157,8 @@ impl ApiError {
             StoreError::AuditPayload(_)
             | StoreError::InvalidAuditEvent { .. }
             | StoreError::InvalidRepositoryInput { .. }
+            | StoreError::IdempotencyNotFound { .. }
+            | StoreError::RecoveredWorkMustFailClosed { .. }
             | StoreError::IntentNotFound { .. }
             | StoreError::DecisionBindingMismatch { .. }
             | StoreError::Json(_) => Self::new(

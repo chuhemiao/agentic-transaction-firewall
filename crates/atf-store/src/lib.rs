@@ -7,6 +7,7 @@
 
 mod audit;
 mod error;
+mod idempotency;
 mod lifecycle;
 mod models;
 mod repository;
@@ -17,13 +18,14 @@ use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
 pub use audit::StoredAuditEvent;
 pub use error::StoreError;
 pub use models::{
-    AdmissionInput, AdmittedIntent, EvaluationInput, FinalizationInput, FinalizedDecision,
-    StoredEvaluation, StoredLifecycle,
+    AdmissionGrant, AdmissionInput, AdmittedIntent, EvaluationInput, EvaluatorLease,
+    FinalizationInput, FinalizedDecision, IdempotencyReservation, IdempotencyResult,
+    IdempotencyState, StoredEvaluation, StoredLifecycle,
 };
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 3;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

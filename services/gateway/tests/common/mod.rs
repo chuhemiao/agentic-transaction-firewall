@@ -175,10 +175,11 @@ impl TestDatabase {
         Ok(())
     }
 
-    pub async fn business_record_counts(&self) -> Result<(i64, i64, i64, i64), sqlx::Error> {
+    pub async fn business_record_counts(&self) -> Result<(i64, i64, i64, i64, i64), sqlx::Error> {
         sqlx::query_as(
             r#"
             SELECT
+                (SELECT count(*) FROM idempotency_reservations),
                 (SELECT count(*) FROM intents),
                 (SELECT count(*) FROM evaluations),
                 (SELECT count(*) FROM decisions),

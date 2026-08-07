@@ -61,8 +61,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-011:** added the stable safe API error envelope, server-owned
   request IDs and PostgreSQL-backed validation-before-evaluation evidence.
   Depends: DS-005, DS-009, DS-010.
-- [ ] **NEXT — DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.
-- [ ] **DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
+- [x] **DS-012:** added atomic durable idempotency reservations, database-clock
+  evaluator leases, renewal/reclaim, fencing and immutable completed results.
+  Depends: DS-004, DS-011.
+- [ ] **NEXT — DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
 - [ ] **DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
 - [ ] **DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.
 - [ ] **DS-016:** wire Identity + nonce/idempotency semantics before Policy/Risk. Depends: DS-012..DS-015.

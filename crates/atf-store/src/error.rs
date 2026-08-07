@@ -43,6 +43,62 @@ pub enum StoreError {
         idempotency_key: String,
     },
 
+    #[error(
+        "idempotency key `{idempotency_key}` in organization `{organization_id}` is already bound to a different Intent hash"
+    )]
+    IdempotencyConflict {
+        organization_id: String,
+        idempotency_key: String,
+        submitted_hash: String,
+        stored_hash: String,
+    },
+
+    #[error(
+        "idempotency key `{idempotency_key}` does not exist in organization `{organization_id}`"
+    )]
+    IdempotencyNotFound {
+        organization_id: String,
+        idempotency_key: String,
+    },
+
+    #[error(
+        "idempotency key `{idempotency_key}` in organization `{organization_id}` is already in progress for Intent `{intent_id}` until {lease_expires_at}"
+    )]
+    IdempotencyInProgress {
+        organization_id: String,
+        idempotency_key: String,
+        intent_id: String,
+        lease_expires_at: atf_core::Timestamp,
+    },
+
+    #[error(
+        "idempotency key `{idempotency_key}` in organization `{organization_id}` is already completed by Decision `{decision_id}`"
+    )]
+    IdempotencyCompleted {
+        organization_id: String,
+        idempotency_key: String,
+        intent_id: String,
+        decision_id: String,
+    },
+
+    #[error(
+        "evaluator lease generation {generation} was lost for idempotency key `{idempotency_key}` in organization `{organization_id}`"
+    )]
+    EvaluatorLeaseLost {
+        organization_id: String,
+        idempotency_key: String,
+        intent_id: String,
+        generation: i64,
+    },
+
+    #[error(
+        "recovered idempotency work for Intent `{intent_id}` in organization `{organization_id}` must terminate with a fail-closed ERROR Decision before Evaluation Context snapshots exist"
+    )]
+    RecoveredWorkMustFailClosed {
+        organization_id: String,
+        intent_id: String,
+    },
+
     #[error("Intent `{intent_id}` does not exist in organization `{organization_id}`")]
     IntentNotFound {
         organization_id: String,

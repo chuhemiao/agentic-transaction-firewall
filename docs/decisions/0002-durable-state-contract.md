@@ -323,8 +323,11 @@ Costs and residual risks:
 - `DS-004`: add coarse-grained admission and finalization transaction APIs.
 - `DS-005`: cut the gateway over to the single durable write path and prove
   restart survival.
-- `DS-012` / `DS-013`: complete persistent idempotency, leases, fencing, and
-  concurrent retry coverage.
+- `DS-012`: implemented persistent organization/key bindings, database-clock
+  leases, renewal/reclaim, monotonically increasing fencing generations,
+  immutable completed results, and atomic admission/finalization integration.
+- `DS-013`: return the original completed Decision and orchestrate bounded
+  in-progress/fail-closed crash recovery through the DS-012 primitives.
 - `DS-016`: add identity-key recheck and nonce consumption to admission.
 - `DS-023`: persist immutable Evaluation Context inputs for deterministic
   crash recovery and replay.

@@ -65,8 +65,9 @@ semantic validation and migrated the valid fixture from a pseudo-ULID and
 multi-decade TTL to the declared contract. DS-010 added closed Profile
 dispatch, the supported Agent-Commerce Payment profile, CAIP-bound fixtures,
 and unsupported-action rejection. DS-011 added safe structured Gateway errors,
-server-owned request IDs and validation-order evidence; the next task is
-DS-012.
+server-owned request IDs and validation-order evidence. DS-012 added atomic
+idempotency reservation/result transactions, database-clock evaluator leases,
+renewal/reclaim and generation fencing; the next task is DS-013.
 
 ### Present but incomplete or unwired
 
@@ -78,15 +79,16 @@ DS-012.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
   intermediate events; Identity is explicitly recorded as skipped until the
   verifier is wired.
-- `atf-store` is wired for admission/finalization and contract-v1 lifecycle
-  replay, but has no evaluator lease/fencing, exact idempotent result, or
-  admitted-work recovery.
+- `atf-store` is wired for admission/finalization, contract-v1 lifecycle
+  replay, and atomic idempotency lease/result fencing. Gateway exact completed
+  retry and admitted-work recovery remain unwired.
 - GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
   non-health routes remain unsafe for shared deployment.
 
 ### Missing release controls
 
-- Durable idempotency, evaluator recovery, and nonce replay protection.
+- Exact idempotent result return, evaluator recovery, and nonce replay
+  protection; the durable reservation/fencing substrate is complete.
 - Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
@@ -298,8 +300,9 @@ organizations are explicitly provisioned. POST uses the DS-004 admission and
 finalization transactions, Risk consumes verified durable Audit events, GET
 requires `X-ATF-Organization-ID`, and readiness checks live schema access. The
 header is only a transitional tenant selector until DS-017/DS-018 add an
-authenticated organization boundary. Duplicate retry and admitted-work
-recovery remain DS-012/DS-013 work.
+authenticated organization boundary. DS-012 now supplies atomic reservation,
+lease/fencing and result binding; exact completed retry and admitted-work
+recovery remain DS-013 work.
 
 ### DS-006 — Define lifecycle states and typed Audit payloads `[M]`
 
@@ -390,7 +393,8 @@ stable library error codes were deferred to DS-009 and are now complete; the
 fixture received DS-009's documented ULID/TTL migration. Action profiles
 were deferred to DS-010; that task now supports one Payment profile and
 rejects every other action. DS-011 now supplies the HTTP error-envelope
-contract; atomic idempotency remains DS-012.
+contract; DS-012 now supplies atomic idempotency reservation/result and
+evaluator fencing, with exact retry/recovery deferred to DS-013.
 
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
 
@@ -483,15 +487,17 @@ ULID overrides any inbound request ID and is returned in
 `X-ATF-Request-ID`; fixed safe messages never serialize raw input, Schema
 diagnostics, SQL/database, policy or key/internal errors. Semantic/Profile
 details expose only stable server-owned code/field pairs. PostgreSQL route
-tests inspect Intent, Evaluation, Decision and Audit counts to prove UTF-8,
+tests inspect reservation, Intent, Evaluation, Decision and Audit counts to prove UTF-8,
 JSON, Schema, common-semantic and Profile rejection happens before durable
 admission and therefore before authoritative Policy/Risk evidence. Store
 unavailability, immutable conflict, tenant-safe not-found and Router 404/405
 paths have the same contract. Health/readiness retain text bodies; full trace
 and Audit request-ID propagation remains DS-033. Exact idempotency reservation
-is next in DS-012.
+is complete in DS-012; exact retry/recovery is next in DS-013.
 
 ### DS-012 — Add atomic idempotency reservation `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Add unique `(organization_id,idempotency_key)` records bound
 to Intent hash and evaluator lease. Define `NEW`, `IN_PROGRESS`, `COMPLETED`
@@ -506,6 +512,20 @@ and terminal failure handling without holding long transactions.
   2. Exactly one concurrent caller acquires the evaluator lease.
   3. Completed records immutably bind the stored Decision/hash.
 - **Verification:** concurrent PostgreSQL race test; restart test; full DoD.
+
+**Delivered boundary:** migration 0003 adds one immutable
+`(organization_id,idempotency_key)` binding to the canonical Intent hash. The
+admission transaction creates the reservation, Intent, lifecycle and
+`IntentReceived` together. A database-clock lease has one opaque owner and a
+monotonic generation; concurrent same-hash admission yields exactly one owner,
+renewal keeps the generation, and expired reclaim increments it. Stale or
+expired tokens cannot finalize. Until provenance-bearing Evaluation Context
+exists, generation >1 can only commit `Decision(ERROR)`. Finalization changes
+the reservation to immutable `COMPLETED` with Evaluation ID, Decision ID and
+Decision hash in the same transaction as lifecycle/Audit evidence; reads reject
+a Decision missing that result. Gateway currently stops active duplicates and
+returns `IDEMPOTENCY_CONFLICT` for a different hash. Returning the original
+completed Decision and orchestrating expiry recovery remain DS-013.
 
 ### DS-013 — Wire durable retry and evaluator recovery `[M]`
 

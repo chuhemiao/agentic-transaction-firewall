@@ -1,14 +1,18 @@
 use crate::audit::{
     append_in_transaction, load_verified_in_transaction, AuditReferences, StoredAuditEvent,
 };
+use crate::idempotency::{
+    complete_in_transaction as complete_idempotency, reserve_in_transaction,
+    verify_admission_binding, verify_completed_binding, verify_lease_for_finalization,
+};
 use crate::lifecycle::{
     append_event as append_lifecycle_event, state_from_str as lifecycle_state_from_str,
     validate_finalization_input, verify_replay as verify_lifecycle_replay,
     CONTRACT_VERSION as LIFECYCLE_CONTRACT_VERSION,
 };
 use crate::models::{
-    AdmissionInput, AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation,
-    StoredLifecycle,
+    AdmissionGrant, AdmissionInput, AdmittedIntent, FinalizationInput, FinalizedDecision,
+    StoredEvaluation, StoredLifecycle,
 };
 use crate::{Store, StoreError};
 use atf_audit::{
@@ -71,7 +75,7 @@ struct VerifiedIntent {
 impl Store {
     /// Persist an immutable canonical Intent and its first Audit event in one
     /// short transaction. This operation does not evaluate Policy or Risk.
-    pub async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmittedIntent, StoreError> {
+    pub async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError> {
         let intent = normalize_intent(input.intent)?;
         let received_at = normalize_timestamp(input.received_at);
         let organization_id = intent.principal.organization_id.clone();
@@ -100,6 +104,13 @@ impl Store {
 
         let mut transaction = self.pool.begin().await?;
         set_write_timeouts(&mut transaction).await?;
+        let evaluator_lease = reserve_in_transaction(
+            &mut transaction,
+            &intent,
+            &intent_hash,
+            input.lease_duration,
+        )
+        .await?;
 
         sqlx::query(
             r#"
@@ -153,13 +164,16 @@ impl Store {
         .await?;
 
         transaction.commit().await?;
-        Ok(AdmittedIntent {
-            organization_id,
-            intent,
-            intent_hash,
-            received_at,
-            lifecycle,
-            audit_event,
+        Ok(AdmissionGrant {
+            admitted: AdmittedIntent {
+                organization_id,
+                intent,
+                intent_hash,
+                received_at,
+                lifecycle,
+                audit_event,
+            },
+            evaluator_lease,
         })
     }
 
@@ -181,6 +195,13 @@ impl Store {
             return Ok(None);
         };
         let verified = verify_intent_row(organization_id, row)?;
+        verify_admission_binding(
+            &mut transaction,
+            organization_id,
+            intent_id,
+            &verified.intent_hash,
+        )
+        .await?;
         let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
         verify_lifecycle_replay(
             organization_id,
@@ -223,6 +244,13 @@ impl Store {
             return Ok(None);
         };
         let verified = verify_intent_row(organization_id, row)?;
+        verify_admission_binding(
+            &mut transaction,
+            organization_id,
+            intent_id,
+            &verified.intent_hash,
+        )
+        .await?;
         let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
         verify_lifecycle_replay(
             organization_id,
@@ -247,6 +275,7 @@ impl Store {
 
         let mut transaction = self.pool.begin().await?;
         set_write_timeouts(&mut transaction).await?;
+        verify_lease_for_finalization(&mut transaction, &input).await?;
 
         let row = load_intent_row(
             &mut transaction,
@@ -498,6 +527,15 @@ impl Store {
             });
         }
 
+        complete_idempotency(
+            &mut transaction,
+            &input,
+            &evaluation.evaluation_id,
+            &input.decision.decision_id,
+            &decision_hash,
+        )
+        .await?;
+
         transaction.commit().await?;
         Ok(FinalizedDecision {
             organization_id: input.organization_id,
@@ -613,6 +651,16 @@ impl Store {
             &decision_hash,
             decided_at,
         )?;
+        verify_completed_binding(
+            &mut transaction,
+            organization_id,
+            intent_id,
+            &verified_intent.intent_hash,
+            &evaluation.evaluation_id,
+            &decision.decision_id,
+            &decision_hash,
+        )
+        .await?;
 
         transaction.commit().await?;
         Ok(Some(FinalizedDecision {
