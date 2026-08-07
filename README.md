@@ -54,8 +54,12 @@ Only the following crates are implemented so far:
   exactly the versioned Agent-Commerce Payment profile
   (`payment/purchase_api_resource`), enforces its resource and CAIP-2/10/19
   chain-binding rules, and rejects every other action pair as unsupported.
-- `crates/atf-identity` — Agent registration records and Ed25519
-  identity-signature verification over an Intent's canonical hash.
+- `crates/atf-identity` — Agent registration records plus the DS-014
+  `ATF_INTENT_V1` Identity Envelope: explicitly sorted canonical JSON binds
+  organization, Agent, exact key ID, Intent hash, five-minute lifetime, nonce,
+  audience and environment before strict Ed25519 verification. The registry
+  never tries every key and returns typed verified identity facts. Persistence,
+  nonce consumption and Gateway wiring remain DS-015/DS-016.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
   Intent.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
@@ -146,7 +150,9 @@ empty before Policy/Risk. `DS-012` adds the atomic durable idempotency
 reservation, evaluator lease/fencing token and immutable completed-result
 binding. `DS-013` adds exact completed retry, stage-boundary lease heartbeats,
 concurrent result convergence, and request-driven fail-closed recovery of
-expired admissions. `DS-014`, the domain-separated Identity Envelope, is next.
+expired admissions. `DS-014` replaces raw-hash signatures with the canonical,
+domain-separated Identity Envelope and exact-key verification. `DS-015`,
+durable Agent/key lifecycle and offline provisioning, is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -187,11 +193,11 @@ semantics (evaluate only, never execute).
    not implemented; their configured lifecycle boundary (PERMITTED vs.
    EXECUTED vs. SETTLED) must be explicit.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
-   verification (PRD §17.2).~~ Done as a library: an in-memory registry
-   verifying a raw Ed25519 signature over `intent.canonical_hash()`, key
-   rotation (multiple valid keys per Agent), and status gating
-   (PAUSED/REVOKED/EXPIRED can't submit even with a valid signature). Still
-   not called from `services/gateway` — see item 8.
+   verification (PRD §17.2).~~ Done as a library and hardened in DS-014: its
+   in-memory registry verifies only the declared Key ID over canonical
+   domain-separated Envelope bytes, supports explicit rotation overlap, and
+   gates Agent status, organization, environment and lifetime. Still not
+   called from `services/gateway` — see item 8 and item 14.
 6. ~~`schemas/decision.schema.json` and `schemas/audit-event.schema.json`.~~
    Done: both validated in CI against real output (`atf-decision` and
    `atf-audit` respectively).
@@ -239,6 +245,11 @@ semantics (evaluate only, never execute).
     evaluation renews its lease between stages; and an expired admission is
     conditionally reclaimed after restart and terminated once as
     `RECOVERY_CONTEXT_UNAVAILABLE` until Evaluation Context snapshots exist.
+14. ~~Domain-separated Agent Identity Envelope.~~ Done in DS-014:
+    `ATF_INTENT_V1` sorted canonical bytes bind organization, Agent, exact
+    Key ID, Intent hash, a closed five-minute lifetime, nonce, audience and
+    environment. Strict Ed25519 verification has no raw-hash/any-key fallback;
+    a published vector and mutation tests lock the cross-language contract.
 
 ### Remaining before Phase 2 can close out
 
@@ -279,10 +290,10 @@ semantics (evaluate only, never execute).
   evidence for structural/common/Profile rejection.
 - ~~Concurrent durable idempotency reservation, evaluator fencing, and atomic
   result binding.~~ Done in DS-012. Same-hash result return/recovery is
-  complete in DS-013; signed-envelope Nonce replay protection remains
-  DS-014..DS-016.
-- Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
-  including organization binding and key validity windows.
+  complete in DS-013; DS-014 defines the signed Envelope, while durable
+  Key/Agent state and atomic Nonce replay protection remain DS-015/DS-016.
+- Durable Agent/Key lifecycle and `atf-identity` Gateway wiring before
+  Policy/Risk, including atomic Nonce consumption and Identity Audit evidence.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
   Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API

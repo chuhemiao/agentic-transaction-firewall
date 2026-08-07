@@ -67,8 +67,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-013:** wired exact completed retry, active-work conflict,
   stage-boundary heartbeat, concurrent single-result convergence and
   request-driven fail-closed recovery after restart. Depends: DS-012.
-- [ ] **NEXT — DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
-- [ ] **DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.
+- [x] **DS-014:** replaced raw-hash signatures with the canonical
+  domain-separated Identity Envelope, exact Key ID verification, closed time
+  and scope checks, stable errors and a published Ed25519 vector. Depends: DS-008.
+- [ ] **NEXT — DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.
 - [ ] **DS-016:** wire Identity + nonce/idempotency semantics before Policy/Risk. Depends: DS-012..DS-015.
 - [ ] **DS-017:** decide operator authentication and tenant trust boundary. Depends: DS-015.
 - [ ] **DS-018:** protect all non-health routes with Agent/operator auth and org RBAC. Depends: DS-017.

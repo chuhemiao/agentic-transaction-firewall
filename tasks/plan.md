@@ -69,12 +69,13 @@ server-owned request IDs and validation-order evidence. DS-012 added atomic
 idempotency reservation/result transactions, database-clock evaluator leases,
 renewal/reclaim and generation fencing. DS-013 added exact completed retry,
 stage-boundary heartbeat, concurrent result convergence and request-driven
-fail-closed recovery; the next task is DS-014.
+fail-closed recovery. DS-014 added the canonical domain-separated Identity
+Envelope and exact-key verifier; the next task is DS-015.
 
 ### Present but incomplete or unwired
 
-- Identity is an in-memory library signing only the raw Intent-hash string;
-  Gateway does not call it.
+- Identity has a domain-separated canonical Envelope and exact-key verifier,
+  but Agent/Key state remains in memory and Gateway does not call it.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
@@ -90,9 +91,9 @@ fail-closed recovery; the next task is DS-014.
 
 ### Missing release controls
 
-- Authenticated nonce replay protection and deterministic Context-based
-  recovery; exact result return and restrictive request-driven recovery are
-  complete.
+- Durable Agent/Key lifecycle, authenticated Nonce replay protection and
+  deterministic Context-based recovery; the pure Identity Envelope, exact
+  result return and restrictive request-driven recovery are complete.
 - Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, background recovery operations and
@@ -565,6 +566,8 @@ Context-based deterministic recomputation remain later tasks.
 
 ### DS-014 — Replace raw-hash signatures with an Identity Envelope `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Define canonical `ATF_INTENT_V1` bytes binding organization,
 Agent, key ID, Intent hash, issued/expiry times, nonce, audience and environment.
 Verify domain separation, time bounds and organization consistency in pure
@@ -579,6 +582,19 @@ identity-domain code.
   2. Verification selects one declared `key_id`, never “any key that works”.
   3. Canonical bytes have stable cross-language test vectors.
 - **Verification:** mutation/table tests and published JSON/signature vector; full DoD.
+
+**Delivered boundary:** `IdentityEnvelope` rejects unknown fields and emits
+explicitly sorted compact JSON for the `ATF_INTENT_V1` signing domain. Pure
+validation binds organization, Agent, lowercase Intent hash, audience,
+environment, millisecond timestamps, a maximum five-minute lifetime and a
+16..128-byte Nonce to an explicit verification time and the Intent lifetime.
+`IdentityRegistry` now addresses keys by `(agent_id, key_id)`, rejects duplicate
+IDs, validates Agent organization/environment/status/lifetime, uses strict
+Ed25519 verification over Envelope bytes only, and returns `VerifiedIdentity`.
+The former raw-hash/try-any-key API is removed. A Node/OpenSSL-derived JSON
+vector and Rust mutation tests lock every signed field. Persistence, Key
+activation/revocation metadata and offline provisioning remain DS-015; Gateway
+wiring and atomic Nonce consumption remain DS-016.
 
 ### DS-015 — Persist Agent and key lifecycle `[M]`
 

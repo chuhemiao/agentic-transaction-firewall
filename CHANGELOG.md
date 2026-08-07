@@ -7,6 +7,14 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- The canonical `ATF_INTENT_V1` Identity Envelope and strict Ed25519
+  verification in `atf-identity`. Sorted compact JSON binds organization,
+  Agent, exact Key ID, Intent hash, explicit five-minute lifetime, Nonce,
+  audience and environment; Agent scope/status/lifetime and stable rejection
+  codes are validated without reading the wall clock internally.
+- A published Node/OpenSSL-derived Identity signature vector plus Rust tests
+  for every signed-field mutation, noncanonical inputs, time boundaries,
+  wrong trusted context, exact-key rotation and raw-hash fallback rejection.
 - Exact durable retry and request-driven evaluator recovery in the Gateway.
   A completed same-hash POST returns the fully verified original Decision
   without rerunning Policy/Risk or adding Audit evidence; active work remains

@@ -22,12 +22,12 @@ real network request path, but no execution path or production secret.
 | # | Threat | Status in this repo |
 |---|---|---|
 | 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported; Identity and execution enforcement are still absent |
-| 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` canonical hash is tamper-evident and `atf-identity` can verify Ed25519 signatures, but identity is not wired into the gateway and the signed message still lacks domain separation |
+| 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` supplies a tamper-evident canonical hash and DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519. Identity remains unwired, so Gateway requests are not authenticated yet |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion; DS-013 returns exact completed results and restrictively recovers expired work. Signed identity envelopes still have no consumed nonce, so an attacker can replay the same signed Intent under a new key until DS-014..DS-016 wire domain-separated identity and atomic nonce consumption |
+| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion; DS-013 returns exact completed results and restrictively recovers expired work. DS-014 cryptographically binds a bounded Nonce into the signed Envelope, but it is not persisted or consumed, so replay under a new idempotency key remains possible until DS-015/DS-016 wire durable identity and atomic Nonce consumption |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
@@ -52,7 +52,8 @@ secret. The realistic attack surface today includes:
   `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
   lands. DS-011 replaces caller correlation values with a server-generated ID
   and makes business errors structurally stable. DS-013 makes completed
-  same-hash POST retry exact, but there is no authentication, signed nonce,
+  same-hash POST retry exact, but there is no Gateway authentication or
+  consumed signed Nonce,
   configured header/timeout/rate limit or principal-bound idempotency. Until
   DS-018, a caller who possesses an admitted Intent's exact body can trigger
   its post-expiry fail-closed recovery; this cannot produce Permit but can

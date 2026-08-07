@@ -329,6 +329,10 @@ Costs and residual risks:
 - `DS-013`: implemented verified original-Decision return, active-work 409,
   stage-boundary lease renewal, concurrent single-result convergence and
   request-driven fail-closed crash recovery through the DS-012 primitives.
+- `DS-014`: implemented canonical domain-separated Identity Envelope bytes,
+  pure scope/time validation, exact Key ID selection and strict Ed25519
+  verification without a raw-hash fallback.
+- `DS-015`: persist Agent and Key lifecycle plus offline provisioning.
 - `DS-016`: add identity-key recheck and nonce consumption to admission.
 - `DS-023`: persist immutable Evaluation Context inputs for deterministic
   crash recovery and replay.

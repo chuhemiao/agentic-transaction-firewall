@@ -79,7 +79,9 @@ evidence. Real PostgreSQL tests cover races, restart through a second Store,
 rollback, stale-owner rejection, fail-closed recovered work and result
 tampering. DS-013 then wires exact completed retry, stage-boundary heartbeat,
 barrier-tested concurrent convergence and request-driven fail-closed recovery
-after restart. DS-014 is next: define the domain-separated Identity Envelope.
+after restart. DS-014 replaces raw-hash signatures with the canonical
+domain-separated Identity Envelope and exact-key verification. DS-015 is next:
+persist Agent and Key lifecycle plus offline provisioning.
 
 ## Module inventory
 
@@ -87,7 +89,7 @@ after restart. DS-014 is next: define the domain-separated Identity Envelope.
 |---|---|---|
 | `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 22-state lifecycle transition contract; used throughout the workspace. |
 | `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, common financial/time/ULID/text semantics, and the versioned Agent-Commerce Payment Profile are wired with stable ordered errors; every other action pair fails closed until its Profile exists. |
-| `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | In-memory Agent records and raw-hash Ed25519 verification exist; Gateway never calls them. |
+| `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. Agent/Key state is still in memory, Nonces are not consumed, and Gateway never calls it. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 28 canonical typed/versioned payloads, intent-scope validation, event effects, and a strict Schema verified against real output. The Gateway persists/verifies all current lifecycle phase events through `atf-store`; queries and checkpoints remain. |
@@ -99,7 +101,7 @@ after restart. DS-014 is next: define the domain-separated Identity Envelope.
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
 | Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
-| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
+| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `identity-envelope.md` plus the published vector fix DS-014 signing bytes, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
 ## Gap matrix
@@ -136,12 +138,12 @@ after restart. DS-014 is next: define the domain-separated Identity Envelope.
 
 - **module:** `atf-identity`, `services/gateway`
 - **current_state:** `IMPLEMENTED_BUT_UNWIRED`
-- **evidence:** Gateway has no identity dependency or signature header; registry signs only the hex Intent hash and does not enforce organization match, key ID, key validity windows, audience, environment, nonce, or envelope expiry.
+- **evidence:** DS-014 removes the raw Intent-hash/try-any-key verifier. `IdentityEnvelope` rejects unknown/noncanonical fields and binds organization, Agent, exact Key ID, canonical Intent hash, explicit five-minute lifetime, Nonce, audience and environment in sorted compact JSON. Verification uses an explicit trusted time/context, validates Agent organization/environment/status/lifetime and strict Ed25519 under only the declared key. A Node/OpenSSL-derived vector plus Rust tests cover every signed-field mutation, wrong organization/audience/environment, stale/future/overlong windows, exact-key rotation and paused/revoked/expired Agent state. Gateway still has no identity input or verifier call; Agent/Key lifecycle is not durable, Key activation/revocation metadata is absent, and Nonces are not consumed.
 - **security_impact:** any network caller can impersonate any Agent; signatures are replayable across contexts.
 - **financial_impact:** policies and histories can be evaluated under a victim Agent identity.
 - **severity:** `HIGH`
-- **recommended_change:** persist Agent/key records and verify a domain-separated signed envelope before Policy/Risk.
-- **required_tests:** wrong-org, wrong-audience/environment, stale envelope, nonce replay, key overlap/revocation, paused/revoked Agent, and audit tests.
+- **recommended_change:** preserve the DS-014 canonical/exact-key contract; persist versioned Agent/Key lifecycle in DS-015, then verify it and atomically consume the Nonce before Policy/Risk with typed Identity Audit evidence in DS-016.
+- **required_tests:** wrong-org, wrong-audience/environment, stale envelope, in-memory key overlap and paused/revoked Agent are implemented; durable Key activation/revocation races, Nonce replay, Gateway ordering and Audit tests remain.
 - **dependencies:** PostgreSQL, Admin provisioning/RBAC, idempotency nonce store.
 - **target_release:** Durable Shadow Mode P0.5.
 - **acceptance_criteria:** identity failure records `IdentityRejected`, returns fail-closed, and Policy/Risk are not called.
@@ -172,7 +174,7 @@ after restart. DS-014 is next: define the domain-separated Identity Envelope.
 - **security_impact:** concurrent evaluation, stale completion, completed-response loss and stranded-admission races are fenced at the durable boundary; signed requests can still be replayed under a new idempotency key until Identity/nonce wiring lands.
 - **financial_impact:** the same key cannot authorize a different Intent, stale workers cannot overwrite a reclaimed outcome, and completed retries return the original result even after Policy changes; no signed nonce yet prevents replay under a new key.
 - **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-012/DS-013 reservation, exact-retry and recovery invariants; add domain-separated envelopes and single-use authenticated nonce consumption in DS-014..DS-016.
+- **recommended_change:** retain the DS-012/DS-013 reservation and DS-014 domain-separated Envelope invariants; add durable Agent/Key lifecycle plus single-use authenticated Nonce consumption in DS-015/DS-016.
 - **required_tests:** different-hash 409, active same-hash conflict, concurrent single result, renewal/reclaim, stale fencing, restart exact return, restrictive crash recovery, transaction rollback and result tamper rejection are implemented; signed-nonce replay and authentication Audit remain.
 - **dependencies:** PostgreSQL transaction boundary and Identity envelope.
 - **target_release:** Durable Shadow Mode P0.4.
@@ -437,8 +439,8 @@ after restart. DS-014 is next: define the domain-separated Identity Envelope.
 
 ## Next vertical feature
 
-`DS-014` is next: replace raw Intent-hash signatures with a domain-separated
-Identity Envelope that binds organization, Agent, key ID, Intent hash,
-audience/environment, issued/expiry times and nonce. Identity, replay, and
-budget work must continue to build on the durable-only boundary rather than
-add process-local authority.
+`DS-015` is next: persist organization-scoped Agent records and versioned Key
+metadata with activation/expiry/revocation windows, plus offline/local operator
+provisioning. The DS-014 Envelope is a pure cryptographic contract, not
+deployment authority; identity, replay and budget work must continue to build
+on the durable-only boundary rather than add process-local authority.

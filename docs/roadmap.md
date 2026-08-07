@@ -69,6 +69,9 @@ order. The executable order is:
   retries, renew active leases between evaluation stages, converge concurrent
   callers on one durable result, and recover expired admissions after restart
   as one generation-fenced fail-closed `Decision(ERROR)`.
+- [x] DS-014 Replace raw Intent-hash signatures with the canonical
+  `ATF_INTENT_V1` Envelope, strict binding/time validation, exact Key ID
+  selection, stable errors and a published Ed25519 conformance vector.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -99,9 +102,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-014` — replace raw Intent-hash signatures with a
-domain-separated Identity Envelope binding organization, Agent, key ID,
-audience/environment, issued/expiry times and nonce.
+**Immediate next task:** `DS-015` — persist organization-scoped Agent and Key
+lifecycle with activation/expiry/revocation windows and add offline/local
+operator provisioning without an unauthenticated Admin HTTP endpoint.
 
 ## Later releases
 

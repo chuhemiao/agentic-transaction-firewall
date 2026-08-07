@@ -1,0 +1,80 @@
+{
+  "name": "ATF_INTENT_V1 canonical envelope and Ed25519 signature",
+  "algorithm": "Ed25519",
+  "test_key_seed_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "public_key_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "intent": {
+    "spec_version": "1.0",
+    "intent_id": "01J00000000000000000000100",
+    "idempotency_key": "research-2026-07-18-001",
+    "created_at": "2098-12-31T23:55:00Z",
+    "expires_at": "2099-01-01T00:00:00Z",
+    "principal": {
+      "organization_id": "alpha-lab",
+      "user_id": "user-001",
+      "agent_id": "research-agent-01",
+      "agent_version": "1.4.2",
+      "strategy_id": null
+    },
+    "mandate": {
+      "mandate_id": "mandate-001",
+      "task_id": "research-task-001",
+      "purpose": "purchase historical order-book data",
+      "budget_id": "research-budget-july",
+      "human_authorized": true
+    },
+    "action": {
+      "category": "payment",
+      "operation": "purchase_api_resource"
+    },
+    "resource": {
+      "protocol": "x402",
+      "venue": "market-data-provider",
+      "resource_id": "btc-orderbook-2026-07-01",
+      "resource_type": "dataset"
+    },
+    "transaction": {
+      "network": "eip155:8453",
+      "asset": "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "amount": "12.50",
+      "destination": "eip155:8453:0x1111111111111111111111111111111111111111",
+      "contract": null,
+      "calldata_hash": null,
+      "max_fee": "0.25",
+      "slippage_bps": null,
+      "leverage": null
+    },
+    "context": {
+      "task_budget": "20.00",
+      "historical_vendor_median": "8.50",
+      "data_classification": "public",
+      "requested_by_tool": "mcp-market-data"
+    },
+    "metadata": {
+      "labels": [
+        "research",
+        "market-data"
+      ]
+    }
+  },
+  "envelope": {
+    "domain": "ATF_INTENT_V1",
+    "organization_id": "alpha-lab",
+    "agent_id": "research-agent-01",
+    "key_id": "identity-key-2026-01",
+    "intent_hash": "4d34e15d03e2d56353d42d41fc1f136c41e8edf4464299737f5d52949d5b3d4c",
+    "issued_at": "2098-12-31T23:58:00.000Z",
+    "expires_at": "2098-12-31T23:59:00.000Z",
+    "nonce": "01J0000000000000000000N001",
+    "audience": "atf-gateway",
+    "environment": "production"
+  },
+  "verification_context": {
+    "audience": "atf-gateway",
+    "environment": "production",
+    "verification_time": "2098-12-31T23:58:30.000Z"
+  },
+  "canonical_utf8": "{\"agent_id\":\"research-agent-01\",\"audience\":\"atf-gateway\",\"domain\":\"ATF_INTENT_V1\",\"environment\":\"production\",\"expires_at\":\"2098-12-31T23:59:00.000Z\",\"intent_hash\":\"4d34e15d03e2d56353d42d41fc1f136c41e8edf4464299737f5d52949d5b3d4c\",\"issued_at\":\"2098-12-31T23:58:00.000Z\",\"key_id\":\"identity-key-2026-01\",\"nonce\":\"01J0000000000000000000N001\",\"organization_id\":\"alpha-lab\"}",
+  "canonical_hex": "7b226167656e745f6964223a2272657365617263682d6167656e742d3031222c2261756469656e6365223a226174662d67617465776179222c22646f6d61696e223a224154465f494e54454e545f5631222c22656e7669726f6e6d656e74223a2270726f64756374696f6e222c22657870697265735f6174223a22323039382d31322d33315432333a35393a30302e3030305a222c22696e74656e745f68617368223a2234643334653135643033653264353633353364343264343166633166313336633431653865646634343634323939373337663564353239343964356233643463222c226973737565645f6174223a22323039382d31322d33315432333a35383a30302e3030305a222c226b65795f6964223a226964656e746974792d6b65792d323032362d3031222c226e6f6e6365223a2230314a303030303030303030303030303030303030304e303031222c226f7267616e697a6174696f6e5f6964223a22616c7068612d6c6162227d",
+  "signature_hex": "c73a23c92cb752a98a3c9dbf42347ed4a48ebc9f3c3c0f4e5c394bf30b66f49b7ba600221b5e0fdda0f87fc11d5d82d64908c0d7fb7b1de7622ba5544a069e00"
+}

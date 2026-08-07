@@ -43,12 +43,15 @@ Agent Intent
   Structural, common-semantic, and the one supported Profile contract are
   *implemented*; additional profiles remain planned.
 - **`atf-identity`** — Agent registration records (`AgentRecord`,
-  `AgentStatus`) and an in-memory `IdentityRegistry` verifying a raw
-  Ed25519 signature over `intent.canonical_hash()`, with key-rotation
-  support (multiple valid keys per Agent) and status gating. *Implemented
-  as a library — still not called from `services/gateway` (PRD §17.2): the
-  gateway now exists, but there is no way to register an Agent's key
-  through it yet, which is really an Admin API concern (PRD §17.3).*
+  `AgentStatus`) and the DS-014 `ATF_INTENT_V1` Identity Envelope. Explicitly
+  sorted canonical JSON binds organization, Agent, exact Key ID, Intent hash,
+  a five-minute time window, nonce, audience and environment. The in-memory
+  `IdentityRegistry` checks Agent scope/status/lifetime, selects only the
+  declared Key ID, performs strict Ed25519 verification and returns typed
+  `VerifiedIdentity`; raw-hash and try-any-key verification paths no longer
+  exist. *Implemented as a domain library — still not called from
+  `services/gateway`; durable Agent/Key lifecycle is DS-015 and Gateway plus
+  atomic Nonce consumption is DS-016.*
 - **`atf-policy`** — Cedar `PolicySet` parsing + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Partially implemented: no
   Cedar Schema or versioned Bundle manifest yet.*
@@ -137,8 +140,9 @@ Agent Intent
   DS-008 closed Intent envelope/version contract plus DS-009 common semantic
   validator, DS-010 Agent-Commerce Payment profile, and DS-011 safe API
   error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
-  foundation plus DS-013 exact retry/stage-heartbeat/request-driven recovery
-  now exist. Additional action profiles and authenticated nonce replay
+  foundation, DS-013 exact retry/stage-heartbeat/request-driven recovery, and
+  DS-014 domain-separated Identity Envelope now exist. Additional action
+  profiles, durable identity lifecycle and authenticated nonce replay
   protection remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
@@ -313,12 +317,12 @@ complete Decision Engine:
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- `atf-identity` is implemented but still unwired: nothing calls
-  `IdentityRegistry::verify_intent_signature`, since there is still no way
-  to register an Agent's key through `services/gateway` — that needs an
-  Admin API (PRD §17.3), which doesn't exist. It also has no key-rotation
-  *policy* (expiry windows, forced revocation) — only the mechanism to hold
-  multiple keys at once (PRD §17.2.4).
+- `atf-identity`'s domain-separated Envelope and exact-key verifier are
+  implemented but still unwired: nothing calls
+  `IdentityRegistry::verify_envelope`, Agent/Key records are not durable, and
+  Nonces are not consumed. Key activation/expiry/revocation windows and local
+  operator provisioning belong to DS-015; Gateway admission and atomic Nonce
+  use belong to DS-016. The in-memory registry is not deployment authority.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization

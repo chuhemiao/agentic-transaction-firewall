@@ -1,23 +1,29 @@
 use std::collections::HashMap;
 
+use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 
-use crate::error::IdentityError;
-use crate::record::AgentRecord;
+use crate::envelope::is_canonical_key_id;
+use crate::{AgentRecord, EnvelopeVerificationContext, IdentityEnvelope, IdentityError};
 
-/// In-memory Agent identity registry (PRD §17). Persistence is a Phase 2
-/// concern (`atf-audit`/a real store behind `atf-gateway`) — this type is
-/// the domain logic a persistent implementation would wrap.
+/// Identity facts authenticated by one exact registered key. This proves
+/// provenance only; Policy/Risk still decide whether the Intent is allowed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedIdentity {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub key_id: String,
+    pub nonce: String,
+    pub envelope_expires_at: Timestamp,
+}
+
+/// In-memory identity-domain registry. Durable Agent/key lifecycle is DS-015;
+/// Gateway verification and atomic nonce consumption are DS-016.
 #[derive(Default)]
 pub struct IdentityRegistry {
     agents: HashMap<String, AgentRecord>,
-    /// Multiple keys per agent support a rotation window (PRD §17.2.4):
-    /// both the old and new key verify successfully during the overlap
-    /// period, and nothing here ever removes a key on its own — that's an
-    /// explicit `revoke_key` operation, not implemented yet since there is
-    /// no admin API to drive it (PRD §17.3).
-    keys: HashMap<String, Vec<VerifyingKey>>,
+    keys: HashMap<(String, String), VerifyingKey>,
 }
 
 impl IdentityRegistry {
@@ -29,275 +35,105 @@ impl IdentityRegistry {
         self.agents.insert(record.agent_id.clone(), record);
     }
 
-    pub fn register_key(&mut self, agent_id: &str, key: VerifyingKey) {
-        self.keys.entry(agent_id.to_string()).or_default().push(key);
+    /// Register one explicitly addressed Agent key. Reusing a key ID fails;
+    /// key material is never silently replaced.
+    pub fn register_key(
+        &mut self,
+        agent_id: &str,
+        key_id: &str,
+        key: VerifyingKey,
+    ) -> Result<(), IdentityError> {
+        if !self.agents.contains_key(agent_id) {
+            return Err(IdentityError::UnknownAgent(agent_id.to_owned()));
+        }
+        if !is_canonical_key_id(key_id) {
+            return Err(IdentityError::InvalidEnvelopeField { field: "key_id" });
+        }
+        let address = (agent_id.to_owned(), key_id.to_owned());
+        if self.keys.contains_key(&address) {
+            return Err(IdentityError::DuplicateKeyId {
+                agent_id: agent_id.to_owned(),
+                key_id: key_id.to_owned(),
+            });
+        }
+        self.keys.insert(address, key);
+        Ok(())
     }
 
     pub fn agent(&self, agent_id: &str) -> Option<&AgentRecord> {
         self.agents.get(agent_id)
     }
 
-    /// Verify that `signature_bytes` (a raw 64-byte Ed25519 signature) over
-    /// `intent.canonical_hash()` was produced by one of
-    /// `intent.principal.agent_id`'s currently-registered keys, and that the
-    /// Agent's status allows it to submit requests at all (PRD §17.2.2-3,
-    /// §17.2.5). This only proves "this request came from this Agent" — it
-    /// says nothing about whether the request itself should be permitted;
-    /// that is still Policy's and Risk's job.
-    pub fn verify_intent_signature(
+    /// Validate and strictly verify one domain-separated envelope with only
+    /// its declared `(agent_id, key_id)` public key.
+    pub fn verify_envelope(
         &self,
         intent: &TransactionIntent,
+        envelope: &IdentityEnvelope,
         signature_bytes: &[u8; 64],
-    ) -> Result<(), IdentityError> {
-        let agent_id = &intent.principal.agent_id;
+        context: &EnvelopeVerificationContext<'_>,
+    ) -> Result<VerifiedIdentity, IdentityError> {
+        envelope.validate(intent, context)?;
 
         let record = self
             .agents
-            .get(agent_id)
-            .ok_or_else(|| IdentityError::UnknownAgent(agent_id.clone()))?;
-
+            .get(&envelope.agent_id)
+            .ok_or_else(|| IdentityError::UnknownAgent(envelope.agent_id.clone()))?;
         if !record.status.may_submit_requests() {
             return Err(IdentityError::AgentNotActive {
-                agent_id: agent_id.clone(),
+                agent_id: envelope.agent_id.clone(),
                 status: record.status,
             });
         }
+        if record.organization_id != envelope.organization_id {
+            return Err(IdentityError::AgentOrganizationMismatch {
+                agent_id: envelope.agent_id.clone(),
+            });
+        }
+        if record.deployment_environment != envelope.environment {
+            return Err(IdentityError::AgentEnvironmentMismatch {
+                agent_id: envelope.agent_id.clone(),
+            });
+        }
+        if record.created_at > envelope.issued_at {
+            return Err(IdentityError::AgentNotYetActive {
+                agent_id: envelope.agent_id.clone(),
+            });
+        }
+        if let Some(expires_at) = record.expires_at {
+            if expires_at <= context.verification_time {
+                return Err(IdentityError::AgentExpired {
+                    agent_id: envelope.agent_id.clone(),
+                });
+            }
+            if envelope.expires_at > expires_at {
+                return Err(IdentityError::EnvelopeExceedsAgentLifetime {
+                    agent_id: envelope.agent_id.clone(),
+                });
+            }
+        }
 
-        let keys = self
+        let address = (envelope.agent_id.clone(), envelope.key_id.clone());
+        let key = self
             .keys
-            .get(agent_id)
-            .filter(|keys| !keys.is_empty())
-            .ok_or_else(|| IdentityError::NoRegisteredKey(agent_id.clone()))?;
-
-        let message = intent.canonical_hash();
+            .get(&address)
+            .ok_or_else(|| IdentityError::UnknownKey {
+                agent_id: envelope.agent_id.clone(),
+                key_id: envelope.key_id.clone(),
+            })?;
         let signature = Signature::from_bytes(signature_bytes);
+        key.verify_strict(&envelope.canonical_bytes(), &signature)
+            .map_err(|_| IdentityError::InvalidSignature {
+                agent_id: envelope.agent_id.clone(),
+                key_id: envelope.key_id.clone(),
+            })?;
 
-        let verified = keys
-            .iter()
-            .any(|key| key.verify(message.as_bytes(), &signature).is_ok());
-
-        if verified {
-            Ok(())
-        } else {
-            Err(IdentityError::InvalidSignature(agent_id.clone()))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::record::AgentStatus;
-    use atf_core::{Amount, Timestamp};
-    use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
-    use ed25519_dalek::{Signer, SigningKey};
-    use std::str::FromStr;
-
-    fn signing_key(seed_byte: u8) -> SigningKey {
-        SigningKey::from_bytes(&[seed_byte; 32])
-    }
-
-    fn sample_intent(agent_id: &str) -> TransactionIntent {
-        TransactionIntent {
-            spec_version: "1.0".into(),
-            intent_id: "01J00000000000000000000000".into(),
-            idempotency_key: "idem-1".into(),
-            created_at: Timestamp::from_str("2026-07-18T08:00:00Z").unwrap(),
-            expires_at: Timestamp::from_str("2099-01-01T00:00:00Z").unwrap(),
-            principal: Principal {
-                organization_id: "alpha-lab".into(),
-                user_id: None,
-                agent_id: agent_id.to_string(),
-                agent_version: None,
-                strategy_id: None,
-            },
-            mandate: Mandate {
-                mandate_id: "mandate-001".into(),
-                task_id: None,
-                purpose: "test".into(),
-                budget_id: None,
-                human_authorized: true,
-            },
-            action: Action {
-                category: "payment".into(),
-                operation: "purchase_api_resource".into(),
-            },
-            resource: Resource {
-                protocol: "x402".into(),
-                venue: None,
-                resource_id: "btc-orderbook-2026-07-01".into(),
-                resource_type: None,
-            },
-            transaction: Transaction {
-                network: "eip155:8453".into(),
-                asset: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".into(),
-                amount: Amount::from_str("12.50").unwrap(),
-                destination: Some("eip155:8453:0x1111111111111111111111111111111111111111".into()),
-                contract: None,
-                calldata_hash: None,
-                max_fee: None,
-                slippage_bps: None,
-                leverage: None,
-            },
-            context: serde_json::json!({}),
-            metadata: serde_json::json!({}),
-        }
-    }
-
-    fn sample_record(agent_id: &str, status: AgentStatus) -> AgentRecord {
-        AgentRecord {
-            agent_id: agent_id.to_string(),
-            organization_id: "alpha-lab".to_string(),
-            owner_user_id: "user-001".to_string(),
-            agent_type: "trading".to_string(),
-            model_provider: "anthropic".to_string(),
-            model_name: "claude".to_string(),
-            agent_version: "1.4.2".to_string(),
-            code_hash: "deadbeef".to_string(),
-            deployment_environment: "production".to_string(),
-            allowed_tools: vec![],
-            allowed_adapters: vec![],
-            default_budget: None,
-            risk_tier: "standard".to_string(),
-            status,
-            created_at: Timestamp::now(),
-            expires_at: None,
-        }
-    }
-
-    fn sign(key: &SigningKey, intent: &TransactionIntent) -> [u8; 64] {
-        key.sign(intent.canonical_hash().as_bytes()).to_bytes()
-    }
-
-    #[test]
-    fn verifies_a_correctly_signed_intent() {
-        let mut registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Active));
-        registry.register_key("agent-1", key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&key, &intent);
-
-        assert!(registry
-            .verify_intent_signature(&intent, &signature)
-            .is_ok());
-    }
-
-    #[test]
-    fn rejects_a_tampered_intent() {
-        let mut registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Active));
-        registry.register_key("agent-1", key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&key, &intent);
-
-        let mut tampered = intent.clone();
-        tampered.transaction.amount = Amount::from_str("999.00").unwrap();
-
-        assert_eq!(
-            registry.verify_intent_signature(&tampered, &signature),
-            Err(IdentityError::InvalidSignature("agent-1".to_string()))
-        );
-    }
-
-    #[test]
-    fn rejects_a_signature_from_an_unregistered_key() {
-        let mut registry = IdentityRegistry::new();
-        let registered_key = signing_key(1);
-        let attacker_key = signing_key(2);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Active));
-        registry.register_key("agent-1", registered_key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&attacker_key, &intent);
-
-        assert_eq!(
-            registry.verify_intent_signature(&intent, &signature),
-            Err(IdentityError::InvalidSignature("agent-1".to_string()))
-        );
-    }
-
-    #[test]
-    fn rejects_an_unknown_agent() {
-        let registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        let intent = sample_intent("ghost-agent");
-        let signature = sign(&key, &intent);
-
-        assert_eq!(
-            registry.verify_intent_signature(&intent, &signature),
-            Err(IdentityError::UnknownAgent("ghost-agent".to_string()))
-        );
-    }
-
-    #[test]
-    fn rejects_a_paused_agent_even_with_a_valid_signature() {
-        let mut registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Paused));
-        registry.register_key("agent-1", key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&key, &intent);
-
-        assert_eq!(
-            registry.verify_intent_signature(&intent, &signature),
-            Err(IdentityError::AgentNotActive {
-                agent_id: "agent-1".to_string(),
-                status: AgentStatus::Paused,
-            })
-        );
-    }
-
-    #[test]
-    fn shadow_only_agents_may_still_submit_for_verification() {
-        let mut registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        registry.register_agent(sample_record("agent-1", AgentStatus::ShadowOnly));
-        registry.register_key("agent-1", key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&key, &intent);
-
-        assert!(registry
-            .verify_intent_signature(&intent, &signature)
-            .is_ok());
-    }
-
-    #[test]
-    fn a_rotated_second_key_verifies_alongside_the_first() {
-        let mut registry = IdentityRegistry::new();
-        let old_key = signing_key(1);
-        let new_key = signing_key(2);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Active));
-        registry.register_key("agent-1", old_key.verifying_key());
-        registry.register_key("agent-1", new_key.verifying_key());
-
-        let intent = sample_intent("agent-1");
-
-        assert!(registry
-            .verify_intent_signature(&intent, &sign(&old_key, &intent))
-            .is_ok());
-        assert!(registry
-            .verify_intent_signature(&intent, &sign(&new_key, &intent))
-            .is_ok());
-    }
-
-    #[test]
-    fn rejects_when_no_key_is_registered_at_all() {
-        let mut registry = IdentityRegistry::new();
-        let key = signing_key(1);
-        registry.register_agent(sample_record("agent-1", AgentStatus::Active));
-
-        let intent = sample_intent("agent-1");
-        let signature = sign(&key, &intent);
-
-        assert_eq!(
-            registry.verify_intent_signature(&intent, &signature),
-            Err(IdentityError::NoRegisteredKey("agent-1".to_string()))
-        );
+        Ok(VerifiedIdentity {
+            organization_id: envelope.organization_id.clone(),
+            agent_id: envelope.agent_id.clone(),
+            key_id: envelope.key_id.clone(),
+            nonce: envelope.nonce.clone(),
+            envelope_expires_at: envelope.expires_at,
+        })
     }
 }
