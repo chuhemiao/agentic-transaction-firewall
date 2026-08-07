@@ -28,8 +28,15 @@ DS-001 fixed the missing persistence design contract on 2026-08-07 in
 ADR-0002. It selects one PostgreSQL storage boundary, per-organization
 row-locked Audit chains, atomic admission/finalization, evaluator fencing, and
 forward-only migration compatibility. This reduces design ambiguity only;
-the runtime gaps remain open until DS-002 and its dependent implementation
-tasks land.
+the runtime guarantees remain open under DS-003 and its dependent
+implementation tasks.
+
+DS-002 added the `atf-store` boundary and migration 0001 on 2026-08-08. The
+schema stores canonical JSON/bytes and hashes for tenant-scoped Intents,
+Evaluations, Decisions, and Audit events; composite foreign keys reject
+cross-tenant references; database triggers reject Audit UPDATE, DELETE, and
+TRUNCATE. CI now exercises those constraints on PostgreSQL 17.10.
+Gateway persistence, concurrent chain append, and restart behavior remain open.
 
 ## Module inventory
 
@@ -42,12 +49,13 @@ tasks land.
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; trusted context, versioning, deterministic time, and most PRD rules are missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | In-memory append-only hash chain and `DecisionRecorded` are wired; persistence, queries, checkpoints, and full lifecycle are missing. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
+| `atf-store` | `IMPLEMENTED_BUT_UNWIRED` | Embedded SQLx migration runner, schema compatibility checks, constrained tenant tables, and append-only Audit triggers pass against real PostgreSQL; repository operations and Gateway wiring are absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, and `policy test` exist; most PRD §21 commands are missing. |
 | `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes and Policy/Risk/Decision/Audit wiring exist; identity, persistence, idempotency, auth, metrics, and query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
-| Adapter/replay conformance, fuzz, migrations, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
+| Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
 | SDKs and most target documentation | `MISSING` | No implementation; `intent-spec.md`, `policy-model.md`, `audit-model.md`, quickstart, SDKs, and adapter manifest Schema are absent. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
@@ -282,7 +290,7 @@ tasks land.
 
 - **module:** `atf-audit`, Gateway
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** append-only API, hash chain, tamper test, and `DecisionRecorded` exist; chain is process-local/global, event payloads are mostly untyped, and no checkpoint/query/retention controls exist. ADR-0002 has selected row-locked per-organization chain heads and atomic state/evidence commits, but there is no PostgreSQL implementation yet.
+- **evidence:** append-only API, hash chain, tamper test, and `DecisionRecorded` exist. Migration 0001 adds per-organization PostgreSQL event/head tables and triggers that reject UPDATE, DELETE, and TRUNCATE even for a table-privileged application role. The Gateway chain remains process-local/global; row-locked append, typed payloads, checkpoint/query/retention, and durable cutover are missing.
 - **security_impact:** restart, privileged process memory, or database design mistakes can erase or fork evidence.
 - **financial_impact:** transaction authorization history may be incomplete or unverifiable.
 - **severity:** `HIGH`
@@ -295,14 +303,14 @@ tasks land.
 ### GAP-PER-001 — Persistence
 
 - **module:** Gateway state, Audit store, migrations/deploy
-- **current_state:** `MISSING`
-- **evidence:** `Mutex<AuditLedger>` and `Mutex<HashMap<...Decision>>`; `migrations/` contains only a README. ADR-0002 defines the missing storage and transaction contract, but `atf-store`, schema, and Gateway cutover do not exist.
+- **current_state:** `PARTIALLY_IMPLEMENTED`
+- **evidence:** `atf-store`, embedded migrations, schema metadata checks, tenant constraints, canonical JSON/bytes/hash columns, and append-only Audit triggers are implemented and tested on PostgreSQL 17.10. Gateway still uses `Mutex<AuditLedger>` and `Mutex<HashMap<...Decision>>`; no repository transaction or cutover exists.
 - **security_impact:** restart erases accepted requests and anti-replay/history state; multiple instances diverge.
 - **financial_impact:** Decisions disappear, duplicate/budget controls reset, and recovery is impossible.
 - **severity:** `CRITICAL`
-- **recommended_change:** PostgreSQL migrations and a transactional repository for Intent, evaluation, Decision, and Audit append.
+- **recommended_change:** implement the row-locked Audit writer, admission/finalization repositories, and Gateway cutover on the existing schema.
 - **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency, database-unavailable fail-closed behavior.
-- **dependencies:** lifecycle transaction boundary and organization chain policy are fixed by ADR-0002; implementation starts at DS-002.
+- **dependencies:** lifecycle transaction boundary, organization chain policy, and base schema are complete; DS-003..DS-005 remain.
 - **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
 
@@ -383,8 +391,8 @@ tasks land.
 
 ## Next vertical feature
 
-`DS-002` is next: create `atf-store`, the migration runner, and the initial
-constrained PostgreSQL schema under ADR-0002. Later DS-003..DS-005 add
-concurrent Audit append, atomic repositories, and Gateway restart behavior;
+`DS-003` is next: implement row-locked per-organization Audit append and
+reload/verification against migration 0001. DS-004..DS-005 then add atomic
+repositories and Gateway restart behavior;
 identity, idempotency, replay, and budget work must build on that durable
 boundary rather than add more process-local state.

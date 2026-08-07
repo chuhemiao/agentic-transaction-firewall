@@ -28,9 +28,13 @@ order. The executable order is:
 - [x] DS-001 Fix the PostgreSQL ownership boundary, per-organization
   chain-head locking, atomic admission/finalization, fenced evaluator
   recovery, and migration compatibility in ADR-0002.
+- [x] DS-002 Add `atf-store`, embedded migrations, schema-version fail-closed
+  checks, tenant constraints, and database-enforced append-only Audit rows;
+  run the migration suite against PostgreSQL 17.10 in CI.
 
-- [ ] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
-  append-only Audit chain.
+- [~] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
+  append-only Audit chain. The base schema is real; repository operations,
+  concurrent append, Gateway cutover, and restart proof remain.
 - [~] P0.2 Intent lifecycle state machine. `IntentReceived`,
   `PolicyEvaluated`, `RiskEvaluated`, and `DecisionRecorded` exist; identity,
   simulation, approval, execution, settlement, expiry, and cancellation
@@ -51,8 +55,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-002` — create `atf-store`, the migration runner,
-and the initial constrained PostgreSQL schema defined by ADR-0002.
+**Immediate next task:** `DS-003` — implement row-locked concurrent
+per-organization Audit append and reload/verification in `atf-store`.
 
 ## Later releases
 

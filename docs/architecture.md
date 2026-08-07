@@ -51,12 +51,19 @@ Agent Intent
   `DecisionRecorded`) and an in-memory,
   append-only `AuditLedger` that hash-chains events and can `verify_chain()`
   to detect after-the-fact tampering (PRD §16.3). *Implemented as a
-  library — no persistent store (PRD's MVP design calls for PostgreSQL);
-  now called from `services/gateway`, so it's the first of these two
-  "implemented but unwired" crates to actually be wired somewhere.*
+  library and called from `services/gateway`, but that request path still
+  uses only the in-memory ledger; the new PostgreSQL tables are not wired.*
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
+- **`atf-store`** — one SQLx/PostgreSQL boundary with an embedded forward-only
+  migration runner and fail-closed schema compatibility check. Migration 0001
+  creates organization-scoped Intent/Evaluation/Decision records,
+  per-organization Audit heads/events, canonical JSON plus exact bytes and
+  SHA-256 hashes, composite tenant foreign keys, and append-only Audit
+  triggers. *Implemented as the durable schema foundation; no Audit append or
+  admission/finalization repository APIs exist yet, and Gateway does not use
+  it.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -76,21 +83,22 @@ Agent Intent
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
   bounds as well as paths, while wildcard and unknown-source denial remain
   enabled. `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
-  (JSON Schema path) are explicitly reviewed permissive licenses. Broader
+  (JSON Schema path), plus ISC code and CDLA-Permissive-2.0 trust-anchor data
+  on SQLx's Rustls path, are explicitly reviewed permissive licenses. Broader
   audit/secret/SAST/SBOM gates remain planned under GAP-CI-001.
 - **Durable-state design** —
   [`ADR-0002`](decisions/0002-durable-state-contract.md) now fixes the
   PostgreSQL ownership boundary, per-organization Audit serialization, short
   admission/finalization transactions, and evaluator fencing/recovery rules.
-  *Accepted design only: `atf-store`, migrations, and durable Gateway wiring
-  do not exist yet.*
+  `atf-store` and the base migration now exist; durable repository and Gateway
+  wiring remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
-`deploy/`, `migrations/`, `fuzz/` is a scaffolded directory with a
+`deploy/`, and `fuzz/` is a scaffolded directory with a
 `README.md` describing what belongs there and which roadmap phase (PRD §31)
 will fill it in. None of it is wired into the Cargo workspace yet.
 
-## Accepted durable-state contract (not implemented)
+## Accepted durable-state contract (partially implemented)
 
 ADR-0002 makes PostgreSQL the only authoritative state for accepted Intents,
 Evaluations, Decisions, idempotency, identity nonces, and Audit. The storage
@@ -208,8 +216,9 @@ complete Decision Engine:
   `Mutex`, so a process restart loses everything (PRD §16.3's MVP design
   calls for PostgreSQL). There is also no rate limiting, no TLS termination
   config, and no multi-instance story — this is a reference wiring, not a
-  production deployment target. ADR-0002 resolves the target transaction and
-  chain design, but none of its storage guarantees are implemented yet.
+  production deployment target. ADR-0002 and migration 0001 resolve the
+  target transaction and constrained table design, but the Gateway does not
+  receive their guarantees until DS-003..DS-005 land.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

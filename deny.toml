@@ -17,6 +17,12 @@ allow = [
     "MIT-0",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # ring, rustls-webpki, and untrusted (SQLx's Rustls PostgreSQL TLS path):
+    # permissive ISC terms with notice retention and warranty disclaimer.
+    "ISC",
+    # webpki-roots (SQLx's Rustls trust-anchor data): permits use,
+    # modification, and sharing when redistributed with the license text.
+    "CDLA-Permissive-2.0",
     "Unicode-3.0",
     "Zlib",
 ]

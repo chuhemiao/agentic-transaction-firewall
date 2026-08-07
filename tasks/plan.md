@@ -47,7 +47,9 @@ BL-001 was completed on 2026-08-07 with the restrictive wildcard/source policy
 intact. DS-001 was completed the same day by accepting ADR-0002: PostgreSQL is
 the single durable boundary, Audit chains serialize per organization, and
 admission/finalization plus fenced evaluator recovery have explicit
-invariants. The next task is DS-002.
+invariants. DS-002 was completed on 2026-08-08 with the `atf-store` boundary,
+embedded migration runner, constrained base Schema, append-only triggers, and
+real PostgreSQL migration CI. The next task is DS-003.
 
 ### Present but incomplete or unwired
 
@@ -57,11 +59,13 @@ invariants. The next task is DS-002.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
 - Audit and Decision state use process-local `Mutex`/`HashMap` storage.
+- `atf-store` has the base Schema and migration runner but no repository
+  operations or Gateway caller.
 
 ### Missing release controls
 
-- PostgreSQL, lifecycle transactions, durable idempotency and nonce replay
-  protection.
+- PostgreSQL repository/cutover, lifecycle transactions, durable idempotency
+  and nonce replay protection.
 - Rust semantic validation and supported action profiles.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
@@ -195,6 +199,8 @@ rollback before writing storage code.
 - **Verification:** ADR review against PRD §16 and GAP-PER/AUD/RPL; Markdown link check.
 
 ### DS-002 — Create the PostgreSQL store and initial migration `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Add `atf-store` as the single persistence boundary and an
 initial migration for organizations, intents, evaluations, decisions, Audit

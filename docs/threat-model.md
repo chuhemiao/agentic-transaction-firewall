@@ -32,7 +32,7 @@ real network request path, but no execution path or production secret.
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: `atf-audit` is append-only in its public API and hash-chained, but storage is process memory, has no independent checkpoint, and disappears on restart. ADR-0002 selects row-locked per-organization chains and atomic state/evidence commits; DS-002..DS-005 remain unimplemented |
+| 12 | Audit log deletion | Partially addressed: the in-memory producer is hash-chained, and migration 0001 now provides organization-scoped PostgreSQL Audit tables whose triggers reject UPDATE, DELETE, and TRUNCATE even after an application role is granted table privileges. Gateway still writes only to memory; row-locked append, cutover, and independent checkpoints remain DS-003..DS-005/later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
@@ -60,9 +60,10 @@ secret. The realistic attack surface today includes:
 - **History poisoning and process-local state** — lifecycle semantics now
   prevent denied or cross-organization requests from triggering the
   duplicate-purchase rule, but restart loss and multi-instance divergence
-  remain until PostgreSQL persistence lands. ADR-0002 makes PostgreSQL the
-  only authority, uses per-organization chain-head row locks, and forbids an
-  in-memory fallback; this is a reviewed design, not a current mitigation.
+  remain until the Gateway persistence cutover. Migration 0001 now provides
+  constrained per-organization tables and append-only Audit protection, while
+  ADR-0002 makes PostgreSQL the only target authority and specifies chain-head
+  row locks; neither affects the current request path yet.
 - **Evaluator crash and stale completion** — the running Gateway has no
   durable reservation or recovery path. ADR-0002 requires finite leases with
   monotonically increasing fencing generations and immutable evaluation

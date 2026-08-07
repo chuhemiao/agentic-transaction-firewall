@@ -7,6 +7,12 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- `atf-store` with an embedded SQLx migration runner, fail-closed Schema
+  compatibility checks, and migration 0001 for tenant-scoped Intents,
+  Evaluations, Decisions, Audit chain heads/events, and schema metadata.
+- Real PostgreSQL migration tests covering reruns, hash/tenant constraints,
+  cross-record binding, and database-enforced Audit immutability, backed by a
+  version-pinned PostgreSQL 17.10 CI service.
 - ADR-0002 defining PostgreSQL as the single durable state boundary,
   row-locked per-organization Audit chains, atomic admission/finalization,
   fenced evaluator recovery, fail-closed database behavior, and forward-only
@@ -41,6 +47,11 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Reviewed and allowed ISC for the ring/WebPKI code and
+  CDLA-Permissive-2.0 for the WebPKI trust-anchor data introduced by SQLx's
+  Rustls PostgreSQL TLS path; wildcard and unknown-source denial remain.
+- Pinned `home` to 0.5.11 so SQLx remains compatible with the workspace's Rust
+  1.82 floor; 0.5.12 requires Rust 1.88.
 - Reviewed and explicitly allowed `Apache-2.0 WITH LLVM-exception` from the
   Cedar build path and `MIT-0` from the JSON Schema path while retaining
   wildcard and unknown-source denial.

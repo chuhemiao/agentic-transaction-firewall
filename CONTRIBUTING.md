@@ -26,11 +26,15 @@ please open an issue to discuss non-trivial changes before writing code.
 cargo build
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  cargo test
 ```
 
 All four must pass before opening a PR; CI enforces the same checks
 (`.github/workflows/ci.yml`).
+
+The PostgreSQL test role must be allowed to create temporary databases and
+roles. CI provisions a version-pinned PostgreSQL 17.10 service for this gate.
 
 ## Commit / PR expectations
 

@@ -29,9 +29,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-001:** accepted ADR-0002 for durable transactions, fenced evaluator
   recovery, forward-only migration compatibility, and row-locked per-org
   Audit chains.
-- [ ] **NEXT — DS-002:** create `atf-store` and the initial PostgreSQL
-  migration. Depends: DS-001.
-- [ ] **DS-003:** implement concurrent per-organization Audit append/verification. Depends: DS-002.
+- [x] **DS-002:** added `atf-store`, embedded migration runner, constrained
+  tenant-aware PostgreSQL Schema, append-only Audit protection, and real
+  PostgreSQL CI tests.
+- [ ] **NEXT — DS-003:** implement concurrent per-organization Audit
+  append/verification. Depends: DS-002.
 - [ ] **DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
 - [ ] **DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.
 - [ ] **DS-006:** define lifecycle states and typed Audit payloads. Depends: DS-001.

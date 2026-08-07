@@ -1011,7 +1011,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前实现是进程内 Append-only Hash Chain，并已接入 Gateway；PostgreSQL、组织链策略、Query API、Checkpoint 和完整 Lifecycle 尚未实现。
+当前 Gateway 实现仍是进程内 Append-only Hash Chain。`atf-store` 和初始 PostgreSQL Migration 已提供每组织独立的 Audit Head/Event 表、租户复合外键与禁止 UPDATE/DELETE/TRUNCATE 的触发器，但并发链头 Append、Gateway 持久化接入、Query API、Checkpoint 和完整 Lifecycle 尚未实现。
 
 ### 16.1 目标
 
@@ -1283,9 +1283,10 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 
 1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
-3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
-4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz/Migrations 目录。
-5. `MISSING`：PostgreSQL Repository、Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
+3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`；`atf-store` 的基础 Schema、Migration Runner 与兼容性检查。
+4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
+5. `PARTIALLY_IMPLEMENTED`：PostgreSQL 基础 Schema 已落地；Repository 事务、Gateway 接入和 Restart Recovery 尚未实现。
+6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
 

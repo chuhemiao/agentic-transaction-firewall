@@ -47,8 +47,9 @@ If you're asked to "continue" or "keep going through the TODO list":
 ## Orientation: what's real vs. scaffolded
 
 - `crates/atf-core`, `atf-intent`, `atf-identity`, `atf-policy`, `atf-risk`,
-  `atf-audit`, `atf-decision` and `cli/atf-cli`, `services/gateway`: real,
-  tested Rust code.
+  `atf-audit`, `atf-decision`, `atf-store` and `cli/atf-cli`,
+  `services/gateway`: real, tested Rust code. `atf-store` currently owns only
+  migration/schema compatibility; repository operations begin at DS-003.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what
@@ -86,7 +87,9 @@ If you're asked to "continue" or "keep going through the TODO list":
 ## Quick commands
 
 ```bash
-cargo build && cargo test
+cargo build
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres cargo test
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf cargo run -p atf-store --bin atf-store-migrate
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --policies policies/examples
 cargo run -p atf-cli -- policy test

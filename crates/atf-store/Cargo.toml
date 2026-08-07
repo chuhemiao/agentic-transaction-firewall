@@ -1,0 +1,21 @@
+[package]
+name = "atf-store"
+description = "PostgreSQL persistence boundary for durable ATF state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "atf-store-migrate"
+path = "src/bin/migrate.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+home = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

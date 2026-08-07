@@ -61,6 +61,11 @@ Only the following crates are implemented so far:
   yet.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
+- `crates/atf-store` — the SQLx/PostgreSQL persistence boundary, embedded
+  migration runner, schema compatibility check, and initial constrained
+  tables for organizations, Intents, Evaluations, Decisions, per-organization
+  Audit heads/events, and schema metadata. Repository transactions and Gateway
+  wiring are not implemented yet.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
@@ -69,12 +74,13 @@ Only the following crates are implemented so far:
   verification is not wired in yet (no way to register an Agent's key
   through this service). Never executes anything — evaluate-only.
 
-The durable-state contract is now fixed in
+The durable-state contract is fixed in
 [`ADR-0002`](docs/decisions/0002-durable-state-contract.md): PostgreSQL is the
 single authority, Audit chains are serialized per organization, and admission
 and finalization use separate atomic transactions with fenced evaluator
-recovery. This is a design milestone only; `atf-store`, migrations, and the
-Gateway cutover are not implemented yet.
+recovery. `DS-002` now provides the store/migration/schema foundation; the
+concurrent append algorithm, transactional repositories, and Gateway cutover
+remain `DS-003`..`DS-005`.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -142,8 +148,8 @@ semantics (evaluate only, never execute).
   to the official cargo-deny 0.20.2 Action release commit.
 - PostgreSQL persistence and a transactional Intent lifecycle; process
   restart and multiple instances must preserve the same Decision/Audit state.
-  The transaction, per-organization Audit-chain, recovery, and migration
-  contract is complete in ADR-0002; implementation starts with `DS-002`.
+  ADR-0002 and the initial `atf-store` Schema/migration are complete;
+  concurrent append, repository transactions, and Gateway cutover remain.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
@@ -181,7 +187,12 @@ implementation plan and executable checklist are in
 
 ```bash
 cargo build
-cargo test
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  cargo test
+
+# Apply/verify the embedded durable-state migration
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
+  cargo run -p atf-store --bin atf-store-migrate
 
 # Validate an intent against the JSON Schema + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
