@@ -14,6 +14,7 @@ pub enum EventType {
     IdentityVerified,
     IdentityVerificationSkipped,
     IdentityRejected,
+    ReplayDetected,
     ContextEnriched,
     PolicyEvaluated,
     RiskEvaluated,
@@ -60,7 +61,8 @@ impl EventType {
     pub const fn has_lifecycle_effect(self) -> bool {
         !matches!(
             self,
-            Self::ContextEnriched
+            Self::ReplayDetected
+                | Self::ContextEnriched
                 | Self::ServiceDelivered
                 | Self::BudgetReserved
                 | Self::BudgetCommitted

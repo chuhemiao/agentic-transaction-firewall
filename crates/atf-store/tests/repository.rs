@@ -5,11 +5,13 @@ use atf_audit::{
 };
 use atf_core::{Amount, IntentLifecycleState as State, Timestamp};
 use atf_decision::{Decision, DecisionKind, Reason};
+use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
-    AdmissionInput, EvaluationInput, FinalizationInput, IdempotencyState, Store, StoreError,
-    StoredEvaluation,
+    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationInput, FinalizationInput,
+    IdempotencyState, Store, StoreError, StoredAuditEvent, StoredEvaluation,
 };
+use ed25519_dalek::{Signer, SigningKey};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Executor, PgConnection, PgPool,
@@ -21,6 +23,27 @@ use std::{
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+const TEST_KEY_ID: &str = "key-a";
+const TEST_AUDIENCE: &str = "atf-store-test";
+const TEST_ENVIRONMENT: &str = "test";
+
+struct AdmissionInput {
+    intent: TransactionIntent,
+    received_at: Timestamp,
+    lease_duration: Duration,
+}
+
+trait AuthenticatedAdmissionTestExt {
+    async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError>;
+}
+
+impl AuthenticatedAdmissionTestExt for Store {
+    async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError> {
+        self.authenticate_and_admit(authenticated_input(input))
+            .await
+    }
+}
 
 #[tokio::test]
 async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(), Box<dyn Error>> {
@@ -43,10 +66,10 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         admitted.admitted.received_at.to_string(),
         "2026-08-08T01:00:00.123Z"
     );
-    assert_eq!(admitted.admitted.lifecycle.state, State::Received);
-    assert_eq!(admitted.admitted.lifecycle.version, 1);
+    assert_eq!(admitted.admitted.lifecycle.state, State::IdentityVerified);
+    assert_eq!(admitted.admitted.lifecycle.version, 2);
     assert_eq!(admitted.admitted.lifecycle.contract_version, 1);
-    assert_eq!(
+    assert_ne!(
         admitted.admitted.lifecycle.last_event_id.as_deref(),
         Some(admitted.admitted.audit_event.event.event_id.as_str())
     );
@@ -81,7 +104,10 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         .expect("the original admission remains queryable");
     assert_eq!(reloaded.intent, intent);
     assert_eq!(reloaded.intent_hash, intent.canonical_hash());
-    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 1);
+    assert_eq!(
+        request_events(store.load_verified_audit_chain("org-a").await?).len(),
+        2
+    );
 
     let reused_key = sample_intent("org-a", "intent-b", "idem-a", "7.00");
     let error = store
@@ -148,7 +174,7 @@ async fn admission_audit_failure_rolls_back_the_intent() -> Result<(), Box<dyn E
     )
     .fetch_one(&database.pool)
     .await?;
-    assert_eq!((reservations, intents, events, heads), (0, 0, 0, 0));
+    assert_eq!((reservations, intents, events, heads), (0, 0, 2, 1));
     assert!(store
         .load_admitted_intent("org-a", "intent-a")
         .await?
@@ -215,7 +241,7 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         .expect("a committed, evidence-complete Decision is queryable");
     assert_eq!(reloaded, finalized);
 
-    let chain = store.load_verified_audit_chain("org-a").await?;
+    let chain = request_events(store.load_verified_audit_chain("org-a").await?);
     assert_eq!(chain.len(), 6);
     assert_eq!(
         chain
@@ -224,7 +250,7 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
             .collect::<Vec<_>>(),
         vec![
             EventType::IntentReceived,
-            EventType::IdentityVerificationSkipped,
+            EventType::IdentityVerified,
             EventType::PolicyEvaluated,
             EventType::RiskEvaluated,
             EventType::SimulationCompleted,
@@ -323,16 +349,17 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
         .await?
         .is_none());
 
-    let chain = store.load_verified_audit_chain("org-a").await?;
-    assert_eq!(chain.len(), 1);
-    assert_eq!(chain[0].sequence, 1);
+    let chain = request_events(store.load_verified_audit_chain("org-a").await?);
+    assert_eq!(chain.len(), 2);
+    assert_eq!(chain[0].event.event_type, EventType::IntentReceived);
+    assert_eq!(chain[1].event.event_type, EventType::IdentityVerified);
     assert_eq!(
         store
             .load_intent_lifecycle("org-a", "intent-a")
             .await?
             .expect("the admitted lifecycle remains")
             .state,
-        State::Received
+        State::IdentityVerified
     );
 
     store.close().await;
@@ -416,7 +443,10 @@ async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
     .fetch_one(&database.pool)
     .await?;
     assert_eq!((evaluations, decisions), (0, 0));
-    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 1);
+    assert_eq!(
+        request_events(store.load_verified_audit_chain("org-a").await?).len(),
+        2
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -554,7 +584,10 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
     .fetch_one(&database.pool)
     .await?;
     assert_eq!((evaluations, decisions), (1, 1));
-    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 6);
+    assert_eq!(
+        request_events(store.load_verified_audit_chain("org-a").await?).len(),
+        6
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -623,7 +656,10 @@ async fn generic_audit_append_cannot_create_lifecycle_evidence_without_state(
         .await
         .expect_err("generic append must not split lifecycle state from its evidence");
     assert!(matches!(error, StoreError::InvalidAuditEvent { .. }));
-    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 1);
+    assert_eq!(
+        request_events(store.load_verified_audit_chain("org-a").await?).len(),
+        2
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -705,7 +741,7 @@ fn sample_intent(
         intent_id: intent_id.into(),
         idempotency_key: idempotency_key.into(),
         created_at: timestamp("2026-08-08T00:00:00Z"),
-        expires_at: timestamp("2026-08-08T00:05:00Z"),
+        expires_at: timestamp("2026-08-08T02:00:00Z"),
         principal: Principal {
             organization_id: organization_id.into(),
             user_id: Some("user-a".into()),
@@ -799,11 +835,12 @@ impl TestDatabase {
         })
     }
 
-    async fn seed_organization(&self, organization_id: &str) -> Result<(), sqlx::Error> {
+    async fn seed_organization(&self, organization_id: &str) -> Result<(), Box<dyn Error>> {
         sqlx::query("INSERT INTO organizations (organization_id) VALUES ($1)")
             .bind(organization_id)
             .execute(&self.pool)
             .await?;
+        provision_identity(&self.url, organization_id).await?;
         Ok(())
     }
 
@@ -816,6 +853,93 @@ impl TestDatabase {
             .await?;
         Ok(())
     }
+}
+
+fn authenticated_input(input: AdmissionInput) -> AuthenticatedAdmissionInput {
+    let signing_key = SigningKey::from_bytes(&[42; 32]);
+    let intent_hash = input.intent.canonical_hash();
+    let envelope = IdentityEnvelope {
+        domain: "ATF_INTENT_V1".into(),
+        organization_id: input.intent.principal.organization_id.clone(),
+        agent_id: input.intent.principal.agent_id.clone(),
+        key_id: TEST_KEY_ID.into(),
+        intent_hash: intent_hash.clone(),
+        issued_at: timestamp("2026-08-08T01:00:00Z"),
+        expires_at: timestamp("2026-08-08T01:05:00Z"),
+        nonce: format!("nonce-{}", &intent_hash[..32]),
+        audience: TEST_AUDIENCE.into(),
+        environment: TEST_ENVIRONMENT.into(),
+    };
+    let signature = signing_key.sign(&envelope.canonical_bytes()).to_bytes();
+    AuthenticatedAdmissionInput {
+        intent: input.intent,
+        envelope,
+        signature,
+        audience: TEST_AUDIENCE.into(),
+        environment: TEST_ENVIRONMENT.into(),
+        received_at: input.received_at,
+        lease_duration: input.lease_duration,
+    }
+}
+
+async fn provision_identity(
+    database_url: &str,
+    organization_id: &str,
+) -> Result<(), Box<dyn Error>> {
+    let store = Store::connect(database_url).await?;
+    let signing_key = SigningKey::from_bytes(&[42; 32]);
+    store
+        .provision_agent(
+            test_agent(organization_id),
+            "test-operator",
+            timestamp("2026-08-08T00:00:00Z"),
+        )
+        .await?;
+    store
+        .register_identity_key(
+            organization_id,
+            IdentityKeyRecord::from_public_key_bytes(
+                "agent-a".into(),
+                TEST_KEY_ID.into(),
+                signing_key.verifying_key().as_bytes(),
+                timestamp("2026-08-08T00:00:00Z"),
+                Some(timestamp("2026-08-09T00:00:00Z")),
+                None,
+            )?,
+            "test-operator",
+            timestamp("2026-08-08T00:00:01Z"),
+        )
+        .await?;
+    store.close().await;
+    Ok(())
+}
+
+fn test_agent(organization_id: &str) -> AgentRecord {
+    AgentRecord {
+        agent_id: "agent-a".into(),
+        organization_id: organization_id.into(),
+        owner_user_id: "user-a".into(),
+        agent_type: "test".into(),
+        model_provider: "test".into(),
+        model_name: "deterministic".into(),
+        agent_version: "1.0.0".into(),
+        code_hash: "a".repeat(64),
+        deployment_environment: TEST_ENVIRONMENT.into(),
+        allowed_tools: Vec::new(),
+        allowed_adapters: Vec::new(),
+        default_budget: None,
+        risk_tier: "standard".into(),
+        status: AgentStatus::Active,
+        created_at: timestamp("2026-08-07T00:00:00Z"),
+        expires_at: Some(timestamp("2026-08-09T00:00:00Z")),
+    }
+}
+
+fn request_events(chain: Vec<StoredAuditEvent>) -> Vec<StoredAuditEvent> {
+    chain
+        .into_iter()
+        .filter(|stored| stored.event.intent_id.is_some())
+        .collect()
 }
 
 fn unique_suffix() -> String {

@@ -586,6 +586,23 @@ impl Store {
     }
 }
 
+/// Lock and verify the current Agent/exact-Key authority inside a caller's
+/// write transaction. Admission uses this to close the verify/revoke race and
+/// to reuse the same fully verified Audit snapshot for Nonce classification.
+pub(crate) async fn load_identity_snapshot_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+    organization_id: &str,
+    agent_id: &str,
+    key_id: &str,
+) -> Result<(IdentitySnapshot, Vec<crate::StoredAuditEvent>), StoreError> {
+    let agent_row = fetch_agent_for_update(transaction, organization_id, agent_id).await?;
+    let key_row = fetch_key_for_update(transaction, organization_id, agent_id, key_id).await?;
+    let chain = load_verified_in_transaction(transaction, organization_id).await?;
+    let agent = verify_agent_row(agent_row, &chain)?;
+    let key = verify_key_row(key_row, &chain)?;
+    Ok((IdentitySnapshot { agent, key }, chain))
+}
+
 async fn fetch_agent(
     transaction: &mut Transaction<'_, Postgres>,
     organization_id: &str,

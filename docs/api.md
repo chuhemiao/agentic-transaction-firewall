@@ -17,6 +17,11 @@ The organization header used by the Decision read route is only a temporary
 tenant selector. It is not authentication or authorization; business routes
 must not be exposed to a shared or untrusted network before DS-017/DS-018.
 
+`POST /v1/intents` requires the detached Agent identity Headers defined in
+[`gateway-identity.md`](gateway-identity.md): lowercase-hex canonical Envelope
+bytes plus one exact Ed25519 signature. Trusted audience/environment come from
+required Gateway startup configuration, not the request.
+
 ## Request correlation
 
 The Gateway generates a fresh ULID for every HTTP request. Every response,
@@ -80,16 +85,19 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 404 | `DECISION_NOT_FOUND` | No tenant-scoped durable Decision exists |
 | 404 | `ROUTE_NOT_FOUND` | Path is not registered |
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
+| 401 | `IDENTITY_HEADERS_*` / `IDENTITY_*` | Identity Header or signed proof is missing, malformed, expired, mismatched or invalid |
+| 403 | `IDENTITY_AGENT_*` / `IDENTITY_KEY_*` | A known durable Agent/Key lifecycle or deployment restriction denies submission |
 | 409 | `DURABLE_STATE_CONFLICT` | Immutable durable state conflicts with the request |
 | 409 | `IDEMPOTENCY_CONFLICT` | Organization/key is already bound to another Intent hash |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | The same organization/key/hash has an active evaluator or recovery lease |
+| 409 | `IDENTITY_NONCE_REPLAY` | The Agent Nonce is already bound to another request |
 | 413 | `REQUEST_BODY_TOO_LARGE` | Active body limit rejected the request |
 | 500 | `DURABLE_STATE_INTEGRITY_ERROR` | Persisted evidence failed verification |
 | 500 | `INTERNAL_ERROR` | An internal invariant failed safely |
 | 503 | `DURABLE_STATE_UNAVAILABLE` | Required durable state is unavailable/incompatible |
 
-Future authentication, authorization, nonce replay protection and dependency
-features add codes to this one envelope. Changing or removing an existing code
+Future operator authentication/authorization and dependency features add codes
+to this one envelope. Changing or removing an existing code
 or field is a compatibility decision and requires an explicit migration.
 
 ## Admission ordering
@@ -100,9 +108,14 @@ or field is a compatibility decision and requires an explicit migration.
 2. Validate the closed common JSON Schema and typed Rust envelope.
 3. Validate common financial/time/identifier semantics.
 4. Derive and validate the supported Action Profile.
-5. Atomically reserve the organization/idempotency key, acquire one evaluator
-   lease, persist the Intent and append admission evidence.
-6. Resolve the durable reservation before evaluation:
+5. Parse the bounded canonical detached identity Headers. For a provisioned
+   organization, Header failure commits only typed `IdentityRejected`.
+6. Lock/reverify the current durable Agent and exact Key, validate the signed
+   Envelope against trusted audience/environment, and atomically bind the
+   hashed Nonce with the idempotency reservation, evaluator lease, Intent,
+   `IntentReceived`, and `IdentityVerified`. Identity failure/replay cannot
+   create an accepted Intent or reach Policy/Risk.
+7. Resolve the durable reservation before evaluation:
    - a completed same-hash reservation loads and returns its fully verified
      original Decision without Policy/Risk or new Audit evidence;
    - an active evaluator/recovery lease returns
@@ -110,9 +123,9 @@ or field is a compatibility decision and requires an explicit migration.
    - an expired lease is conditionally reclaimed with a higher fencing
      generation and, until immutable Evaluation Context exists, finalized once
      as `Decision(ERROR)` with `RECOVERY_CONTEXT_UNAVAILABLE` evidence.
-7. For a new admission, evaluate Policy; renew the lease in an independent
+8. For a new admission, evaluate Policy; renew the lease in an independent
    short transaction; evaluate Risk only when Policy permits; renew again.
-8. Atomically finalize Evaluation, Decision, lifecycle, Audit evidence and the
+9. Atomically finalize Evaluation, Decision, lifecycle, Audit evidence and the
    idempotency result.
 
 Steps 1–4 cannot create an Intent, Evaluation, Decision, or Audit event.
@@ -124,4 +137,6 @@ completed-result foundation. DS-013 wires its request semantics: completed
 same-hash retry is exact, active work is bounded, and expired work is reclaimed
 only through the generation-fenced fail-closed path. This is request-driven
 recovery, not a background worker. A different hash always returns
-`IDEMPOTENCY_CONFLICT`. Signed nonce replay protection remains DS-016.
+`IDEMPOTENCY_CONFLICT`. DS-016 adds exact retry with no duplicate evidence,
+fresh valid retry Nonce consumption, and conflicting-reuse
+`IDENTITY_NONCE_REPLAY`; PostgreSQL is the only replay authority.

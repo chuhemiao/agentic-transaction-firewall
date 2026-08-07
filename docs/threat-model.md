@@ -21,18 +21,18 @@ real network request path, but no execution path or production secret.
 
 | # | Threat | Status in this repo |
 |---|---|---|
-| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported; Identity and execution enforcement are still absent |
-| 2 | Agent tool-call parameters tampered with | Partially addressed: `atf-intent` supplies a tamper-evident canonical hash and DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519. DS-015 persists exact public-key lifecycle and rejects invalid state after restart, but Identity remains unwired, so Gateway requests are not authenticated yet |
+| 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by authenticated Agent identity, common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported and execution enforcement remains absent |
+| 2 | Agent tool-call parameters tampered with | Addressed at current Shadow admission: `atf-intent` supplies a tamper-evident canonical hash; DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519; DS-015 persists exact public-key lifecycle; DS-016 requires and reverifies that proof before Policy/Risk |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
-| 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
+| 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. Operator/auditor read authorization, Policy bundle provenance and production edge controls are still absent, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Partially mitigated at the unsigned request boundary: DS-012 atomically binds each organization/idempotency key to one canonical Intent hash, grants one evaluator lease and fences stale completion; DS-013 returns exact completed results and restrictively recovers expired work. DS-014 cryptographically binds a bounded Nonce and DS-015 supplies durable Agent/Key authority, but the Nonce is not persisted or consumed, so replay under a new idempotency key remains possible until DS-016 wires both into admission |
+| 7 | Nonce replay | Mitigated for Gateway Agent admission: DS-016 atomically stores an organization/Agent-scoped Nonce hash bound to the exact Key, Envelope, Intent and idempotency tuple. Exact retry adds nothing; fresh valid retry consumes a new Nonce; conflicting concurrent or post-restart reuse emits `ReplayDetected` and fails 409. Raw Nonces/signatures are not stored and privileged row tampering is detected on verified reads |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, and DS-015 applies the same event-pointer/reverification rule to Agent/Key lifecycle. Independent checkpoints, retention, and privileged-database threat controls remain later work |
+| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, and DS-016 binds Nonce rows to verified Audit/lifecycle evidence. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
@@ -47,18 +47,18 @@ real network request path, but no execution path or production secret.
 There is a network service but no Adapter, execution route, or production
 secret. The realistic attack surface today includes:
 
-- **Unauthenticated HTTP input** to `POST /v1/intents` and tenant-selected
-  reads from `GET /v1/intents/{id}/decision`. GET requires
+- **Agent-authenticated writes but unauthenticated operator reads.** POST now
+  requires a canonical signed Envelope and current durable exact Key, with
+  atomic hashed-Nonce consumption before Policy/Risk. GET requires
   `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
   lands. DS-011 replaces caller correlation values with a server-generated ID
   and makes business errors structurally stable. DS-013 makes completed
-  same-hash POST retry exact, but there is no Gateway authentication or
-  consumed signed Nonce,
-  configured header/timeout/rate limit or principal-bound idempotency. Until
-  DS-018, a caller who possesses an admitted Intent's exact body can trigger
-  its post-expiry fail-closed recovery; this cannot produce Permit but can
-  terminate the Intent as ERROR, so the Gateway remains unsuitable for an
-  untrusted shared network.
+  same-hash POST retry exact; DS-016 binds Agent identity and replay state, but
+  configured timeout/rate limits and operator principals remain absent. Until
+  DS-018, a caller with a valid fresh identity assertion or the exact original
+  signed request can trigger its post-expiry fail-closed recovery; this cannot
+  produce Permit but can terminate the Intent as ERROR, so the Gateway remains
+  unsuitable for an untrusted shared network.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -86,8 +86,9 @@ secret. The realistic attack surface today includes:
   the full organization chain for each permitted request; bounded snapshot
   queries and request/rate limits are still required to resist growth-based
   denial of service.
-- **Evaluator crash and stale completion** — admission durably records
-  `RECEIVED/v1` and atomically creates a database-clock evaluator lease.
+- **Evaluator crash and stale completion** — authenticated admission durably
+  records `IDENTITY_VERIFIED/v2` and atomically creates a database-clock
+  evaluator lease.
   Renewal preserves its generation; conditional expiry reclaim rotates the
   opaque owner and increments that generation. Finalization locks and verifies
   the reservation before the Intent, so a late predecessor cannot overwrite a

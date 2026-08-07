@@ -1,8 +1,9 @@
 # Durable Agent and Key Identity
 
 This document fixes the DS-015 persistence and offline provisioning contract.
-It builds on the cryptographic Envelope in `docs/identity-envelope.md` but does
-not wire Gateway authentication or consume Nonces; those remain DS-016.
+It builds on the cryptographic Envelope in `docs/identity-envelope.md`.
+DS-016 now consumes this durable authority through the Gateway contract in
+`docs/gateway-identity.md`; this document remains the operator/lifecycle side.
 
 ## Objective
 

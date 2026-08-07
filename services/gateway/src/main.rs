@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use atf_gateway::{build_router, AppState};
+use atf_gateway::{build_router, AppState, IdentityGatewayConfig};
 use atf_policy::PolicyBundle;
 use atf_risk::RiskConfig;
 use atf_store::Store;
@@ -24,7 +24,14 @@ async fn main() {
     let store = Store::connect(&database_url)
         .await
         .expect("failed to connect to a compatible ATF PostgreSQL schema");
-    let state = AppState::new(policy_bundle, RiskConfig::default(), store);
+    let identity = IdentityGatewayConfig::new(
+        std::env::var("ATF_IDENTITY_AUDIENCE")
+            .expect("ATF_IDENTITY_AUDIENCE is required for signed Intent verification"),
+        std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
+            .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification"),
+    )
+    .expect("Gateway identity audience/environment are invalid");
+    let state = AppState::new(policy_bundle, RiskConfig::default(), store, identity);
     let app = build_router(state);
 
     let port: u16 = std::env::var("PORT")

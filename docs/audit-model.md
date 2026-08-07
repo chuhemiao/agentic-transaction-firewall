@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-015 transactional Intent and identity lifecycle contract
+Status: DS-016 authenticated admission and identity lifecycle contract
 
-Version: 3
+Version: 4
 
-Authority: `docs/PRD.md` §16–17, ADR-0002, and `tasks/plan.md` DS-006/DS-007/DS-015
+Authority: `docs/PRD.md` §16–17, ADR-0002, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016
 
 ## Objective
 
@@ -29,8 +29,9 @@ contract, append typed evidence, and update the materialized state atomically.
   constructor/parser.
 - `crates/atf-store/src/lifecycle.rs`: transactional replay and persistence
   boundary.
-- `migrations/0002_intent_lifecycle.sql` and `migrations/0004_identity.sql`:
-  additive Intent and identity lifecycle schemas.
+- `migrations/0002_intent_lifecycle.sql`, `migrations/0004_identity.sql`, and
+  `migrations/0005_nonces.sql`: additive Intent, identity lifecycle, and
+  authenticated Nonce schemas.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and
@@ -84,13 +85,14 @@ transition. A current Shadow evaluation may stop durably at
 absence of later modules does not make a Permit or Review terminal in the
 long-term state machine.
 
-`IDENTITY_UNVERIFIED` is the explicit compatibility branch for the current
-Shadow-only Gateway, where an Identity verifier is not yet wired. It records
-that the phase was skipped; it is not identity assurance and cannot authorize
-execution. DS-016 replaces this branch with `IDENTITY_VERIFIED` for verified
-requests. A valid lifecycle transition is necessary but never sufficient for
-an execution grant: later Decision binding and the Enforce path must require
-the verified identity evidence referenced by that grant.
+`IDENTITY_UNVERIFIED` is a retained compatibility branch for historical
+Shadow-only evidence. DS-016 Gateway admission never enters it: every new
+accepted request reaches `IDENTITY_VERIFIED`, while failed authentication is
+organization-scoped rejection evidence and creates no Intent. Compatibility
+rows are never promoted or interpreted as identity assurance. A valid
+lifecycle transition is necessary but never sufficient for an execution
+grant: later Decision binding and the Enforce path must require the verified
+identity evidence referenced by that grant.
 
 ## Explicit module outcomes
 
@@ -99,9 +101,9 @@ the verified identity evidence referenced by that grant.
 and would permit repeated self-transitions.
 
 - Policy is security-required and records `SUCCEEDED` or `ERROR` only.
-- Identity records `IdentityVerified`, `IdentityRejected`, or the explicit
-  `IdentityVerificationSkipped` compatibility event. A skipped identity phase
-  is allowed only for non-executable Shadow evaluation.
+- Identity records `IdentityVerified`, `IdentityRejected`, or
+  `ReplayDetected`. `IdentityVerificationSkipped` is decode/replay
+  compatibility only and has no current Gateway producer.
 - Risk records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Policy denial is a valid
   reason for Risk `NOT_RUN`.
 - Simulation records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Until a Simulator is
@@ -139,6 +141,7 @@ carry contradictory fields such as both a result and an error.
 | `ReconciliationFailed` | `EXECUTION_CONFIRMED -> RECONCILIATION_FAILED` |
 | `IntentExpired` | any explicitly expirable state -> `EXPIRED` |
 | `IntentCancelled` | any explicitly cancellable state -> `CANCELLED` |
+| `ReplayDetected` | organization-scoped conflicting Nonce evidence; accepted Intent lifecycle state is unchanged |
 | `AgentRegistered`, `AgentStatusChanged`, `IdentityKeyRegistered`, `IdentityKeyRevoked` | typed Agent/Key lifecycle evidence; Intent lifecycle state is unchanged |
 | `ContextEnriched`, `ServiceDelivered`, Budget, Policy, `AgentPaused`, and Kill Switch events | typed non-state evidence; Intent lifecycle state is unchanged |
 
@@ -156,6 +159,7 @@ Every row below also carries `schema_version: 1`.
 |---|---|
 | Intent received | organization, Agent, idempotency key, Intent hash, amount, resource |
 | Identity verified/rejected/skipped | organization, Agent, key/envelope evidence, stable rejection code, or stable skip code |
+| Replay detected | organization, Agent, exact Key ID, hashed Nonce, attempted/bound Intent IDs and hashes, stable reason code; never raw Nonce/Envelope/signature |
 | Context enriched | context hash and source IDs |
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries |
@@ -184,7 +188,7 @@ Each Intent row stores these lifecycle fields:
 | Field | Meaning |
 |---|---|
 | `lifecycle_state` | Materialized current state from the Rust lifecycle enum |
-| `lifecycle_version` | Monotonic count of state-producing events; admission starts at 1 |
+| `lifecycle_version` | Monotonic count of state-producing events; authenticated admission commits at 2 |
 | `lifecycle_contract_version` | `1` for the typed/replayable DS-007 contract; `0` for migrated compatibility rows |
 | `lifecycle_event_id` | Audit event that established the materialized state |
 | `lifecycle_updated_at` | Database timestamp of the last state transition |
@@ -196,11 +200,15 @@ reader may report that they satisfy the replayable contract.
 
 ### Admission transaction
 
-The repository creates the idempotency reservation, Intent row, initial
-`RECEIVED` state/version, and typed `IntentReceived` Audit event in one
-transaction. The stored event pointer must reference that event. Failure of any
-write rolls back the entire admission; a caller can never observe an Intent
-without its initial evidence or initial state without its Intent.
+The repository verifies the current durable Agent/exact Key, consumes the
+hashed Nonce, and creates the idempotency reservation, Intent row,
+`IntentReceived`, `IdentityVerified`, and materialized
+`IDENTITY_VERIFIED/v2` in one transaction. The stored event pointer references
+`IdentityVerified`; the Nonce row binds both state transitions plus their
+identity lifecycle evidence. Failure of any write rolls back the entire
+admission. Identity rejection creates only organization-scoped
+`IdentityRejected`; conflicting reuse creates `ReplayDetected` without
+advancing the accepted Intent.
 
 ### Evaluation finalization transaction
 
@@ -208,9 +216,10 @@ Policy and Risk may run outside a database transaction. Finalization is a
 single repository transaction which:
 
 1. locks the Intent and checks the caller's expected lifecycle version;
-2. validates typed Identity, Policy, Risk, Simulation, and Decision outcomes
-   and their cross-field consistency;
-3. appends each typed event in canonical phase order and advances the same
+2. reloads and verifies the admission's `IdentityVerified`/Nonce evidence,
+   then validates Policy, Risk, Simulation, and Decision outcomes and their
+   cross-field consistency;
+3. appends each remaining typed event in canonical phase order and advances the same
    Rust lifecycle state after each event;
 4. inserts the immutable Evaluation and Decision rows;
 5. updates the materialized state/version/event pointer; and
@@ -246,8 +255,9 @@ generic API.
   durable state for safe retry/recovery.
 - If PostgreSQL itself is unavailable, the Gateway fails closed. It cannot
   claim a durable error Decision when no durable evidence could be committed.
-- The current Shadow result conveys no execution authority, especially when
-  its identity state is `IDENTITY_UNVERIFIED`.
+- Historical `IDENTITY_UNVERIFIED` compatibility results convey no authority.
+  Current `IDENTITY_VERIFIED` Shadow results are authenticated evaluation
+  evidence, but still convey no execution authority.
 
 ## Testing and security boundaries
 

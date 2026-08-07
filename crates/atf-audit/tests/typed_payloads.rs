@@ -5,8 +5,9 @@ use atf_audit::{
     ContextEnrichedPayload, DecisionRecordedPayload, EventType, IdentityKeyRegisteredPayload,
     IdentityKeyRevokedPayload, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
     IdentityVerifiedPayload, IntentReceivedPayload, KillSwitchPayload, NewAuditEvent,
-    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
-    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
+    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, ReplayDetectedPayload,
+    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
+    SimulationCompletedPayload,
 };
 use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, Timestamp};
 
@@ -208,6 +209,23 @@ fn non_state_evidence_preserves_state_and_invalid_advancement_fails_closed() {
         context.next_state(Some(State::IdentityVerified)).unwrap(),
         Some(State::IdentityVerified)
     );
+
+    let replay = AuditPayload::ReplayDetected(ReplayDetectedPayload {
+        organization_id: "alpha-lab".into(),
+        agent_id: "agent-1".into(),
+        key_id: "key-1".into(),
+        nonce_hash: hash('1'),
+        attempted_intent_id: "intent-2".into(),
+        attempted_intent_hash: hash('2'),
+        bound_intent_id: "intent-1".into(),
+        bound_intent_hash: hash('3'),
+        reason_code: "NONCE_BINDING_CONFLICT".into(),
+    });
+    assert_eq!(
+        replay.next_state(Some(State::IdentityVerified)).unwrap(),
+        Some(State::IdentityVerified)
+    );
+    assert!(!EventType::ReplayDetected.has_lifecycle_effect());
 
     let approval = AuditPayload::ApprovalRequested(ApprovalRequestedPayload {
         approval_id: "approval-1".into(),

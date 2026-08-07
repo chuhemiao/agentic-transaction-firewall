@@ -50,7 +50,7 @@ admission and finalization operations below.
 
 PostgreSQL stores accepted Intents, evaluator reservations, immutable
 evaluation inputs when available, Evaluations, Decisions, Audit events,
-idempotency results, and—once identity work lands—consumed nonces. In-memory
+idempotency results, and consumed hashed identity nonces. In-memory
 indexes may be caches only; they are never authoritative and cannot authorize
 execution after a database error.
 
@@ -74,11 +74,12 @@ state, inserts the event, and advances the head before the transaction commits.
 When one state transition emits several events, they are appended in order
 while the same head lock is held.
 
-All store transactions acquire locks in this order:
+Store transactions acquire the applicable locks in this order:
 
-1. the Intent/idempotency/evaluation rows owned by the operation, in stable key
-   order when there is more than one;
-2. the single organization Audit head, last.
+1. current Agent then exact identity-Key rows for identity admission/mutation;
+2. the Nonce/idempotency/Intent/evaluation rows owned by the operation, in
+   stable key order when there is more than one;
+3. the single organization Audit head, last.
 
 No operation may first lock an Audit head and then wait for a business row.
 This consistent order limits deadlock cycles. A transaction must never touch
@@ -96,20 +97,20 @@ performed between them without an open database transaction.
 
 #### Transaction A: durable admission
 
-After request parsing, schema and semantic validation, and the authentication
-checks implemented by the current milestone, admission atomically:
+After request parsing, schema and semantic validation, authenticated admission
+locks and reverifies the current Agent/exact Key and atomically:
 
-1. binds the unique `(organization_id, idempotency_key)` to the canonical
+1. verifies the canonical signed Envelope and binds the immutable hashed Nonce
+   to the exact Key, Intent, idempotency tuple and identity lifecycle evidence;
+2. binds the unique `(organization_id, idempotency_key)` to the canonical
    Intent hash and creates the evaluator reservation;
-2. inserts the immutable canonical Intent and its hash;
-3. records the initial lifecycle state;
-4. appends `IntentReceived` and any other admission events required by the
-   implemented pipeline.
+3. inserts the immutable canonical Intent and its hash;
+4. appends `IntentReceived` and `IdentityVerified`; and
+5. materializes `IDENTITY_VERIFIED/v2`.
 
-When signed envelopes and nonce protection land, signature computation may
-happen outside the transaction, but Transaction A must re-check the referenced
-key's version and active status and consume the nonce in the same transaction
-as the Intent/idempotency insert. A rejected or unverifiable identity is not an
+Signature decoding happens outside the transaction, but Transaction A rechecks
+the referenced key's current version/status and consumes the Nonce in the same
+transaction as the Intent/idempotency insert. A rejected or unverifiable identity is not an
 accepted Intent; if it is auditable, it uses a separate short audit-only
 transaction and cannot create a successful idempotency result.
 
@@ -334,7 +335,8 @@ Costs and residual risks:
   verification without a raw-hash fallback.
 - `DS-015`: implemented Agent and Key lifecycle plus offline provisioning in
   migration 0004, with atomic typed Audit evidence and verified restart reads.
-- `DS-016`: add identity-key recheck and nonce consumption to admission.
+- `DS-016`: implemented current identity-key recheck, immutable hashed Nonce
+  consumption and typed verified/rejected/replay evidence in migration 0005.
 - `DS-023`: persist immutable Evaluation Context inputs for deterministic
   crash recovery and replay.
 

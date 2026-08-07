@@ -4,9 +4,8 @@
 mod common;
 
 use atf_audit::EventType;
-use atf_core::{IntentLifecycleState, Timestamp};
+use atf_core::IntentLifecycleState;
 use atf_gateway::build_router;
-use atf_store::AdmissionInput;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use std::{error::Error, sync::Arc, time::Duration};
@@ -14,8 +13,8 @@ use tokio::sync::Barrier;
 use tower::ServiceExt;
 
 use common::{
-    body_json, error_json, get_decision_request, post_intent_request, sample_intent_json,
-    test_state, test_state_with_policy, TestDatabase,
+    authenticated_admission_input, body_json, error_json, get_decision_request,
+    post_intent_request, sample_intent_json, test_state, test_state_with_policy, TestDatabase,
 };
 
 const FORBID_ALL_POLICY: &str = r#"
@@ -121,12 +120,16 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
     assert_eq!(decision["intent_id"], "01J0000000000000000000G100");
 
     let chain = store.load_verified_audit_chain("alpha-lab").await?;
-    let event_types: Vec<EventType> = chain.iter().map(|stored| stored.event.event_type).collect();
+    let event_types: Vec<EventType> = chain
+        .iter()
+        .filter(|stored| stored.event.intent_id.is_some())
+        .map(|stored| stored.event.event_type)
+        .collect();
     assert_eq!(
         event_types,
         vec![
             EventType::IntentReceived,
-            EventType::IdentityVerificationSkipped,
+            EventType::IdentityVerified,
             EventType::PolicyEvaluated,
             EventType::RiskEvaluated,
             EventType::SimulationCompleted,
@@ -145,8 +148,15 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         .await?
         .expect("Decision must be durably readable");
     assert_eq!(
-        finalized.evaluation.evidence["identity"]["reason_code"],
-        "IDENTITY_GATEWAY_NOT_WIRED"
+        finalized.evaluation.evidence["identity"]["key_id"],
+        "identity-key-01"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["identity"]["envelope_hash"]
+            .as_str()
+            .expect("identity evidence has an envelope hash")
+            .len(),
+        64
     );
     assert_eq!(
         finalized.evaluation.evidence["policy"]["outcome"]["status"],
@@ -244,7 +254,15 @@ async fn policy_evaluation_failure_commits_an_explicit_fail_closed_terminal_stat
         finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
         "POLICY_ERROR"
     );
-    assert_eq!(store.load_verified_audit_chain("alpha-lab").await?.len(), 6);
+    assert_eq!(
+        store
+            .load_verified_audit_chain("alpha-lab")
+            .await?
+            .iter()
+            .filter(|stored| stored.event.intent_id.is_some())
+            .count(),
+        6
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -399,7 +417,7 @@ async fn posting_an_unsupported_intent_profile_stops_before_durable_admission(
         }])
     );
     assert!(admitted.is_none());
-    assert!(chain.is_empty());
+    assert!(chain.iter().all(|stored| stored.event.intent_id.is_none()));
     Ok(())
 }
 
@@ -493,7 +511,8 @@ async fn organization_scope_prevents_cross_tenant_decision_reads() -> Result<(),
     assert!(store
         .load_verified_audit_chain("beta-lab")
         .await?
-        .is_empty());
+        .iter()
+        .all(|stored| stored.event.intent_id.is_none()));
 
     store.close().await;
     database.destroy().await?;
@@ -646,7 +665,9 @@ async fn completed_same_hash_retry_returns_the_original_decision_without_new_evi
         restarted_store
             .load_verified_audit_chain("alpha-lab")
             .await?
-            .len(),
+            .iter()
+            .filter(|stored| stored.event.intent_id.is_some())
+            .count(),
         6
     );
 
@@ -706,7 +727,15 @@ async fn concurrent_same_hash_posts_converge_on_one_decision_and_one_final_audit
         assert_eq!(observed, durable);
     }
     assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
-    assert_eq!(store.load_verified_audit_chain("alpha-lab").await?.len(), 6);
+    assert_eq!(
+        store
+            .load_verified_audit_chain("alpha-lab")
+            .await?
+            .iter()
+            .filter(|stored| stored.event.intent_id.is_some())
+            .count(),
+        6
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -722,11 +751,10 @@ async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
     let intent_json = sample_intent_json(intent_id, "12.50");
     let intent = atf_intent::validate(&serde_json::to_string(&intent_json)?)?;
     store
-        .admit_intent(AdmissionInput {
+        .authenticate_and_admit(authenticated_admission_input(
             intent,
-            received_at: Timestamp::now(),
-            lease_duration: Duration::from_secs(30),
-        })
+            Duration::from_secs(30),
+        ))
         .await?;
     let app = build_router(test_state(store.clone()));
 
@@ -737,7 +765,7 @@ async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
         error["message"],
         "The idempotent request is in progress or awaiting recovery."
     );
-    assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 1));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 2));
 
     store.close().await;
     database.destroy().await?;
@@ -753,11 +781,10 @@ async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decisio
     let intent_json = sample_intent_json(intent_id, "12.50");
     let intent = atf_intent::validate(&serde_json::to_string(&intent_json)?)?;
     let grant = first_store
-        .admit_intent(AdmissionInput {
+        .authenticate_and_admit(authenticated_admission_input(
             intent,
-            received_at: Timestamp::now(),
-            lease_duration: Duration::from_millis(1),
-        })
+            Duration::from_millis(1),
+        ))
         .await?;
     assert_eq!(grant.evaluator_lease.generation(), 1);
     first_store.close().await;

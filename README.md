@@ -31,7 +31,7 @@ Coinbase CDP, or AWS AgentCore. It provides the shared control-plane semantics
 those systems can sit behind.
 
 Current product vision and release gates: [`docs/PRD.md`](docs/PRD.md)
-(v1.2, Durable Shadow Mode revision).
+(v1.3, Authenticated Durable Shadow revision).
 
 ## Status
 
@@ -60,8 +60,8 @@ Only the following crates are implemented so far:
   audience and environment before strict Ed25519 verification. The registry
   never tries every key and returns typed verified identity facts. DS-015 adds
   validated key activation/expiry/revocation metadata; PostgreSQL is now the
-  durable Agent/Key authority. Nonce consumption and Gateway wiring remain
-  DS-016.
+  durable Agent/Key authority. DS-016 wires the same verifier into Gateway
+  admission and makes PostgreSQL the atomic, immutable Nonce authority.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
   Intent.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
@@ -87,9 +87,11 @@ Only the following crates are implemented so far:
   reservations, per-organization Audit heads/events, and schema metadata. It row-locks each organization's
   head for concurrent Audit append and can reload/verify canonical bytes,
   hashes, sequence, predecessor links, and the head after restart. Its two
-  coarse repository transactions atomically commit canonical Intent +
-  `RECEIVED/v1` + `IntentReceived`, then typed Identity/Policy/Risk/Simulation
-  evidence + Evaluation + Decision + the final lifecycle state at `v6`.
+  coarse repository transactions now authenticate the current durable Agent
+  and exact Key, consume the signed Nonce, and atomically commit canonical
+  Intent + `IntentReceived` + `IDENTITY_VERIFIED/v2`; finalization commits
+  typed Policy/Risk/Simulation evidence + Evaluation + Decision + the final
+  lifecycle state at `v6`.
   Migration 0002 stores state, optimistic version, contract version, update
   time, and the last state-producing Audit event pointer. Migration 0003 adds
   immutable organization/key -> Intent-hash bindings, database-clock evaluator
@@ -106,6 +108,10 @@ Only the following crates are implemented so far:
   Ed25519 public-key lifecycle rows; every version points to the typed Audit
   event committed atomically with it, and verified reads recompute canonical
   bytes/hashes after restart.
+  Migration 0005 adds immutable organization/Agent-scoped Nonce hashes bound
+  by composite foreign keys to the exact Key, Intent, idempotency reservation
+  and `IdentityVerified` evidence. Reads reverify those bindings and their
+  historical Agent/Key lifecycle facts.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   and offline `atf identity` provision/register/status/revoke commands. The
   identity commands read `DATABASE_URL` from the environment and accept only
@@ -116,11 +122,13 @@ Only the following crates are implemented so far:
   `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. PostgreSQL is
   required at startup, `/readyz` verifies live storage/schema compatibility,
   and restart/second-instance reads return the committed Decision. GET uses
-  `X-ATF-Organization-ID` to select the tenant record, but that header is not
-  authentication. Until Identity is wired, the Gateway emits
-  `IdentityVerificationSkipped` and stores `IDENTITY_UNVERIFIED`; that branch
-  is Shadow-only and conveys no execution authority. Identity and organization
-  authorization are still missing.
+  `X-ATF-Organization-ID` to select the tenant record, but that GET header is
+  not operator authentication. POST requires one canonical detached
+  `X-ATF-Identity-Envelope` and exact Ed25519 signature, rechecks the current
+  durable Agent/Key, and consumes the Nonce before Policy/Risk. Rejections and
+  conflicting replay produce typed durable evidence without admitting an
+  Intent. Operator authentication and organization authorization are still
+  missing.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -162,7 +170,7 @@ expired admissions. `DS-014` replaces raw-hash signatures with the canonical,
 domain-separated Identity Envelope and exact-key verification. `DS-015` adds
 durable Agent/key lifecycle, atomic operator Audit evidence and offline
 provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
-next.
+complete; `DS-017`, the operator authentication trust-boundary ADR, is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -267,6 +275,13 @@ semantics (evaluate only, never execute).
     same transaction. Restart, bounded rotation overlap, concurrency,
     rollback, tenant isolation, tamper and real CLI tests pass without storing
     private keys.
+16. ~~Gateway identity verification and atomic Nonce consumption.~~ Done in
+    DS-016: strict detached identity Headers, required trusted
+    audience/environment, current Agent/exact-Key verification, immutable
+    hashed Nonce bindings and typed verified/rejected/replay evidence all land
+    before Policy/Risk. Exact retries add no evidence; conflicting concurrent
+    reuse has one winner; restart, tenant isolation and privileged-tamper tests
+    fail closed without storing raw Nonces, Envelopes or signatures.
 
 ### Remaining before Phase 2 can close out
 
@@ -282,9 +297,10 @@ semantics (evaluate only, never execute).
 - ~~Stable lifecycle and typed Audit domain contract.~~ Done in DS-006: 21
   states, an exhaustively tested transition table, explicit `NOT_RUN` module
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
-  DS-007 extends the active contract to 22 states/28 events with an explicit
-  Shadow-only `IDENTITY_UNVERIFIED` branch; DS-015 adds four typed Agent/Key
-  operator events without changing the Intent state machine.
+  DS-007 extends the active contract to 22 states/28 events with a retained
+  Shadow-only `IDENTITY_UNVERIFIED` compatibility branch; DS-015 adds four
+  typed Agent/Key operator events and DS-016 adds `ReplayDetected`, for 33
+  typed events without changing the state set.
 - ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
@@ -309,13 +325,13 @@ semantics (evaluate only, never execute).
 - ~~Concurrent durable idempotency reservation, evaluator fencing, and atomic
   result binding.~~ Done in DS-012. Same-hash result return/recovery is
   complete in DS-013; DS-014 defines the signed Envelope and DS-015 persists
-  exact Agent/Key authority. Atomic signed-Nonce replay protection remains
-  DS-016.
+  exact Agent/Key authority. DS-016 completes atomic signed-Nonce replay
+  protection at Gateway admission.
 - ~~Durable Agent/Key lifecycle and offline provisioning.~~ Done in DS-015
   with restart-safe verification, typed mutation Audit and no private-key
   storage.
-- Wire `atf-identity` into Gateway admission before Policy/Risk, including
-  atomic Nonce consumption and request Identity Audit evidence (DS-016).
+- ~~Wire `atf-identity` into Gateway admission before Policy/Risk.~~ Done in
+  DS-016 with atomic Nonce consumption and request Identity/replay evidence.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
   Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
@@ -334,8 +350,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  Gateway identity/nonce protection, deterministic replay, provenance,
-  versioned bundles, Audit query/metrics, and security re-audit.
+  operator authorization, deterministic replay, provenance, versioned bundles,
+  Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -358,7 +374,13 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
 psql postgres://postgres:postgres@localhost:5432/atf \
   -c "INSERT INTO organizations (organization_id) VALUES ('alpha-lab') ON CONFLICT DO NOTHING"
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
-  ATF_POLICIES_DIR=policies/examples PORT=8080 cargo run -p atf-gateway
+  ATF_POLICIES_DIR=policies/examples \
+  ATF_IDENTITY_AUDIENCE=atf-gateway \
+  ATF_DEPLOYMENT_ENVIRONMENT=development \
+  PORT=8080 cargo run -p atf-gateway
+
+# Provision Agent/public-key authority first; see docs/identity.md. POST then
+# requires the detached signed Header contract in docs/gateway-identity.md.
 
 # Validate an intent against the JSON Schema + common/profile semantics + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json

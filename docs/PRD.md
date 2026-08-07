@@ -6,7 +6,7 @@
 产品类型：开源基础设施
 核心语言：Rust
 开源许可：Apache License 2.0
-文档版本：PRD v1.2（Durable Shadow Mode 修订版）
+文档版本：PRD v1.3（Authenticated Durable Shadow 修订版）
 更新日期：2026-08-08
 项目阶段：Phase 2 — Durable Shadow Mode
 目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
@@ -24,11 +24,11 @@
 3. 本 PRD 的目标要求。
 4. 其他设计草案或历史说明。
 
-截至 PRD v1.2：
+截至 PRD v1.3：
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
-2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015 将类型化 Audit Payload 扩展到 32 类。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012 已增加原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing 和完成结果不可变约束。DS-013 已将其接入 Gateway：完成态同 Hash 请求通过完整证据校验后返回原 Decision，不重新运行 Policy/Risk；活动租约返回稳定 409；正常评估在阶段边界续租；过期 Admission 只能通过条件接管并记录一次 `RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)`。DS-014 已在 `atf-identity` 中用 Canonical `ATF_INTENT_V1` Envelope 取代 Raw Intent Hash 签名，绑定 Organization、Agent、精确 Key ID、Intent Hash、五分钟有效期、Nonce、Audience 与 Environment，并发布 Ed25519 固定向量。DS-015 已用 migration 0004 持久化组织作用域 Agent 与精确 Ed25519 公钥的激活、过期、状态和不可逆撤销，并提供仅接收公钥的离线 CLI；每次变更与类型化 Audit 在同一事务提交，重启读取会重算 Canonical Hash 并核验完整 Audit 链。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。其他 Action Profile、签名 Nonce 原子消费、后台恢复扫描、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016 将类型化 Audit Payload 扩展到 33 类（含 Agent/Key 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、确定性 Replay、Context Provenance、Policy Bundle Versioning、操作者认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1039,7 +1039,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006/DS-007 已实现 22 状态转换契约；DS-015 扩展到 32 类 `schema_version: 1` 类型化 Payload，并让 Agent/Key 生命周期行指向同事务提交的操作者事件。当前请求路径在一个 Finalization Transaction 中产生 `IdentityVerificationSkipped`、`PolicyEvaluated`、`RiskEvaluated`、`SimulationCompleted` 和绑定的 `DecisionRecorded`。DS-012 已加入数据库时钟 Evaluator Lease、Renew/Reclaim、Generation Fencing 与原子 Idempotency Result；DS-013 已实现精确完成态重试、阶段边界 Heartbeat 与请求驱动的 Fail-Closed Recovery。Query API、Checkpoint 和后台 Recovery Scanner 仍未实现。
+当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006/DS-007 已实现 22 状态转换契约；DS-015/DS-016 扩展到 33 类 `schema_version: 1` 类型化 Payload。Agent/Key 生命周期行指向同事务提交的操作者事件；hashed Nonce 行绑定精确 Key、Intent、Idempotency Reservation、`IdentityVerified` 事件及对应生命周期版本。当前新请求在 Authenticated Admission Transaction 中产生 `IntentReceived` 与 `IdentityVerified`，Finalization 产生 `PolicyEvaluated`、`RiskEvaluated`、`SimulationCompleted` 和绑定的 `DecisionRecorded`。拒绝与冲突重放分别产生组织作用域 `IdentityRejected`/`ReplayDetected`，但不创建 Intent。DS-012/DS-013 的 Lease/Fencing/Recovery 语义保持不变。Query API、Checkpoint 和后台 Recovery Scanner 仍未实现。
 
 ### 16.1 目标
 
@@ -1079,6 +1079,7 @@ x402 Adapter：
 30. AgentStatusChanged
 31. IdentityKeyRegistered
 32. IdentityKeyRevoked
+33. ReplayDetected
 
 `DecisionRecorded` 必须包含 Canonical Intent Hash、Decision Kind、Decision ID/Hash、组织与 Agent 作用域，以及 Policy/Risk/Context/Simulation 版本引用。事件 Payload 在进入持久化前必须经过对应的版本化 Schema 校验。
 
@@ -1106,7 +1107,7 @@ EXECUTION_CONFIRMED -> SETTLEMENT_VERIFIED | RECONCILIATION_FAILED
 
 `IDENTITY_REJECTED`、`DECIDED_DENY`、`DECIDED_ERROR`、`REJECTED`、`EXECUTION_FAILED`、`SETTLEMENT_VERIFIED`、`RECONCILIATION_FAILED`、`EXPIRED` 和 `CANCELLED` 是终止状态。`EXPIRED`/`CANCELLED` 只允许在 `EXECUTION_SUBMITTED` 之前由转换表列明的状态进入。
 
-`NOT_RUN` 是 Risk/Simulation 等模块的带原因 Outcome，不是 Lifecycle State。未实现或因前序拒绝而未运行的模块必须显式记录 `NOT_RUN`，仍通过唯一的阶段事件进入下一状态；它不代表成功，不得绕过安全必需阶段产生执行授权。`IDENTITY_UNVERIFIED` 是当前未接入 Identity Gateway 时的显式 Shadow-only 兼容状态，不得被解释为 `IDENTITY_VERIFIED`，也不得单独作为 Execution Grant 的依据。权威事件映射、Payload 字段、持久化列、重放和全部转换见 `docs/audit-model.md`。DS-007 已负责 PostgreSQL State/Version/Event Pointer 与匹配 Audit Event 的原子提交、并发冲突控制和读取时重放。
+`NOT_RUN` 是 Risk/Simulation 等模块的带原因 Outcome，不是 Lifecycle State。未实现或因前序拒绝而未运行的模块必须显式记录 `NOT_RUN`，仍通过唯一的阶段事件进入下一状态；它不代表成功，不得绕过安全必需阶段产生执行授权。`IDENTITY_UNVERIFIED` 是历史 Shadow-only 兼容状态，不得被解释为 `IDENTITY_VERIFIED`，不得被当前 Gateway 新建或升级，也不得单独作为 Execution Grant 的依据。DS-016 后的新 Gateway Intent 必须从 `IntentReceived` 原子进入 `IdentityVerified`；身份失败不创建 Intent。权威事件映射、Payload 字段、持久化列、重放和全部转换见 `docs/audit-model.md`。
 
 历史风险规则必须声明统计边界：`REQUESTED`、`PERMITTED`、`EXECUTED` 或 `SETTLED`。例如重复购买在当前 Shadow Mode 统计同组织的 `DecisionRecorded(PERMIT)`；未来可按业务配置升级为 `ExecutionConfirmed` 或 `SettlementVerified`，但不得继续以 `IntentReceived` 代替购买事实。
 
@@ -1195,9 +1196,11 @@ Verification Time、五分钟窗口、Organization/Agent/Intent/Audience/Environ
 存在 Raw Intent Hash 或“尝试任意 Key”的回退。DS-015 已将 Agent Record 与精确
 Ed25519 Public Key 的激活、过期、状态和不可逆撤销写入 PostgreSQL；Canonical
 Record/Bytes/Hash、Lifecycle Version 与最后操作者 Audit Event 必须一致，变更在
-同一事务提交。离线 `atf identity` 命令不接收、生成或输出私钥。Gateway 接入、
-Nonce 原子消费和请求级 Identity Audit 属于 DS-016，因此尚不满足完整 Gateway
-身份验收条件。
+同一事务提交。离线 `atf identity` 命令不接收、生成或输出私钥。DS-016 已要求
+Gateway 从受信启动配置读取 Audience/Environment，以严格 detached Header 接收
+Canonical Envelope 与签名，在同一短事务中重验当前 Agent/Key、消费 hashed Nonce、
+绑定 Idempotency/Intent 并提交类型化 Identity Evidence。原始 Nonce、Envelope、
+签名与私钥不得持久化或进入响应/日志；跨组织作用域、重启重放和篡改必须 Fail Closed。
 
 ### 17.3 Admin API 权限模型
 
@@ -1327,7 +1330,7 @@ Rust 主要组件：
 
 ### 19.4 当前实现边界
 
-PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类如下：
+PRD v1.3 不再把目标目录结构等同于完成状态。当前模块分类如下：
 
 1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
@@ -1771,10 +1774,10 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 按以下顺序一次交付一个可验证的垂直功能：
 
 1. **P0.1 PostgreSQL Persistence（基础能力已完成）**：持久化 Intent、Evaluation、Decision、Audit，已证明 Final Decision 的 Restart/Second-instance Recovery 与并发 Append；DS-013 已让重试请求以 Fencing 接管未完成 Evaluation 并记录限制性 `Decision(ERROR)`，基于持久化 Evaluation Context 的确定性重算恢复仍属于后续工作。
-2. **P0.2 Lifecycle State Machine（已完成当前 Shadow 边界）**：DS-006/DS-007 已定义并穷举验证合法状态转换与类型化事件，完成 PostgreSQL 事务持久化、预期版本并发控制、事件指针和读取重放；Identity 接入后必须将当前显式 `IDENTITY_UNVERIFIED` 分支替换为可验证身份事实。
+2. **P0.2 Lifecycle State Machine（已完成当前 Shadow 边界）**：DS-006/DS-007 已定义并穷举验证合法状态转换与类型化事件，完成 PostgreSQL 事务持久化、预期版本并发控制、事件指针和读取重放；DS-016 已让当前 Gateway 新请求只通过可验证 `IDENTITY_VERIFIED` 分支，`IDENTITY_UNVERIFIED` 仅保留为不可升级的历史兼容事实。
 3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
-4. **P0.4 Idempotency & Replay Protection（DS-012/DS-013 持久化与请求语义已完成，P0.4 尚未关闭）**：已实现不同 Hash 的稳定 409、同 Hash 活动请求的稳定 409、单 Evaluator 租约/阶段 Heartbeat/接管/Fencing、完成 Result 与 Decision/Audit 的原子绑定和不可变约束、完成态精确重试，以及请求驱动的 Fail-Closed Recovery；DS-014 已定义签名 Envelope，DS-015 已持久化 Agent/Key，Nonce Replay Protection 仍依赖 DS-016 的 Gateway 原子接入。
-5. **P0.5 Identity Gateway Wiring（DS-014/DS-015 Domain + Persistence 已完成）**：Canonical Domain-separated Envelope、精确 Key 选择、Key Lifecycle 与离线预配已落地；DS-016 继续完成 Nonce 原子消费和 Policy/Risk 前组织绑定。
+4. **P0.4 Idempotency & Replay Protection（已完成）**：DS-012/DS-013 已实现不同 Hash 的稳定 409、同 Hash 活动请求的稳定 409、单 Evaluator 租约/阶段 Heartbeat/接管/Fencing、完成 Result 与 Decision/Audit 的原子绑定和不可变约束、完成态精确重试，以及请求驱动的 Fail-Closed Recovery；DS-016 进一步加入 PostgreSQL 权威 hashed Nonce 原子消费、精确重试、冲突并发单赢家和 `ReplayDetected`。
+5. **P0.5 Identity Gateway Wiring（已完成）**：DS-014/DS-015 的 Canonical Domain-separated Envelope、精确 Key 选择、Key Lifecycle 与离线预配已由 DS-016 接入 Policy/Risk 前 Gateway Admission；拒绝/replay 有类型化证据且不能创建 Intent。
 6. **P0.6 EvaluationContext**：时间、版本、Snapshot 和证据显式化。
 7. **P0.7 Deterministic Replay**：Original 与 Counterfactual Replay。
 8. **P0.8 Context Provenance**：可信来源、Freshness 和不可覆盖规则。

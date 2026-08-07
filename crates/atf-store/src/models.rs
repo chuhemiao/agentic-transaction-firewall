@@ -1,19 +1,27 @@
 use crate::audit::StoredAuditEvent;
-use atf_audit::{PolicyEvaluatedPayload, RiskEvaluatedPayload, SimulationCompletedPayload};
+use atf_audit::{
+    IdentityVerifiedPayload, PolicyEvaluatedPayload, RiskEvaluatedPayload,
+    SimulationCompletedPayload,
+};
 use atf_core::{IntentLifecycleState, Timestamp};
 use atf_decision::Decision;
+use atf_identity::IdentityEnvelope;
 use atf_intent::TransactionIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
 use std::time::Duration;
 
-/// Input for the first short durable-state transaction. Validation and
-/// authentication happen before this boundary; successful return means the
-/// immutable Intent and its `IntentReceived` evidence committed together.
+/// The complete DS-016 request identity supplied to the coarse authenticated
+/// admission transaction. The Store re-verifies the current Agent/Key under
+/// lock; callers cannot construct a trusted identity token themselves.
 #[derive(Debug, Clone)]
-pub struct AdmissionInput {
+pub struct AuthenticatedAdmissionInput {
     pub intent: TransactionIntent,
+    pub envelope: IdentityEnvelope,
+    pub signature: [u8; 64],
+    pub audience: String,
+    pub environment: String,
     pub received_at: Timestamp,
     pub lease_duration: Duration,
 }
@@ -117,6 +125,7 @@ pub struct AdmittedIntent {
     pub received_at: Timestamp,
     pub lifecycle: StoredLifecycle,
     pub audit_event: StoredAuditEvent,
+    pub identity: IdentityVerifiedPayload,
 }
 
 #[derive(Debug, Clone, PartialEq)]

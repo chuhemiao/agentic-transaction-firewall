@@ -14,3 +14,9 @@ CAIP-19 and CAIP-10 identifiers and exists so `atf-cli`'s
 the rest of this scenario (Adapter, full policy pack, Simulator) exists. It
 does not model x402 proof or delivery evidence and is not itself the full
 reference scenario.
+
+`agent.json` is the matching public DS-015 Agent provisioning fixture used by
+the authenticated Gateway smoke. It contains no private key or credential;
+register the exact Ed25519 public key separately with `atf identity
+register-key`, then sign request Envelopes outside the Gateway as specified in
+`docs/gateway-identity.md`.

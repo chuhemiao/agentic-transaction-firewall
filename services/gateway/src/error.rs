@@ -94,6 +94,26 @@ impl ApiError {
         )
     }
 
+    pub(crate) fn identity_rejected(code: &'static str) -> Self {
+        let status = if matches!(
+            code,
+            "IDENTITY_AGENT_NOT_ACTIVE"
+                | "IDENTITY_AGENT_ENVIRONMENT_MISMATCH"
+                | "IDENTITY_AGENT_NOT_YET_ACTIVE"
+                | "IDENTITY_AGENT_EXPIRED"
+                | "IDENTITY_ENVELOPE_EXCEEDS_AGENT_LIFETIME"
+                | "IDENTITY_KEY_NOT_YET_ACTIVE"
+                | "IDENTITY_KEY_EXPIRED"
+                | "IDENTITY_KEY_REVOKED"
+                | "IDENTITY_ENVELOPE_EXCEEDS_KEY_LIFETIME"
+        ) {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::UNAUTHORIZED
+        };
+        Self::new(status, code, "The request identity assertion was rejected.")
+    }
+
     pub(crate) fn decision_not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -135,6 +155,12 @@ impl ApiError {
                 "IDEMPOTENCY_IN_PROGRESS",
                 "The idempotent request is in progress or awaiting recovery.",
             ),
+            StoreError::IdentityRejected { reason_code } => Self::identity_rejected(reason_code),
+            StoreError::NonceReplay { .. } => Self::new(
+                StatusCode::CONFLICT,
+                "IDENTITY_NONCE_REPLAY",
+                "The signed identity Nonce is already bound to another request.",
+            ),
             StoreError::IntentConflict { .. }
             | StoreError::AgentConflict { .. }
             | StoreError::IdentityKeyConflict { .. }
@@ -150,6 +176,7 @@ impl ApiError {
             ),
             StoreError::DurableStateCorrupt { .. }
             | StoreError::IdentityStateCorrupt { .. }
+            | StoreError::NonceStateCorrupt { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
             | StoreError::IncompleteDecisionEvidence { .. }
             | StoreError::AuditChainCorrupt { .. } => Self::new(

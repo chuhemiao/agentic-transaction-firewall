@@ -1,9 +1,7 @@
-use crate::audit::{
-    append_in_transaction, load_verified_in_transaction, AuditReferences, StoredAuditEvent,
-};
+use crate::audit::{load_verified_in_transaction, AuditReferences, StoredAuditEvent};
 use crate::idempotency::{
-    complete_in_transaction as complete_idempotency, reserve_in_transaction,
-    verify_admission_binding, verify_completed_binding, verify_lease_for_finalization,
+    complete_in_transaction as complete_idempotency, verify_admission_binding,
+    verify_completed_binding, verify_lease_for_finalization,
 };
 use crate::lifecycle::{
     append_event as append_lifecycle_event, state_from_str as lifecycle_state_from_str,
@@ -11,15 +9,11 @@ use crate::lifecycle::{
     CONTRACT_VERSION as LIFECYCLE_CONTRACT_VERSION,
 };
 use crate::models::{
-    AdmissionGrant, AdmissionInput, AdmittedIntent, FinalizationInput, FinalizedDecision,
-    StoredEvaluation, StoredLifecycle,
+    AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation, StoredLifecycle,
 };
 use crate::{Store, StoreError};
-use atf_audit::{
-    AuditPayload, DecisionRecordedPayload, EventType, IdentityVerificationSkippedPayload,
-    IntentReceivedPayload, NewAuditEvent,
-};
-use atf_core::{sort_json_keys, IntentLifecycleState, Timestamp};
+use atf_audit::{AuditPayload, DecisionRecordedPayload, EventType};
+use atf_core::{sort_json_keys, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
 use chrono::{DateTime, Utc};
@@ -73,110 +67,6 @@ struct VerifiedIntent {
 }
 
 impl Store {
-    /// Persist an immutable canonical Intent and its first Audit event in one
-    /// short transaction. This operation does not evaluate Policy or Risk.
-    pub async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError> {
-        let intent = normalize_intent(input.intent)?;
-        let received_at = normalize_timestamp(input.received_at);
-        let organization_id = intent.principal.organization_id.clone();
-        let canonical_intent = intent.canonical_value();
-        let canonical_intent_bytes = intent.canonical_bytes();
-        let intent_hash = intent.canonical_hash();
-        let event = NewAuditEvent::from_payload(
-            received_at,
-            Some(intent.intent_id.clone()),
-            AuditPayload::IntentReceived(IntentReceivedPayload {
-                organization_id: organization_id.clone(),
-                agent_id: intent.principal.agent_id.clone(),
-                idempotency_key: intent.idempotency_key.clone(),
-                intent_hash: intent_hash.clone(),
-                amount: intent.transaction.amount,
-                resource_id: intent.resource.resource_id.clone(),
-            }),
-        )?;
-        let lifecycle = StoredLifecycle {
-            state: IntentLifecycleState::Received,
-            version: 1,
-            contract_version: LIFECYCLE_CONTRACT_VERSION,
-            last_event_id: Some(event.event_id.clone()),
-            updated_at: received_at,
-        };
-
-        let mut transaction = self.pool.begin().await?;
-        set_write_timeouts(&mut transaction).await?;
-        let evaluator_lease = reserve_in_transaction(
-            &mut transaction,
-            &intent,
-            &intent_hash,
-            input.lease_duration,
-        )
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO intents (
-                organization_id,
-                intent_id,
-                idempotency_key,
-                spec_version,
-                canonical_intent,
-                canonical_intent_bytes,
-                intent_hash,
-                created_at,
-                expires_at,
-                received_at,
-                lifecycle_state,
-                lifecycle_version,
-                lifecycle_contract_version,
-                lifecycle_event_id,
-                lifecycle_updated_at
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15
-            )
-            "#,
-        )
-        .bind(&organization_id)
-        .bind(&intent.intent_id)
-        .bind(&intent.idempotency_key)
-        .bind(&intent.spec_version)
-        .bind(&canonical_intent)
-        .bind(&canonical_intent_bytes)
-        .bind(&intent_hash)
-        .bind(intent.created_at.as_datetime())
-        .bind(intent.expires_at.as_datetime())
-        .bind(received_at.as_datetime())
-        .bind(lifecycle.state.as_str())
-        .bind(lifecycle.version)
-        .bind(lifecycle.contract_version)
-        .bind(&lifecycle.last_event_id)
-        .bind(lifecycle.updated_at.as_datetime())
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| map_admission_insert_error(error, &intent))?;
-
-        let audit_event = append_in_transaction(
-            &mut transaction,
-            &organization_id,
-            event,
-            AuditReferences::default(),
-        )
-        .await?;
-
-        transaction.commit().await?;
-        Ok(AdmissionGrant {
-            admitted: AdmittedIntent {
-                organization_id,
-                intent,
-                intent_hash,
-                received_at,
-                lifecycle,
-                audit_event,
-            },
-            evaluator_lease,
-        })
-    }
-
     /// Load an Intent only after verifying its immutable canonical bytes/hash
     /// and the organization's complete Audit chain contains exactly one
     /// matching `IntentReceived` event.
@@ -210,12 +100,20 @@ impl Store {
             &chain,
         )?;
         let audit_event = exactly_one_admission_event(
-            chain,
+            chain.clone(),
             organization_id,
             intent_id,
             &verified.intent_hash,
             verified.received_at,
         )?;
+        let identity = crate::nonce::load_initial_identity_evidence(
+            &mut transaction,
+            organization_id,
+            intent_id,
+            &verified.intent_hash,
+            &chain,
+        )
+        .await?;
 
         transaction.commit().await?;
         Ok(Some(AdmittedIntent {
@@ -225,6 +123,7 @@ impl Store {
             received_at: verified.received_at,
             lifecycle: verified.lifecycle,
             audit_event,
+            identity,
         }))
     }
 
@@ -322,6 +221,14 @@ impl Store {
             &verified_intent.lifecycle,
             &existing_chain,
         )?;
+        let identity = crate::nonce::load_initial_identity_evidence(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
+            &verified_intent.intent_hash,
+            &existing_chain,
+        )
+        .await?;
 
         let already_finalized: bool = sqlx::query_scalar(
             r#"
@@ -350,12 +257,8 @@ impl Store {
             intent_hash: verified_intent.intent_hash.clone(),
             evaluated_at,
             evidence: serde_json::json!({
-                "identity": AuditPayload::IdentityVerificationSkipped(
-                    IdentityVerificationSkippedPayload {
-                        organization_id: input.organization_id.clone(),
-                        agent_id: verified_intent.intent.principal.agent_id.clone(),
-                        reason_code: "IDENTITY_GATEWAY_NOT_WIRED".into(),
-                    }
+                "identity": AuditPayload::IdentityVerified(
+                    identity
                 ).to_data(),
                 "policy": AuditPayload::PolicyEvaluated(input.evaluation.policy.clone()).to_data(),
                 "risk": AuditPayload::RiskEvaluated(input.evaluation.risk.clone()).to_data(),
@@ -424,20 +327,6 @@ impl Store {
             evaluation_id: Some(evaluation.evaluation_id.clone()),
             decision_id: None,
         };
-        append_lifecycle_event(
-            &mut transaction,
-            &input.organization_id,
-            &input.intent_id,
-            evaluated_at,
-            AuditPayload::IdentityVerificationSkipped(IdentityVerificationSkippedPayload {
-                organization_id: input.organization_id.clone(),
-                agent_id: verified_intent.intent.principal.agent_id.clone(),
-                reason_code: "IDENTITY_GATEWAY_NOT_WIRED".into(),
-            }),
-            phase_reference(),
-            &mut lifecycle,
-        )
-        .await?;
         append_lifecycle_event(
             &mut transaction,
             &input.organization_id,
@@ -677,7 +566,9 @@ impl Store {
     }
 }
 
-async fn set_write_timeouts(transaction: &mut Transaction<'_, Postgres>) -> Result<(), StoreError> {
+pub(crate) async fn set_write_timeouts(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), StoreError> {
     sqlx::query("SET LOCAL lock_timeout = '5s'")
         .execute(&mut **transaction)
         .await?;
@@ -756,12 +647,12 @@ async fn load_intent_row(
         .map_err(StoreError::Database)
 }
 
-fn normalize_intent(intent: TransactionIntent) -> Result<TransactionIntent, StoreError> {
+pub(crate) fn normalize_intent(intent: TransactionIntent) -> Result<TransactionIntent, StoreError> {
     let bytes = intent.canonical_bytes();
     serde_json::from_slice(&bytes).map_err(StoreError::Json)
 }
 
-fn normalize_timestamp(timestamp: Timestamp) -> Timestamp {
+pub(crate) fn normalize_timestamp(timestamp: Timestamp) -> Timestamp {
     timestamp
         .to_string()
         .parse()
@@ -1009,7 +900,10 @@ fn decision_kind_name(decision: &Decision) -> Result<String, StoreError> {
         })
 }
 
-fn map_admission_insert_error(error: sqlx::Error, intent: &TransactionIntent) -> StoreError {
+pub(crate) fn map_admission_insert_error(
+    error: sqlx::Error,
+    intent: &TransactionIntent,
+) -> StoreError {
     if has_database_code(&error, "23505") {
         StoreError::IntentConflict {
             organization_id: intent.principal.organization_id.clone(),

@@ -54,15 +54,15 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 4);
-    assert_eq!(schema.minimum_writer_version, 4);
+    assert_eq!(schema.minimum_reader_version, 5);
+    assert_eq!(schema.minimum_writer_version, 5);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 4);
+    assert_eq!(migration_count, 5);
 
     let lifecycle_columns: i64 = sqlx::query_scalar(
         r#"
@@ -98,13 +98,30 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
               'audit_chain_heads',
               'audit_events',
               'agents',
-              'identity_keys'
+              'identity_keys',
+              'identity_nonces'
           )
         "#,
     )
     .fetch_one(&pool)
     .await?;
-    assert_eq!(table_count, 10);
+    assert_eq!(table_count, 11);
+
+    let nonce_guard_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM information_schema.triggers
+        WHERE event_object_schema = 'public'
+          AND event_object_table = 'identity_nonces'
+          AND trigger_name IN (
+              'identity_nonces_reject_update_delete',
+              'identity_nonces_reject_truncate'
+          )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(nonce_guard_count, 2);
 
     let store = atf_store::Store::connect(&database_url).await?;
     assert_eq!(store.schema(), schema);
@@ -112,7 +129,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 5 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 6 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -122,14 +139,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 4,
-            database_version: 5,
-            minimum_reader_version: 4,
-            minimum_writer_version: 4,
+            binary_version: 5,
+            database_version: 6,
+            minimum_reader_version: 5,
+            minimum_writer_version: 5,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 4 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 5 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -426,7 +443,32 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
     .fetch_one(&pool)
     .await?;
     assert_eq!(identity_table_count, 2);
-    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 4);
+    let version_before_nonces: i32 = sqlx::query_scalar(
+        "SELECT schema_version FROM atf_schema_metadata WHERE component = 'durable_state'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(version_before_nonces, 4);
+
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 5)
+                .expect("migration 0005 is embedded"),
+        )
+        .await?;
+    let canonical_bytes_after_nonces: Vec<u8> = sqlx::query_scalar(
+        "SELECT canonical_intent_bytes FROM intents WHERE organization_id = 'legacy-org' AND intent_id = 'legacy-intent'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(canonical_bytes_after_nonces, canonical_bytes);
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 5);
+    let nonce_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM identity_nonces")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(nonce_rows, 0);
 
     connection.close().await?;
     pool.close().await;

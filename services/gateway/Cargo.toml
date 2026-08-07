@@ -14,12 +14,14 @@ path = "src/main.rs"
 [dependencies]
 atf-audit = { workspace = true }
 atf-core = { workspace = true }
+atf-identity = { workspace = true }
 atf-intent = { workspace = true }
 atf-policy = { workspace = true }
 atf-risk = { workspace = true }
 atf-decision = { workspace = true }
 atf-store = { workspace = true }
 axum = { workspace = true }
+hex = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,5 +29,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+chrono = { workspace = true }
+ed25519-dalek = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }

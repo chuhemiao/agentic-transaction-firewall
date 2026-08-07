@@ -10,7 +10,7 @@ Agentic Transaction Firewall (ATF): an open-source Rust workspace
 implementing a control layer that sits between AI Agents and
 wallets/exchanges/payment networks, so that financial actions must pass
 through Policy → Risk → Decision → Audit before anything executes. Full
-spec: [`docs/PRD.md`](docs/PRD.md) (v1.2). One-paragraph pitch and the
+spec: [`docs/PRD.md`](docs/PRD.md) (v1.3). One-paragraph pitch and the
 target pipeline diagram: [`README.md`](README.md).
 
 **Read `README.md`'s "Status" and "Roadmap" sections before doing anything

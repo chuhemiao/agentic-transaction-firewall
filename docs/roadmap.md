@@ -76,6 +76,11 @@ order. The executable order is:
   public-key lifecycle records with activation/expiry/revocation windows,
   atomic typed Audit evidence, restart verification and offline public-key-only
   operator commands.
+- [x] DS-016 Require the canonical detached Identity Envelope/signature before
+  Policy/Risk; atomically bind hashed Nonces to the exact durable
+  Agent/Key/Intent/idempotency tuple and persist typed verified, rejected and
+  replay evidence. Exact retry, concurrent conflict, restart, tenant isolation
+  and tamper tests are green.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -85,17 +90,19 @@ order. The executable order is:
   complete allowed-transition table, explicit module outcomes, typed event
   payloads, PostgreSQL state/version enforcement, intermediate phase events,
   replay verification, and atomic event/state transitions are implemented and
-  tested. Identity is explicitly `IDENTITY_UNVERIFIED` until DS-016, so this
-  remains evaluate-only.
+  tested. New Gateway admissions use `IDENTITY_VERIFIED`; the old
+  `IDENTITY_UNVERIFIED` state remains compatibility-only and is never upgraded
+  or interpreted as authenticated. The product remains evaluate-only because
+  execution is not implemented.
 - [x] P0.3 Record every gateway outcome as `DecisionRecorded`, bound to the
   Intent hash. Duplicate-purchase history counts only same-organization
   `PERMIT` decisions; DENY does not poison later requests.
-- [ ] P0.4 Durable, concurrent idempotency and replay protection. DS-012/DS-013
-  complete reservation/result storage, lease/fencing, exact completed retry
-  and request-driven fail-closed recovery; DS-016 still must add authenticated
-  nonce replay protection.
-- [ ] P0.5 Domain-separated Agent identity envelopes wired before Policy and
-  Risk.
+- [x] P0.4 Durable, concurrent idempotency and replay protection. DS-012/DS-013
+  provide reservation/result storage, lease/fencing, exact completed retry and
+  request-driven fail-closed recovery; DS-016 adds PostgreSQL-authoritative
+  authenticated Nonce replay protection.
+- [x] P0.5 Domain-separated Agent identity envelopes wired before Policy and
+  Risk, with current durable exact-Key verification and typed request evidence.
 - [ ] P0.6 Versioned `EvaluationContext`; remove direct wall-clock and
   untrusted context reads from decision-making rules.
 - [ ] P0.7 Original and counterfactual deterministic replay.
@@ -106,9 +113,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-016` — authenticate the signed Envelope and exact
-durable Key before Policy/Risk, atomically bind/consume its Nonce with the
-idempotency admission, and persist typed verified/rejected/replay evidence.
+**Immediate next task:** `DS-017` — decide and document the operator/auditor
+authentication trust boundary before protecting Decision reads and future
+Audit queries with organization-scoped RBAC in DS-018.
 
 ## Later releases
 

@@ -12,6 +12,7 @@ mod idempotency;
 mod identity;
 mod lifecycle;
 mod models;
+mod nonce;
 mod repository;
 
 use serde::{Deserialize, Serialize};
@@ -21,14 +22,14 @@ pub use audit::StoredAuditEvent;
 pub use error::StoreError;
 pub use identity::{IdentitySnapshot, StoredAgent, StoredIdentityKey};
 pub use models::{
-    AdmissionGrant, AdmissionInput, AdmittedIntent, EvaluationInput, EvaluatorLease,
+    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationInput, EvaluatorLease,
     FinalizationInput, FinalizedDecision, IdempotencyReservation, IdempotencyResult,
     IdempotencyState, StoredEvaluation, StoredLifecycle,
 };
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 4;
+pub const CURRENT_SCHEMA_VERSION: i32 = 5;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

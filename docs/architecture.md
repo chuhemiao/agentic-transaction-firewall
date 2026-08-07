@@ -50,9 +50,9 @@ Agent Intent
   declared Key ID, performs strict Ed25519 verification and returns typed
   `VerifiedIdentity`; raw-hash and try-any-key verification paths no longer
   exist. `IdentityKeyRecord` adds explicit activation, expiry and irreversible
-  revocation. *Implemented as a domain library with DS-015 durable authority —
-  still not called from `services/gateway`; Gateway verification plus atomic
-  Nonce consumption is DS-016.*
+  revocation. *Implemented with DS-015 durable authority and wired into
+  Gateway admission by DS-016 before Policy/Risk; PostgreSQL atomically binds
+  and consumes hashed Nonces.*
 - **`atf-policy`** — Cedar `PolicySet` parsing + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Partially implemented: no
   Cedar Schema or versioned Bundle manifest yet.*
@@ -66,7 +66,7 @@ Agent Intent
   *Implemented (partial — daily cumulative spend, first-time destination
   address, and order frequency, PRD §12.2, still need an explicit
   PERMITTED/EXECUTED/SETTLED accounting boundary).*
-- **`atf-audit`** — `AuditEvent`/`EventType`, 32 canonical version-1 typed
+- **`atf-audit`** — `AuditEvent`/`EventType`, 33 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
   `AuditLedger` with hash-chain verification (PRD §16.3). Its closed JSON
@@ -100,10 +100,12 @@ Agent Intent
   Ed25519 public-key records, monotonic lifecycle versions, Audit event
   pointers and database guards against rebinding/deletion/truncate. Identity
   mutations and typed operator events commit atomically; repeatable-read loads
-  reverify the full Audit chain and record hashes. It also exposes a live
-  schema/connectivity readiness check. *Implemented and wired into the Gateway
-  for admission/finalization/lifecycle/history/readiness; identity state is
-  implemented for offline provisioning but not yet wired into Gateway.*
+  reverify the full Audit chain and record hashes. Migration 0005 adds
+  immutable organization/Agent-scoped Nonce hashes bound to the exact Key,
+  Intent, idempotency reservation, lifecycle versions and
+  `IdentityVerified` event. It also exposes a live schema/connectivity
+  readiness check. *Implemented and wired into the Gateway for authenticated
+  admission/finalization/lifecycle/history/readiness.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`, plus offline `atf identity` Agent/public-key
   provision/status/revoke commands. *Implemented (partial PRD command set).*
@@ -116,19 +118,19 @@ Agent Intent
   bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
   requires `X-ATF-Organization-ID` and returns only a fully verified durable
   Decision; `/readyz` checks live database/schema compatibility. *Implemented
-  and verified through restart and two real Gateway processes. Does not call
-  `atf-identity`; the organization header is an unauthenticated tenant hint,
-  not an authorization boundary. Identity is explicitly recorded as skipped
-  (`IDENTITY_UNVERIFIED`) and cannot authorize execution. Every response has a
+  and verified through restart and two real Gateway processes. POST requires
+  a canonical detached Identity Envelope/signature, verifies the current
+  durable exact Key, and consumes its Nonce before Policy/Risk. The GET
+  organization header remains an unauthenticated tenant hint, not an operator
+  authorization boundary. Every response has a
   server-generated request ID; business/Router/Store errors use one fixed safe
   JSON envelope without returning raw Schema, SQL, policy or key/internal
   diagnostics. Completed same-hash POSTs return the verified original Decision
   without re-evaluation; active duplicates return bounded 409; normal
   evaluation renews its lease between Policy/Risk stages; and a request may
   conditionally reclaim an expired admission and terminate it as one fenced
-  fail-closed `Decision(ERROR)`. Background recovery, authenticated nonce
-  replay protection, configured limits, full trace/Audit correlation, and
-  metrics remain absent.*
+  fail-closed `Decision(ERROR)`. Background recovery, operator authentication,
+  configured limits, full trace/Audit correlation, and metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -149,8 +151,9 @@ Agent Intent
   error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
   foundation, DS-013 exact retry/stage-heartbeat/request-driven recovery, and
   DS-014 domain-separated Identity Envelope and DS-015 durable Agent/Key
-  lifecycle plus offline provisioning now exist. Additional action profiles
-  and authenticated nonce replay protection remain unimplemented.
+  lifecycle plus offline provisioning, and DS-016 authenticated Gateway/Nonce
+  admission now exist. Additional action profiles and operator authorization
+  remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -180,14 +183,17 @@ reverify the immutable Intent, Evaluation and Decision documents plus the
 complete chain in one repeatable-read snapshot. DS-005 makes this the only
 Gateway Decision/Audit path; there is no process-local fallback.
 DS-007 adds the lifecycle materialization. New admission rows are contract-v1
-`RECEIVED/v1`; finalization locks the Intent and rejects a stale expected
-version before appending any evidence. It then emits
-`IdentityVerificationSkipped -> PolicyEvaluated -> RiskEvaluated ->
-SimulationCompleted -> DecisionRecorded` and advances to `DECIDED_*/v6` in
-the same transaction as Evaluation and Decision. Readers replay every typed
-state-producing event and compare state, version, last-event pointer, and
-timestamp. Migrated historical rows remain explicit compatibility contract-v0
-records; immutable canonical/Audit bytes are never rewritten.
+`RECEIVED/v1`; its original Shadow compatibility writer emitted
+`IdentityVerificationSkipped`. DS-016 supersedes that request writer: a new
+accepted Intent atomically advances through `IntentReceived ->
+IdentityVerified` to `IDENTITY_VERIFIED/v2` before Policy/Risk. Finalization
+locks the Intent and rejects a stale expected version, then emits
+`PolicyEvaluated -> RiskEvaluated -> SimulationCompleted -> DecisionRecorded`
+and advances to `DECIDED_*/v6` in the same transaction as Evaluation and
+Decision. Readers replay every typed state-producing event and compare state,
+version, last-event pointer, and timestamp. Migrated historical rows and the
+`IDENTITY_UNVERIFIED` state remain explicit compatibility contracts; immutable
+canonical/Audit bytes are never rewritten or upgraded as authenticated.
 DS-012 implements the two idempotency sides of those transactions. The
 reservation row is inserted before the Intent under a deferred binding foreign
 key and commits with admission evidence. Lease expiry is derived from the
@@ -208,6 +214,15 @@ next generation, reloads the admitted evidence, renews once, and records
 `RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)` without rerunning current
 Policy/Risk. Recovery is triggered by a retry request; there is no background
 worker yet.
+DS-016 places current durable Agent/exact-Key verification ahead of that
+reservation boundary. A new coarse transaction locks and reverifies the
+identity lifecycle, verifies the canonical signed Envelope, stores only the
+Nonce/Envelope hashes, and atomically commits the Nonce, reservation, Intent,
+`IntentReceived` and `IdentityVerified`. Exact retries add nothing; a fresh
+valid assertion can bind a fresh Nonce to the existing idempotent request;
+conflicting reuse commits organization-scoped `ReplayDetected` and fails 409.
+Identity rejection commits only `IdentityRejected`. Nonce reads reverify their
+Audit and historical lifecycle bindings, including after restart.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -266,11 +281,12 @@ implementation order are in ADR-0002.
    schema can't silently drift from the type. `atf-audit` does the same for
    `schemas/audit-event.schema.json`.
 10. `services/gateway`'s `POST /v1/intents` is the durable caller of steps
-    1-6. After validation, admission atomically stores canonical Intent plus
-    `IntentReceived`. Policy runs next; when permitted, Risk reads the complete
-    verified organization chain through `atf-store`. Because Identity and the
-    Simulator are not wired yet, the Gateway records stable reason-coded
-    `IdentityVerificationSkipped` and Simulation `NOT_RUN` outcomes.
+    1-6. After validation, it parses a bounded canonical detached Envelope and
+    signature; authenticated admission atomically consumes the hashed Nonce
+    and stores canonical Intent, `IntentReceived`, and `IdentityVerified`.
+    Policy runs only after that commit; when permitted, Risk reads the complete
+    verified organization chain through `atf-store`. The Simulator is not
+    wired, so the Gateway records a stable reason-coded Simulation `NOT_RUN`.
     Finalization atomically stores typed Policy/Risk/Simulation evidence in an
     Evaluation, all intermediate events, the Decision, lifecycle state, and a
     foreign-key-bound typed `DecisionRecorded`. Only that committed Decision is
@@ -324,11 +340,10 @@ complete Decision Engine:
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- `atf-identity`'s domain-separated Envelope, exact-key verifier and DS-015
-  PostgreSQL Agent/Key lifecycle are implemented but still unwired: Gateway
-  does not load a verified snapshot or call envelope verification, and Nonces
-  are not consumed. Gateway admission and atomic Nonce use belong to DS-016.
-  Process memory is not deployment authority.
+- Agent Envelope verification, exact durable Key selection and atomic hashed
+  Nonce consumption are wired before Policy/Risk. Process memory is not
+  deployment authority. Operator/auditor authentication and authorization are
+  still absent and begin with DS-017/DS-018.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization
@@ -338,9 +353,9 @@ complete Decision Engine:
   stops before evaluation, and a different hash returns
   `IDEMPOTENCY_CONFLICT`. A failure between admission and finalization can
   leave a fenced admitted Intent without a Decision until a retry triggers
-  DS-013 recovery. Authentication, nonce replay protection, deterministic
-  Context-based recovery and operational scanning remain later gaps, not
-  reasons to reintroduce process-local state.
+  DS-013 recovery. Operator authentication, deterministic Context-based
+  recovery and operational scanning remain later gaps, not reasons to
+  reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

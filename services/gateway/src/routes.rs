@@ -16,11 +16,12 @@ use atf_decision::{Decision, DecisionKind, Reason};
 use atf_intent::TransactionIntent;
 use atf_policy::PolicyDecision;
 use atf_store::{
-    AdmissionGrant, AdmissionInput, AdmittedIntent, EvaluationInput, EvaluatorLease,
+    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationInput, EvaluatorLease,
     FinalizationInput, Store, StoreError,
 };
 use std::time::Duration;
 
+use crate::auth::parse_identity_assertion;
 use crate::error::ApiError;
 use crate::request_id::RequestId;
 use crate::state::AppState;
@@ -73,6 +74,7 @@ async fn readyz(
 async fn create_intent(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
     let body = match body {
@@ -91,7 +93,30 @@ async fn create_intent(
         Err(error) => return ApiError::from_intent(error).into_response(&request_id),
     };
 
-    let admitted = match admit_or_recover(&state.store, intent.clone()).await {
+    let identity_assertion = match parse_identity_assertion(&headers) {
+        Ok(assertion) => assertion,
+        Err(error) => {
+            let reason_code = error.code();
+            if let Err(store_error) = state
+                .store
+                .record_identity_rejection(&intent, reason_code, Timestamp::now())
+                .await
+            {
+                return store_error_response(&request_id, "record identity rejection", store_error);
+            }
+            return ApiError::identity_rejected(reason_code).into_response(&request_id);
+        }
+    };
+
+    let admitted = match admit_or_recover(
+        &state.store,
+        intent.clone(),
+        identity_assertion,
+        state.identity.audience(),
+        state.identity.environment(),
+    )
+    .await
+    {
         Ok(AdmissionOutcome::Evaluate(admitted)) => *admitted,
         Ok(AdmissionOutcome::Completed(decision)) => {
             return Json(decision).into_response();
@@ -234,10 +259,17 @@ async fn create_intent(
 async fn admit_or_recover(
     store: &Store,
     intent: TransactionIntent,
+    identity: crate::auth::IdentityAssertion,
+    audience: &str,
+    environment: &str,
 ) -> Result<AdmissionOutcome, StoreError> {
     match store
-        .admit_intent(AdmissionInput {
+        .authenticate_and_admit(AuthenticatedAdmissionInput {
             intent: intent.clone(),
+            envelope: identity.envelope,
+            signature: identity.signature,
+            audience: audience.to_owned(),
+            environment: environment.to_owned(),
             received_at: Timestamp::now(),
             lease_duration: EVALUATOR_LEASE_DURATION,
         })

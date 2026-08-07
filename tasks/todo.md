@@ -20,7 +20,7 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] In-memory Audit hash chain and `DecisionRecorded` event.
 - [x] Evaluate-only Gateway POST/GET plus health/readiness routes.
 - [x] Duplicate-purchase history counts only same-org prior PERMIT Decisions.
-- [x] Durable Shadow Mode PRD v1.2 and execution-last ADR.
+- [x] Authenticated Durable Shadow PRD v1.3 and execution-last ADR.
 
 ## Phase 2 — Durable Shadow Mode
 
@@ -74,9 +74,12 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   Audit evidence, restart-safe exact-key validation, bounded rotation,
   database immutability guards and public-key-only offline provisioning.
   Depends: DS-002, DS-014.
-- [ ] **NEXT — DS-016:** wire Identity + nonce/idempotency semantics before
-  Policy/Risk. Depends: DS-012..DS-015.
-- [ ] **DS-017:** decide operator authentication and tenant trust boundary. Depends: DS-015.
+- [x] **DS-016:** wired canonical signed Identity + atomic hashed
+  nonce/idempotency semantics before Policy/Risk, including typed rejection
+  and replay evidence, restart/concurrency/tenant/tamper coverage. Depends:
+  DS-012..DS-015.
+- [ ] **NEXT — DS-017:** decide operator authentication and tenant trust
+  boundary. Depends: DS-015.
 - [ ] **DS-018:** protect all non-health routes with Agent/operator auth and org RBAC. Depends: DS-017.
 - [ ] **Checkpoint C2:** invalid, unauthenticated, cross-tenant, duplicate and replay requests cannot reach evaluation incorrectly.
 

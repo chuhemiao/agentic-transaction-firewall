@@ -5,8 +5,9 @@
 //! allowed to send anything at all" — it says nothing about whether the
 //! request itself should be permitted (that's `atf-policy` + `atf-risk`).
 //! Persistent Agent/Key lifecycle is provided by `atf-store`; Gateway wiring
-//! and atomic Nonce consumption remain separate admission concerns. See
-//! `docs/identity.md` and `docs/identity-envelope.md`.
+//! and atomic Nonce consumption are implemented by its authenticated admission
+//! boundary. See `docs/identity.md`, `docs/identity-envelope.md`, and
+//! `docs/gateway-identity.md`.
 
 mod envelope;
 mod error;

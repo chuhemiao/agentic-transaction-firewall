@@ -76,6 +76,20 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
             }),
         ),
         (
+            None,
+            AuditPayload::ReplayDetected(ReplayDetectedPayload {
+                organization_id: text("alpha-lab"),
+                agent_id: text("agent-1"),
+                key_id: text("key-1"),
+                nonce_hash: hash('c'),
+                attempted_intent_id: text("intent-2"),
+                attempted_intent_hash: hash('d'),
+                bound_intent_id: text("intent-1"),
+                bound_intent_hash: hash('a'),
+                reason_code: text("NONCE_BINDING_CONFLICT"),
+            }),
+        ),
+        (
             intent(),
             AuditPayload::IdentityVerificationSkipped(IdentityVerificationSkippedPayload {
                 organization_id: text("alpha-lab"),

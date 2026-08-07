@@ -82,8 +82,10 @@ barrier-tested concurrent convergence and request-driven fail-closed recovery
 after restart. DS-014 replaces raw-hash signatures with the canonical
 domain-separated Identity Envelope and exact-key verification. DS-015 adds
 migration 0004, durable Agent/Key lifecycle, atomic typed operator Audit and
-public-key-only offline provisioning. DS-016 is next: Gateway verification and
-atomic signed-Nonce consumption.
+public-key-only offline provisioning. DS-016 completes Gateway verification
+and atomic signed-Nonce consumption with
+migration 0005, strict detached identity Headers, current exact-Key
+verification and typed rejection/replay evidence.
 
 ## Module inventory
 
@@ -91,14 +93,14 @@ atomic signed-Nonce consumption.
 |---|---|---|
 | `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 22-state lifecycle transition contract; used throughout the workspace. |
 | `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, common financial/time/ULID/text semantics, and the versioned Agent-Commerce Payment Profile are wired with stable ordered errors; every other action pair fails closed until its Profile exists. |
-| `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority with restart verification and offline provisioning. Nonces are not consumed and Gateway never calls it. |
+| `atf-identity` | `IMPLEMENTED_AND_WIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority. DS-016 requires it before Policy/Risk and atomically consumes hashed Nonces. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 32 canonical typed/versioned payloads, intent-scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key operator events; the Gateway persists/verifies current request lifecycle events through `atf-store`. Queries and checkpoints remain. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 33 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key operator events and DS-016 adds `ReplayDetected`; the Gateway persists/verifies current request lifecycle and identity events through `atf-store`. Queries and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, atomic admission/finalization, persisted/replayed Intent and Agent/Key lifecycle, evidence-gated reads, database-clock evaluator lease renewal/reclaim, generation fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Request-path identity, background scanning and provenance-pinned deterministic recovery remain absent. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, authenticated atomic admission/finalization, persisted/replayed Intent and Agent/Key lifecycle, immutable hashed Nonce bindings, evidence-gated reads, evaluator lease/fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Background scanning and provenance-pinned deterministic recovery remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, and offline `identity` provision/register/status/revoke exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; restart/second-instance reads, dependency readiness, stable safe errors, server-owned request IDs, Router fallbacks, validation ordering, exact completed retry, active-work conflict, stage-boundary lease renewal, concurrent single-result convergence and retry-driven fail-closed recovery are tested. Identity/nonce protection, background recovery, auth, configured limits, full correlation, metrics, and query APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection. Restart/second-instance reads, dependency readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency and retry-driven fail-closed recovery are tested. Operator/read auth, background recovery, configured limits, full correlation, metrics, and query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
@@ -139,13 +141,13 @@ atomic signed-Nonce consumption.
 ### GAP-IDN-001 — Agent Identity Verification
 
 - **module:** `atf-identity`, `services/gateway`
-- **current_state:** `IMPLEMENTED_BUT_UNWIRED`
-- **evidence:** DS-014 removes the raw Intent-hash/try-any-key verifier. `IdentityEnvelope` rejects unknown/noncanonical fields and binds organization, Agent, exact Key ID, canonical Intent hash, explicit five-minute lifetime, Nonce, audience and environment in sorted compact JSON. DS-015 migration 0004 persists canonical Agent and exact Ed25519 public-key lifecycle, activation/expiry/revocation, version and Audit pointers. Mutations atomically append typed operator events; verified restart reads recompute hashes and reject state/evidence drift. Real PostgreSQL tests cover paused/expired/revoked Agents, inactive/expired/revoked Keys, exact bounded overlap, tenant isolation, duplicate rollback, concurrent status races, database guards and tamper. A real public-key-only CLI smoke covers provision/register/pause/revoke. Gateway still has no identity input/verifier call and Nonces are not consumed.
-- **security_impact:** any network caller can impersonate any Agent; signatures are replayable across contexts.
-- **financial_impact:** policies and histories can be evaluated under a victim Agent identity.
-- **severity:** `HIGH`
-- **recommended_change:** preserve the DS-014 canonical/exact-key and DS-015 durable lifecycle contracts; load the verified snapshot and atomically consume the Nonce before Policy/Risk with typed request Identity Audit evidence in DS-016.
-- **required_tests:** wrong-org, wrong-audience/environment, stale envelope, durable key overlap/lifecycle, restart, concurrency, rollback, tamper and offline CLI are implemented; Nonce replay, Gateway ordering and request Identity Audit tests remain.
+- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **evidence:** DS-014 removes the raw Intent-hash/try-any-key verifier. DS-015 migration 0004 persists exact Agent/public-key lifecycle and Audit pointers. DS-016 requires bounded canonical detached Headers and trusted audience/environment, locks and reverifies the current durable Agent/exact Key, and atomically commits hashed Nonce + idempotency + Intent + `IntentReceived` + `IdentityVerified` before Policy/Risk. Invalid proof commits only `IdentityRejected`; conflicting reuse commits `ReplayDetected`. Restart, concurrent one-winner, tenant isolation, lifecycle, rollback, mutation guards, privileged tamper, exact retry and wrong signature/audience/environment tests pass.
+- **security_impact:** current POST admission no longer accepts Agent impersonation or conflicting signed-Nonce replay; operator/read authentication is tracked separately by GAP-API-001.
+- **financial_impact:** an unverified Agent request cannot enter Policy/Risk or poison accepted Intent history.
+- **severity:** `CLOSED` (formerly `HIGH`)
+- **recommended_change:** retain the DS-014..DS-016 canonical/exact-key/atomic-Nonce invariants while adding operator RBAC and edge hardening.
+- **required_tests:** implemented for the current scope; keep in PostgreSQL and Gateway regression suites.
 - **dependencies:** PostgreSQL, Admin provisioning/RBAC, idempotency nonce store.
 - **target_release:** Durable Shadow Mode P0.5.
 - **acceptance_criteria:** identity failure records `IdentityRejected`, returns fail-closed, and Policy/Risk are not called.
@@ -154,7 +156,8 @@ atomic signed-Nonce consumption.
 
 - **module:** `services/gateway`
 - **current_state:** `MISSING`
-- **evidence:** all non-health routes are anonymous. GET now requires
+- **evidence:** POST authenticates an Agent Envelope and exact durable Key, but
+  GET remains anonymous. GET requires
   `X-ATF-Organization-ID` and the store keys reads by organization + Intent,
   but any caller can forge that tenant selector because no identity or RBAC
   binds it to the request principal.
@@ -170,17 +173,17 @@ atomic signed-Nonce consumption.
 ### GAP-RPL-001 — Idempotency and Replay Protection
 
 - **module:** Gateway persistence and identity envelopes
-- **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-012 migration 0003 persists one immutable `(organization_id,idempotency_key)` to canonical Intent hash binding. Admission atomically creates the reservation, Intent and `IntentReceived`; finalization requires the current owner/generation before atomically binding the completed Evaluation/Decision hash and Audit evidence. Database-clock leases support bounded renewal and conditional expired-lease reclaim with a monotonic fencing generation. Completed rows reject UPDATE/DELETE/TRUNCATE, stale owners cannot finalize, and generation greater than one may only record fail-closed `Decision(ERROR)` before immutable Evaluation Context recovery exists. DS-013 resolves completed same-hash POSTs through the fully verified durable Decision read, renews the current generation after Policy and Risk, keeps active work at `IDEMPOTENCY_IN_PROGRESS`, and conditionally reclaims expired work after restart as one `RECOVERY_CONTEXT_UNAVAILABLE` Decision without current Policy/Risk. Barrier-based HTTP tests prove concurrent callers converge on one Evaluation, Decision and final Audit transition; changed-Policy restart tests prove exact retry does not re-evaluate. Different hashes still produce `IDEMPOTENCY_CONFLICT`. Signed nonce consumption remains absent.
-- **design evidence:** ADR-0002 specifies unique organization/key binding, finite leases, monotonically increasing fencing generations, same-hash retry semantics, and atomic nonce consumption. DS-012 implements the reservation/result, lease and fencing storage boundary; DS-013 implements its HTTP retry/recovery semantics; DS-016 remains for authenticated nonce consumption.
-- **security_impact:** concurrent evaluation, stale completion, completed-response loss and stranded-admission races are fenced at the durable boundary; signed requests can still be replayed under a new idempotency key until Identity/nonce wiring lands.
-- **financial_impact:** the same key cannot authorize a different Intent, stale workers cannot overwrite a reclaimed outcome, and completed retries return the original result even after Policy changes; no signed nonce yet prevents replay under a new key.
-- **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-012/DS-013 reservation, DS-014 domain-separated Envelope and DS-015 durable Agent/Key invariants; add single-use authenticated Nonce consumption in DS-016.
-- **required_tests:** different-hash 409, active same-hash conflict, concurrent single result, renewal/reclaim, stale fencing, restart exact return, restrictive crash recovery, transaction rollback and result tamper rejection are implemented; signed-nonce replay and authentication Audit remain.
+- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **evidence:** DS-012/DS-013 implement immutable organization/idempotency/Intent-hash binding, evaluator lease/fencing, completed result evidence, exact retry and restrictive recovery. DS-016 migration 0005 adds immutable `(organization_id,agent_id,nonce_hash)` binding to the exact Key, Envelope hash, Intent/idempotency tuple, lifecycle versions and `IdentityVerified` event. Exact retries add nothing; fresh valid retries consume a new Nonce; conflicting concurrent/post-restart reuse emits `ReplayDetected` and returns 409. Database guards and verified reads reject mutation/tamper.
+- **design evidence:** ADR-0002 plus `docs/gateway-identity.md` define the implemented transaction and retry/replay semantics.
+- **security_impact:** concurrent evaluation, stale completion, completed-response loss, stranded admission and signed request replay are fenced at the current durable Gateway boundary.
+- **financial_impact:** one signed Nonce cannot authorize another binding; completed retries return the original result after restarts or Policy changes.
+- **severity:** `CLOSED` (formerly `CRITICAL`)
+- **recommended_change:** retain DS-012..DS-016 invariants; future execution/payment proof Nonces require their own single-use stores.
+- **required_tests:** implemented for different-hash conflict, exact/fresh retry, active work, concurrency, restart, restrictive recovery, rollback, immutable rows and tamper.
 - **dependencies:** PostgreSQL transaction boundary and Identity envelope.
 - **target_release:** Durable Shadow Mode P0.4.
-- **acceptance_criteria:** exactly one evaluator wins, conflicts return stable durable codes, and completed duplicates return the original Decision today; this gap closes only when authenticated nonce replay is rejected or mapped to that exact original binding.
+- **acceptance_criteria:** met: exactly one evaluator wins, conflicts return stable durable codes, completed duplicates return the original Decision, and authenticated Nonce replay is rejected or classified as that exact original binding.
 
 ### GAP-POL-001 — Policy Bundle Validation
 
@@ -441,8 +444,7 @@ atomic signed-Nonce consumption.
 
 ## Next vertical feature
 
-`DS-016` is next: authenticate the DS-014 Envelope against DS-015's verified
-durable Agent/Key snapshot, atomically bind and consume its signed Nonce with
-idempotency admission, and persist typed verified/rejected/replay evidence
-before Policy/Risk. Agent and operator identities remain separate; DS-017 then
-fixes the operator trust boundary before DS-018 RBAC.
+`DS-017` is next: fix the operator/auditor trust boundary before DS-018
+organization-scoped RBAC. DS-016 has closed Agent authentication and signed
+Nonce replay protection before Policy/Risk; Agent and operator identities
+remain deliberately separate.

@@ -20,7 +20,7 @@ pub use payload::{
     IdentityVerificationSkippedPayload, IdentityVerifiedPayload, IntentCancelledPayload,
     IntentExpiredPayload, IntentReceivedPayload, KillSwitchPayload, OptionalModuleOutcome,
     PolicyChangedPayload, PolicyEvaluatedPayload, PolicyOutcome, ReconciliationFailedPayload,
-    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
-    ServiceDeliveredPayload, SettlementVerifiedPayload, SimulationCompletedPayload,
+    ReplayDetectedPayload, RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence,
+    RiskSeverity, ServiceDeliveredPayload, SettlementVerifiedPayload, SimulationCompletedPayload,
     SimulationOutcome, AUDIT_PAYLOAD_SCHEMA_VERSION,
 };

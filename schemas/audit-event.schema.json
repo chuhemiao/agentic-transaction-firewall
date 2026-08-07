@@ -22,6 +22,7 @@
         "IdentityVerified",
         "IdentityVerificationSkipped",
         "IdentityRejected",
+        "ReplayDetected",
         "ContextEnriched",
         "PolicyEvaluated",
         "RiskEvaluated",
@@ -70,6 +71,7 @@
     { "$ref": "#/$defs/identityVerifiedEvent" },
     { "$ref": "#/$defs/identityVerificationSkippedEvent" },
     { "$ref": "#/$defs/identityRejectedEvent" },
+    { "$ref": "#/$defs/replayDetectedEvent" },
     { "$ref": "#/$defs/contextEnrichedEvent" },
     { "$ref": "#/$defs/policyEvaluatedEvent" },
     { "$ref": "#/$defs/riskEvaluatedEvent" },
@@ -274,6 +276,34 @@
         "schema_version": { "const": 1 },
         "organization_id": { "$ref": "#/$defs/nonEmpty" },
         "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "replayDetected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "organization_id",
+        "agent_id",
+        "key_id",
+        "nonce_hash",
+        "attempted_intent_id",
+        "attempted_intent_hash",
+        "bound_intent_id",
+        "bound_intent_hash",
+        "reason_code"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "key_id": { "$ref": "#/$defs/nonEmpty" },
+        "nonce_hash": { "$ref": "#/$defs/sha256" },
+        "attempted_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "attempted_intent_hash": { "$ref": "#/$defs/sha256" },
+        "bound_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "bound_intent_hash": { "$ref": "#/$defs/sha256" },
         "reason_code": { "$ref": "#/$defs/nonEmpty" }
       }
     },
@@ -586,13 +616,16 @@
       "properties": { "event_type": { "const": "IntentReceived" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/intentReceived" } }
     },
     "identityVerifiedEvent": {
-      "properties": { "event_type": { "const": "IdentityVerified" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityVerified" } }
+      "properties": { "event_type": { "const": "IdentityVerified" }, "intent_id": { "oneOf": [{ "$ref": "#/$defs/intentScope" }, { "$ref": "#/$defs/operatorScope" }] }, "data": { "$ref": "#/$defs/identityVerified" } }
     },
     "identityVerificationSkippedEvent": {
       "properties": { "event_type": { "const": "IdentityVerificationSkipped" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityVerificationSkipped" } }
     },
     "identityRejectedEvent": {
-      "properties": { "event_type": { "const": "IdentityRejected" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityRejected" } }
+      "properties": { "event_type": { "const": "IdentityRejected" }, "intent_id": { "oneOf": [{ "$ref": "#/$defs/intentScope" }, { "$ref": "#/$defs/operatorScope" }] }, "data": { "$ref": "#/$defs/identityRejected" } }
+    },
+    "replayDetectedEvent": {
+      "properties": { "event_type": { "const": "ReplayDetected" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/replayDetected" } }
     },
     "contextEnrichedEvent": {
       "properties": { "event_type": { "const": "ContextEnriched" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/contextEnriched" } }

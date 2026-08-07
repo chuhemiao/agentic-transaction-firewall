@@ -7,7 +7,7 @@ Planning baseline: `main` at `73ef1c1`
 
 This plan turns the original `prd-v1.md` vision into an executable delivery
 sequence grounded in the code that exists today. Product requirements remain
-authoritative in `docs/PRD.md` v1.2; security evidence and gap severity remain
+authoritative in `docs/PRD.md` v1.3; security evidence and gap severity remain
 authoritative in `docs/audit-gap-matrix.md`.
 
 The original PRD grouped work by product module. This plan orders work by
@@ -71,14 +71,16 @@ renewal/reclaim and generation fencing. DS-013 added exact completed retry,
 stage-boundary heartbeat, concurrent result convergence and request-driven
 fail-closed recovery. DS-014 added the canonical domain-separated Identity
 Envelope and exact-key verifier. DS-015 added restart-safe Agent/Key lifecycle,
-atomic operator Audit evidence and offline provisioning; the next task is
-DS-016.
+atomic operator Audit evidence and offline provisioning. DS-016 added strict
+Gateway identity Headers/configuration, current durable exact-Key verification,
+atomic hashed-Nonce admission and typed rejection/replay evidence; the next
+task is DS-017.
 
 ### Present but incomplete or unwired
 
-- Identity has a domain-separated canonical Envelope, exact-key verifier and
-  PostgreSQL-backed Agent/Key lifecycle with offline provisioning, but Gateway
-  does not call it and signed Nonces are not consumed.
+- Agent identity is wired before Policy/Risk with PostgreSQL-authoritative
+  Nonce replay protection. Operator/auditor authentication and authorization
+  remain absent.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
@@ -336,7 +338,7 @@ decision-relevant free-form Audit payloads with typed, schema-validated data.
 events; DS-007 adds the explicit Shadow-only `IDENTITY_UNVERIFIED` state and
 `IdentityVerificationSkipped` event. `atf-core` remains the only pure
 transition table, now exhaustively testing all 484 state pairs and every
-terminal successor. `atf-audit` owns 32 canonical version-1 payload variants,
+terminal successor. `atf-audit` owns 33 canonical version-1 payload variants,
 tagged required/optional module outcomes, intent-scope validation, and explicit
 event effects. Real typed Rust output is checked against a closed JSON Schema,
 and the store's admission/finalization producers no longer assemble free-form
@@ -362,17 +364,16 @@ failure rather than leaving accepted requests silently in progress.
      request closed without claiming a durable Decision.
 - **Verification:** race and injected-failure integration tests; real Gateway failure smoke; full DoD.
 
-**Delivered boundary:** New Intents commit `RECEIVED/v1` with a pointer to the
-typed `IntentReceived` event. Finalization row-locks the Intent, verifies the
-expected version and existing replay, then atomically commits typed
-`IdentityVerificationSkipped`, `PolicyEvaluated`, `RiskEvaluated`,
-`SimulationCompleted`, and `DecisionRecorded` evidence with the Evaluation,
-Decision, and `DECIDED_*/v6` materialization. Contract-v1 readers replay typed
-events and compare state/version/event pointer/time. Real PostgreSQL tests
-cover legacy migration without canonical-byte rewriting, concurrent stale
-writers, middle-of-batch rollback, state tampering, and Policy/Risk error
-terminal states. Identity remains explicitly unverified and non-executable
-until DS-016.
+**Delivered boundary:** DS-007 originally made new Intents commit `RECEIVED/v1`
+with `IntentReceived` and finalized through the explicit
+`IdentityVerificationSkipped` compatibility phase. DS-016 supersedes that
+producer: new accepted Gateway Intents atomically advance through
+`IntentReceived -> IdentityVerified` to `IDENTITY_VERIFIED/v2`, then
+finalization commits `PolicyEvaluated`, `RiskEvaluated`,
+`SimulationCompleted`, and `DecisionRecorded` with the Evaluation, Decision,
+and `DECIDED_*/v6` materialization. Contract-v1 readers replay typed events
+and compare state/version/event pointer/time. Legacy `IDENTITY_UNVERIFIED`
+evidence remains readable but is never promoted as authenticated.
 
 ### DS-008 — Close the Intent envelope and version contract `[S]`
 
@@ -597,7 +598,7 @@ Ed25519 verification over Envelope bytes only, and returns `VerifiedIdentity`.
 The former raw-hash/try-any-key API is removed. A Node/OpenSSL-derived JSON
 vector and Rust mutation tests lock every signed field. DS-015 now persists
 Key activation/revocation metadata and exposes offline provisioning; Gateway
-wiring and atomic Nonce consumption remain DS-016.
+wiring and atomic Nonce consumption are complete in DS-016.
 
 ### DS-015 — Persist Agent and key lifecycle `[M]`
 
@@ -629,9 +630,11 @@ inactive/expired/revoked Keys, bounded old/new overlap, strict `key_id`, tenant
 isolation, duplicate rollback, concurrent mutation and tamper. The real
 `atf identity` CLI provisions, registers, pauses and revokes with
 `DATABASE_URL`; it accepts and stores public keys only. Gateway authentication
-and atomic Nonce consumption remain DS-016.
+and atomic Nonce consumption are complete in DS-016.
 
 ### DS-016 — Wire identity and nonce consumption before Policy/Risk `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Authenticate the envelope, then atomically coordinate nonce
 consumption with idempotency reservation. Exact authenticated retries may
@@ -639,7 +642,7 @@ return the original Decision; the same nonce used for any other binding is a
 replay. Record `IdentityVerified`, `IdentityRejected` and `ReplayDetected`.
 
 - **Dependencies:** DS-012, DS-013, DS-014, DS-015.
-- **Likely files:** `migrations/0005_nonces.sql`,
+- **Implemented files:** `migrations/0005_nonces.sql`,
   `crates/atf-store/src/nonce.rs`, `services/gateway/src/routes.rs`,
   `services/gateway/src/auth.rs`, `services/gateway/tests/identity.rs`.
 - **Acceptance criteria:**
@@ -647,6 +650,17 @@ replay. Record `IdentityVerified`, `IdentityRejected` and `ReplayDetected`.
   2. Concurrent nonce reuse has exactly one valid binding.
   3. Exact signed network retry returns the original result without leaking cross-org data.
 - **Verification:** wrong-binding, concurrent nonce and restart tests; real signed curl smoke; full DoD.
+
+**Delivered boundary:** `docs/gateway-identity.md` fixes the detached canonical
+Header and trusted audience/environment contract. Migration 0005 stores only
+hashed, immutable Nonce/Envelope bindings with exact Agent/Key/Intent/
+idempotency/Audit foreign keys. The Store locks and reverifies current identity
+state, then atomically commits Nonce + admission + `IntentReceived` +
+`IdentityVerified`; rejection/replay cannot create an Intent or reach
+Policy/Risk. Exact retry adds no evidence, fresh valid retry consumes a fresh
+Nonce, and conflicting reuse emits `ReplayDetected`. Restart, concurrency,
+tenant isolation, mutation guards, privileged tamper detection, strict Header
+parsing and real signed HTTP verification cover the boundary.
 
 ### DS-017 — Decide the operator authentication trust boundary `[S]`
 

@@ -96,6 +96,20 @@ pub struct IdentityRejectedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ReplayDetectedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub key_id: String,
+    pub nonce_hash: String,
+    pub attempted_intent_id: String,
+    pub attempted_intent_hash: String,
+    pub bound_intent_id: String,
+    pub bound_intent_hash: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContextEnrichedPayload {
     pub context_hash: String,
     pub source_ids: Vec<String>,
@@ -328,6 +342,7 @@ pub enum AuditPayload {
     IdentityVerified(IdentityVerifiedPayload),
     IdentityVerificationSkipped(IdentityVerificationSkippedPayload),
     IdentityRejected(IdentityRejectedPayload),
+    ReplayDetected(ReplayDetectedPayload),
     ContextEnriched(ContextEnrichedPayload),
     PolicyEvaluated(PolicyEvaluatedPayload),
     RiskEvaluated(RiskEvaluatedPayload),
@@ -365,6 +380,7 @@ impl AuditPayload {
             Self::IdentityVerified(_) => EventType::IdentityVerified,
             Self::IdentityVerificationSkipped(_) => EventType::IdentityVerificationSkipped,
             Self::IdentityRejected(_) => EventType::IdentityRejected,
+            Self::ReplayDetected(_) => EventType::ReplayDetected,
             Self::ContextEnriched(_) => EventType::ContextEnriched,
             Self::PolicyEvaluated(_) => EventType::PolicyEvaluated,
             Self::RiskEvaluated(_) => EventType::RiskEvaluated,
@@ -402,6 +418,7 @@ impl AuditPayload {
             Self::IdentityVerified(value) => encode(value),
             Self::IdentityVerificationSkipped(value) => encode(value),
             Self::IdentityRejected(value) => encode(value),
+            Self::ReplayDetected(value) => encode(value),
             Self::ContextEnriched(value) => encode(value),
             Self::PolicyEvaluated(value) => encode(value),
             Self::RiskEvaluated(value) => encode(value),
@@ -442,6 +459,7 @@ impl AuditPayload {
                 Self::IdentityVerificationSkipped(decode(event_type, fields)?)
             }
             EventType::IdentityRejected => Self::IdentityRejected(decode(event_type, fields)?),
+            EventType::ReplayDetected => Self::ReplayDetected(decode(event_type, fields)?),
             EventType::ContextEnriched => Self::ContextEnriched(decode(event_type, fields)?),
             EventType::PolicyEvaluated => Self::PolicyEvaluated(decode(event_type, fields)?),
             EventType::RiskEvaluated => Self::RiskEvaluated(decode(event_type, fields)?),
@@ -531,6 +549,26 @@ impl AuditPayload {
                     ("reason_code", &value.reason_code),
                 ],
             )?,
+            Self::ReplayDetected(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("key_id", &value.key_id),
+                        ("attempted_intent_id", &value.attempted_intent_id),
+                        ("bound_intent_id", &value.bound_intent_id),
+                        ("reason_code", &value.reason_code),
+                    ],
+                )?;
+                sha256(event_type, "nonce_hash", &value.nonce_hash)?;
+                sha256(
+                    event_type,
+                    "attempted_intent_hash",
+                    &value.attempted_intent_hash,
+                )?;
+                sha256(event_type, "bound_intent_hash", &value.bound_intent_hash)?;
+            }
             Self::ContextEnriched(value) => {
                 sha256(event_type, "context_hash", &value.context_hash)?;
                 string_list(event_type, "source_ids", &value.source_ids, true)?;
@@ -783,6 +821,7 @@ impl AuditPayload {
                 | Self::AgentStatusChanged(_)
                 | Self::IdentityKeyRegistered(_)
                 | Self::IdentityKeyRevoked(_)
+                | Self::ReplayDetected(_)
                 | Self::KillSwitchEnabled(_)
                 | Self::KillSwitchDisabled(_)
         )
@@ -790,6 +829,11 @@ impl AuditPayload {
 
     pub fn validate_intent_scope(&self, intent_id: Option<&str>) -> Result<(), AuditPayloadError> {
         let event_type = self.event_type();
+        if matches!(self, Self::IdentityVerified(_) | Self::IdentityRejected(_)) {
+            return intent_id
+                .map(|value| nonempty(event_type, "intent_id", value))
+                .unwrap_or(Ok(()));
+        }
         match (self.requires_intent_id(), intent_id) {
             (true, Some(value)) => nonempty(event_type, "intent_id", value),
             (true, None) => Err(invalid(event_type, "intent_id is required")),
@@ -855,6 +899,7 @@ impl AuditPayload {
             | Self::AgentStatusChanged(_)
             | Self::IdentityKeyRegistered(_)
             | Self::IdentityKeyRevoked(_)
+            | Self::ReplayDetected(_)
             | Self::KillSwitchEnabled(_)
             | Self::KillSwitchDisabled(_) => return Ok(current),
         };

@@ -4,11 +4,13 @@ use atf_audit::{
 };
 use atf_core::{Amount, Timestamp};
 use atf_decision::{Decision, DecisionKind, Reason};
+use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
-    AdmissionGrant, AdmissionInput, EvaluationInput, FinalizationInput, IdempotencyState, Store,
-    StoreError,
+    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationInput, FinalizationInput,
+    IdempotencyState, Store, StoreError,
 };
+use ed25519_dalek::{Signer, SigningKey};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Executor, PgConnection, PgPool,
@@ -22,6 +24,27 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Barrier;
+
+const TEST_KEY_ID: &str = "key-a";
+const TEST_AUDIENCE: &str = "atf-store-test";
+const TEST_ENVIRONMENT: &str = "test";
+
+struct AdmissionInput {
+    intent: TransactionIntent,
+    received_at: Timestamp,
+    lease_duration: Duration,
+}
+
+trait AuthenticatedAdmissionTestExt {
+    async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError>;
+}
+
+impl AuthenticatedAdmissionTestExt for Store {
+    async fn admit_intent(&self, input: AdmissionInput) -> Result<AdmissionGrant, StoreError> {
+        self.authenticate_and_admit(authenticated_input(input))
+            .await
+    }
+}
 
 #[tokio::test]
 async fn concurrent_same_key_and_hash_create_one_reservation_and_one_evaluator_lease(
@@ -83,7 +106,7 @@ async fn concurrent_same_key_and_hash_create_one_reservation_and_one_evaluator_l
     )
     .fetch_one(&database.pool)
     .await?;
-    assert_eq!(counts, (1, 1, 1));
+    assert_eq!(counts, (1, 1, 4));
 
     let restarted = Store::connect(&database.url).await?;
     let reservation = restarted
@@ -257,7 +280,7 @@ async fn invalid_lease_duration_is_rejected_before_durable_admission() -> Result
     )
     .fetch_one(&database.pool)
     .await?;
-    assert_eq!(counts, (0, 0, 0));
+    assert_eq!(counts, (0, 0, 2));
 
     store.close().await;
     database.destroy().await?;
@@ -380,7 +403,7 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
         .execute(&database.pool)
         .await
         .expect_err("durable idempotency bindings must not be truncated");
-    assert_sqlstate(&truncate, "55000");
+    assert_sqlstate(&truncate, "0A000");
 
     let restarted = Store::connect(&database.url).await?;
     let reloaded = restarted
@@ -521,7 +544,7 @@ fn sample_intent(
         intent_id: intent_id.into(),
         idempotency_key: idempotency_key.into(),
         created_at: timestamp("2026-08-08T00:00:00Z"),
-        expires_at: timestamp("2026-08-08T00:05:00Z"),
+        expires_at: timestamp("2026-08-08T02:00:00Z"),
         principal: Principal {
             organization_id: organization_id.into(),
             user_id: Some("user-a".into()),
@@ -602,11 +625,12 @@ impl TestDatabase {
         })
     }
 
-    async fn seed_organization(&self, organization_id: &str) -> Result<(), sqlx::Error> {
+    async fn seed_organization(&self, organization_id: &str) -> Result<(), Box<dyn Error>> {
         sqlx::query("INSERT INTO organizations (organization_id) VALUES ($1)")
             .bind(organization_id)
             .execute(&self.pool)
             .await?;
+        provision_identity(&self.url, organization_id).await?;
         Ok(())
     }
 
@@ -618,6 +642,86 @@ impl TestDatabase {
             .execute(format!("DROP DATABASE {quoted_name}").as_str())
             .await?;
         Ok(())
+    }
+}
+
+fn authenticated_input(input: AdmissionInput) -> AuthenticatedAdmissionInput {
+    let signing_key = SigningKey::from_bytes(&[42; 32]);
+    let intent_hash = input.intent.canonical_hash();
+    let envelope = IdentityEnvelope {
+        domain: "ATF_INTENT_V1".into(),
+        organization_id: input.intent.principal.organization_id.clone(),
+        agent_id: input.intent.principal.agent_id.clone(),
+        key_id: TEST_KEY_ID.into(),
+        intent_hash: intent_hash.clone(),
+        issued_at: timestamp("2026-08-08T01:00:00Z"),
+        expires_at: timestamp("2026-08-08T01:05:00Z"),
+        nonce: format!("nonce-{}", &intent_hash[..32]),
+        audience: TEST_AUDIENCE.into(),
+        environment: TEST_ENVIRONMENT.into(),
+    };
+    let signature = signing_key.sign(&envelope.canonical_bytes()).to_bytes();
+    AuthenticatedAdmissionInput {
+        intent: input.intent,
+        envelope,
+        signature,
+        audience: TEST_AUDIENCE.into(),
+        environment: TEST_ENVIRONMENT.into(),
+        received_at: input.received_at,
+        lease_duration: input.lease_duration,
+    }
+}
+
+async fn provision_identity(
+    database_url: &str,
+    organization_id: &str,
+) -> Result<(), Box<dyn Error>> {
+    let store = Store::connect(database_url).await?;
+    let signing_key = SigningKey::from_bytes(&[42; 32]);
+    store
+        .provision_agent(
+            test_agent(organization_id),
+            "test-operator",
+            timestamp("2026-08-08T00:00:00Z"),
+        )
+        .await?;
+    store
+        .register_identity_key(
+            organization_id,
+            IdentityKeyRecord::from_public_key_bytes(
+                "agent-a".into(),
+                TEST_KEY_ID.into(),
+                signing_key.verifying_key().as_bytes(),
+                timestamp("2026-08-08T00:00:00Z"),
+                Some(timestamp("2026-08-09T00:00:00Z")),
+                None,
+            )?,
+            "test-operator",
+            timestamp("2026-08-08T00:00:01Z"),
+        )
+        .await?;
+    store.close().await;
+    Ok(())
+}
+
+fn test_agent(organization_id: &str) -> AgentRecord {
+    AgentRecord {
+        agent_id: "agent-a".into(),
+        organization_id: organization_id.into(),
+        owner_user_id: "user-a".into(),
+        agent_type: "test".into(),
+        model_provider: "test".into(),
+        model_name: "deterministic".into(),
+        agent_version: "1.0.0".into(),
+        code_hash: "a".repeat(64),
+        deployment_environment: TEST_ENVIRONMENT.into(),
+        allowed_tools: Vec::new(),
+        allowed_adapters: Vec::new(),
+        default_budget: None,
+        risk_tier: "standard".into(),
+        status: AgentStatus::Active,
+        created_at: timestamp("2026-08-07T00:00:00Z"),
+        expires_at: Some(timestamp("2026-08-09T00:00:00Z")),
     }
 }
 

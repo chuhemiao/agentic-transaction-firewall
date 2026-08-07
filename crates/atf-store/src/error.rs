@@ -70,6 +70,25 @@ pub enum StoreError {
         reason: String,
     },
 
+    #[error("request identity was rejected with stable reason `{reason_code}`")]
+    IdentityRejected { reason_code: &'static str },
+
+    #[error(
+        "identity Nonce replay detected for Agent `{agent_id}` in organization `{organization_id}` (hash `{nonce_hash}`)"
+    )]
+    NonceReplay {
+        organization_id: String,
+        agent_id: String,
+        nonce_hash: String,
+    },
+
+    #[error("durable identity Nonce state for Agent `{agent_id}` in organization `{organization_id}` is corrupt: {reason}")]
+    NonceStateCorrupt {
+        organization_id: String,
+        agent_id: String,
+        reason: String,
+    },
+
     #[error(
         "Intent admission conflicts with an immutable record in organization `{organization_id}` (intent `{intent_id}`, idempotency key `{idempotency_key}`)"
     )]
