@@ -12,6 +12,7 @@ use crate::{AuditPayload, AuditPayloadError};
 pub enum EventType {
     IntentReceived,
     IdentityVerified,
+    IdentityVerificationSkipped,
     IdentityRejected,
     ContextEnriched,
     PolicyEvaluated,
@@ -47,6 +48,26 @@ impl EventType {
         !matches!(
             self,
             Self::ApprovalGranted | Self::ExecutionRequested | Self::KillSwitchTriggered
+        )
+    }
+
+    /// Whether this event initializes or advances an Intent lifecycle. These
+    /// events may only be appended by a state transaction.
+    pub const fn has_lifecycle_effect(self) -> bool {
+        !matches!(
+            self,
+            Self::ContextEnriched
+                | Self::ServiceDelivered
+                | Self::BudgetReserved
+                | Self::BudgetCommitted
+                | Self::BudgetReleased
+                | Self::KillSwitchTriggered
+                | Self::KillSwitchEnabled
+                | Self::KillSwitchDisabled
+                | Self::PolicyChanged
+                | Self::AgentPaused
+                | Self::ApprovalGranted
+                | Self::ExecutionRequested
         )
     }
 }

@@ -1,4 +1,5 @@
 use sqlx::{
+    migrate::Migrate,
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Executor, PgConnection, PgPool,
 };
@@ -53,15 +54,34 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 1);
-    assert_eq!(schema.minimum_writer_version, 1);
+    assert_eq!(schema.minimum_reader_version, 2);
+    assert_eq!(schema.minimum_writer_version, 2);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 1);
+    assert_eq!(migration_count, 2);
+
+    let lifecycle_columns: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'intents'
+          AND column_name IN (
+              'lifecycle_state',
+              'lifecycle_version',
+              'lifecycle_contract_version',
+              'lifecycle_event_id',
+              'lifecycle_updated_at'
+          )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(lifecycle_columns, 5);
 
     let table_count: i64 = sqlx::query_scalar(
         r#"
@@ -89,7 +109,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 2 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 3 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -99,14 +119,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 1,
-            database_version: 2,
-            minimum_reader_version: 1,
-            minimum_writer_version: 1,
+            binary_version: 2,
+            database_version: 3,
+            minimum_reader_version: 2,
+            minimum_writer_version: 2,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 1 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 2 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -114,6 +134,22 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     seed_organizations(&pool).await?;
     insert_intent(&pool, "org-a", "intent-a", "shared-key", HASH_A).await?;
     insert_intent(&pool, "org-b", "intent-b", "shared-key", HASH_B).await?;
+
+    let invalid_lifecycle = sqlx::query(
+        "UPDATE intents SET lifecycle_state = 'NOT_A_STATE' WHERE organization_id = 'org-a' AND intent_id = 'intent-a'",
+    )
+    .execute(&pool)
+    .await
+    .expect_err("unknown lifecycle states must fail closed at the schema boundary");
+    assert_sqlstate(&invalid_lifecycle, "23514");
+
+    let invalid_version = sqlx::query(
+        "UPDATE intents SET lifecycle_version = 0 WHERE organization_id = 'org-a' AND intent_id = 'intent-a'",
+    )
+    .execute(&pool)
+    .await
+    .expect_err("lifecycle versions must stay positive");
+    assert_sqlstate(&invalid_version, "23514");
 
     let duplicate_key = insert_intent(&pool, "org-a", "intent-c", "shared-key", HASH_C)
         .await
@@ -185,6 +221,94 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     Ok(())
 }
 
+#[tokio::test]
+async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_bytes(
+) -> Result<(), Box<dyn Error>> {
+    let admin_url = env::var("ATF_TEST_DATABASE_URL").expect(
+        "ATF_TEST_DATABASE_URL must point to a PostgreSQL database where the test may create databases",
+    );
+    let admin_options = PgConnectOptions::from_str(&admin_url)?;
+    let database_name = format!("atf_ds007_legacy_{}", unique_suffix());
+    let quoted_database = quote_identifier(&database_name);
+    let mut admin = PgConnection::connect_with(&admin_options).await?;
+    admin
+        .execute(format!("CREATE DATABASE {quoted_database}").as_str())
+        .await?;
+
+    let database_options = admin_options.clone().database(&database_name);
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(database_options.clone())
+        .await?;
+    let migrator = sqlx::migrate!("../../migrations");
+    let mut connection = PgConnection::connect_with(&database_options).await?;
+    connection.ensure_migrations_table().await?;
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 1)
+                .expect("migration 0001 is embedded"),
+        )
+        .await?;
+
+    sqlx::query("INSERT INTO organizations (organization_id) VALUES ('legacy-org')")
+        .execute(&pool)
+        .await?;
+    let canonical_bytes = br#"{"legacy":true}"#.to_vec();
+    sqlx::query(
+        r#"
+        INSERT INTO intents (
+            organization_id, intent_id, idempotency_key, spec_version,
+            canonical_intent, canonical_intent_bytes, intent_hash,
+            created_at, expires_at, received_at
+        ) VALUES (
+            'legacy-org', 'legacy-intent', 'legacy-idem', '1.0',
+            '{"legacy": true}'::jsonb, $1, $2,
+            '2026-08-08T00:00:00Z', '2026-08-08T00:05:00Z',
+            '2026-08-08T00:00:01Z'
+        )
+        "#,
+    )
+    .bind(&canonical_bytes)
+    .bind(HASH_A)
+    .execute(&pool)
+    .await?;
+
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 2)
+                .expect("migration 0002 is embedded"),
+        )
+        .await?;
+
+    let row: (String, i64, i32, Option<String>, Vec<u8>) = sqlx::query_as(
+        r#"
+        SELECT lifecycle_state, lifecycle_version, lifecycle_contract_version,
+               lifecycle_event_id, canonical_intent_bytes
+        FROM intents
+        WHERE organization_id = 'legacy-org' AND intent_id = 'legacy-intent'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(row.0, "RECEIVED");
+    assert_eq!(row.1, 1);
+    assert_eq!(row.2, 0);
+    assert_eq!(row.3, None);
+    assert_eq!(row.4, canonical_bytes);
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 2);
+
+    connection.close().await?;
+    pool.close().await;
+    admin
+        .execute(format!("DROP DATABASE {quoted_database}").as_str())
+        .await?;
+    Ok(())
+}
+
 fn unique_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -240,8 +364,17 @@ async fn insert_intent(
             canonical_intent_bytes,
             intent_hash,
             created_at,
-            expires_at
-        ) VALUES ($1, $2, $3, '1.0', '{}'::jsonb, $4, $5, now(), now() + interval '5 minutes')
+            expires_at,
+            lifecycle_state,
+            lifecycle_version,
+            lifecycle_contract_version,
+            lifecycle_event_id,
+            lifecycle_updated_at
+        ) VALUES (
+            $1, $2, $3, '1.0', '{}'::jsonb, $4, $5,
+            now(), now() + interval '5 minutes',
+            'RECEIVED', 1, 0, NULL, now()
+        )
         "#,
     )
     .bind(organization_id)
@@ -388,7 +521,7 @@ async fn assert_app_role_cannot_mutate_audit(
         .execute(&mut *connection)
         .await
         .expect_err("the application role must not truncate Audit events");
-    assert_sqlstate(&truncate, "55000");
+    assert_sqlstate_one_of(&truncate, &["55000", "0A000"]);
 
     sqlx::query("RESET ROLE").execute(&mut *connection).await?;
     let event_count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events")
@@ -397,4 +530,17 @@ async fn assert_app_role_cannot_mutate_audit(
     assert_eq!(event_count, 1);
 
     Ok(())
+}
+
+fn assert_sqlstate_one_of(error: &sqlx::Error, expected: &[&str]) {
+    let actual = error
+        .as_database_error()
+        .and_then(|database_error| database_error.code())
+        .map(|code| code.into_owned());
+    assert!(
+        actual
+            .as_deref()
+            .is_some_and(|code| expected.contains(&code)),
+        "unexpected SQLSTATE for {error}: {actual:?}"
+    );
 }

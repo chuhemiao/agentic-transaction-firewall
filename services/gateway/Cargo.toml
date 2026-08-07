@@ -12,6 +12,7 @@ name = "atf-gateway"
 path = "src/main.rs"
 
 [dependencies]
+atf-audit = { workspace = true }
 atf-core = { workspace = true }
 atf-intent = { workspace = true }
 atf-policy = { workspace = true }
@@ -26,6 +27,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-atf-audit = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }

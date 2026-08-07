@@ -59,6 +59,17 @@ pub enum StoreError {
         stored: String,
     },
 
+    #[error(
+        "lifecycle conflict for Intent `{intent_id}` in organization `{organization_id}`: expected version {expected_version}, stored version {stored_version} at state {stored_state}"
+    )]
+    LifecycleConflict {
+        organization_id: String,
+        intent_id: String,
+        expected_version: i64,
+        stored_version: i64,
+        stored_state: String,
+    },
+
     #[error("Decision is not bound to the requested Intent: {reason}")]
     DecisionBindingMismatch { reason: String },
 

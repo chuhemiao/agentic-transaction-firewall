@@ -72,11 +72,15 @@ Only the following crates are implemented so far:
   Audit heads/events, and schema metadata. It row-locks each organization's
   head for concurrent Audit append and can reload/verify canonical bytes,
   hashes, sequence, predecessor links, and the head after restart. Its two
-  coarse repository transactions now atomically commit canonical Intent +
-  `IntentReceived`, then Evaluation + Decision + foreign-key-bound
-  `DecisionRecorded`; evidence-complete reads reverify all canonical records
-  and the full organization chain. The Gateway now uses this boundary for all
-  accepted Intents, Evaluations, Decisions, Audit writes, and Decision reads.
+  coarse repository transactions atomically commit canonical Intent +
+  `RECEIVED/v1` + `IntentReceived`, then typed Identity/Policy/Risk/Simulation
+  evidence + Evaluation + Decision + the final lifecycle state at `v6`.
+  Migration 0002 stores state, optimistic version, contract version, update
+  time, and the last state-producing Audit event pointer. Contract-v1 reads
+  replay typed events and reject any materialized-state mismatch; concurrent
+  finalizers cannot both advance the same Intent. The Gateway uses this
+  boundary for all accepted Intents, Evaluations, Decisions, Audit writes, and
+  Decision reads.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
@@ -85,7 +89,10 @@ Only the following crates are implemented so far:
   required at startup, `/readyz` verifies live storage/schema compatibility,
   and restart/second-instance reads return the committed Decision. GET uses
   `X-ATF-Organization-ID` to select the tenant record, but that header is not
-  authentication; identity and organization authorization are still missing.
+  authentication. Until Identity is wired, the Gateway emits
+  `IdentityVerificationSkipped` and stores `IDENTITY_UNVERIFIED`; that branch
+  is Shadow-only and conveys no execution authority. Identity and organization
+  authorization are still missing.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -95,9 +102,10 @@ and finalization use separate atomic transactions with fenced evaluator
 recovery. `DS-002` provides the store/migration/schema foundation; the
 `DS-003` concurrent append/verifier, `DS-004` admission/finalization
 repositories, `DS-005` Gateway cutover, and `DS-006` lifecycle/typed Audit
-domain contract are complete. Durable lifecycle state and atomic transition
-enforcement, leases/fencing, Policy/Risk event emission, and completed
-idempotency responses land in later tasks; `DS-007` is next.
+domain contract are complete. `DS-007` now persists and replays lifecycle
+state and atomically emits Identity/Policy/Risk/Simulation/Decision events.
+Leases/fencing and completed idempotency responses remain later tasks;
+`DS-008` is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -152,11 +160,10 @@ semantics (evaluate only, never execute).
 8. ~~`services/gateway` — wire Policy/Risk/Decision/Audit into one request
    path.~~ Done: `POST /v1/intents` runs Policy → (if permitted) Risk →
    Decision merge, atomically persists `IntentReceived`, Evaluation, Decision,
-   and bound `DecisionRecorded`, and reads the verified Decision back for
-   `GET /v1/intents/{id}/decision`. Policy/Risk results are currently stored
-   inside canonical Evaluation evidence. Its two current durable Audit events
-   now use typed version-1 payload constructors; emitting the intermediate
-   typed Policy/Risk/Simulation transitions is DS-007 work. Verified across two
+   typed intermediate phase events, lifecycle state/version, and bound
+   `DecisionRecorded`, and reads the verified Decision back for
+   `GET /v1/intents/{id}/decision`. Policy/Risk/Simulation outcomes are typed
+   in canonical Evaluation evidence and the durable Audit chain. Verified across two
    real Gateway processes sharing one PostgreSQL database, not just in-process
    tests. **Not** wired in:
    `atf-identity` (no endpoint to register an Agent's key yet — that's an
@@ -170,13 +177,17 @@ semantics (evaluate only, never execute).
   to the official cargo-deny 0.20.2 Action release commit.
 - ~~PostgreSQL request-path persistence and restart/second-instance Decision
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
-  fallback. Transactional lifecycle state, evaluator leases/fencing, exact
-  idempotent retry, and recovery of admitted-but-unfinalized work remain.
+  fallback. Evaluator leases/fencing, exact idempotent retry, and recovery of
+  admitted-but-unfinalized work remain.
 - ~~Stable lifecycle and typed Audit domain contract.~~ Done in DS-006: 21
   states, an exhaustively tested transition table, explicit `NOT_RUN` module
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
-  PostgreSQL state/version columns and atomic transition enforcement remain
-  DS-007.
+  DS-007 extends the active contract to 22 states/28 events with an explicit
+  Shadow-only `IDENTITY_UNVERIFIED` branch.
+- ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
+  DS-007: migration 0002, optimistic versioning/row locking, typed event
+  replay, atomic five-phase finalization, race/rollback/tamper tests, and
+  explicit Policy/Risk `DECIDED_ERROR` evidence.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
@@ -201,7 +212,7 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  lifecycle/recovery, idempotency, Gateway identity, deterministic replay,
+  recovery/idempotency, Gateway identity, deterministic replay,
   provenance, versioned bundles, Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.

@@ -6,6 +6,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 
+use atf_audit::{
+    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
+    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
+};
 use atf_core::Timestamp;
 use atf_decision::Decision;
 use atf_policy::PolicyDecision;
@@ -83,19 +87,25 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
 
     let policy_result = state.policy_bundle.evaluate(&intent);
     let policy_evidence = match &policy_result {
-        Ok(outcome) => serde_json::json!({
-            "status": "SUCCEEDED",
-            "decision": format!("{:?}", outcome.decision).to_uppercase(),
-            "policy_ids": outcome.policy_ids,
-        }),
-        Err(error) => serde_json::json!({
-            "status": "ERROR",
-            "error": error.to_string(),
-        }),
+        Ok(outcome) => PolicyEvaluatedPayload {
+            outcome: RequiredModuleOutcome::Succeeded {
+                result: match outcome.decision {
+                    PolicyDecision::Permit => PolicyOutcome::Permit,
+                    PolicyDecision::Forbid => PolicyOutcome::Forbid,
+                },
+            },
+            policy_ids: outcome.policy_ids.clone(),
+        },
+        Err(_) => PolicyEvaluatedPayload {
+            outcome: RequiredModuleOutcome::Error {
+                error_code: "POLICY_EVALUATION_ERROR".into(),
+            },
+            policy_ids: Vec::new(),
+        },
     };
 
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
-    let (risk_findings, risk_status) = match &policy_result {
+    let (risk_findings, risk_evidence) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
             let chain = match state
                 .store
@@ -105,21 +115,47 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
                 Ok(chain) => chain,
                 Err(error) => return store_error_response("load Risk history", error),
             };
+            let findings = atf_risk::evaluate_with_events(
+                &intent,
+                &state.risk_config,
+                chain.iter().map(|stored| &stored.event),
+            );
+            let evidence = findings
+                .iter()
+                .map(|finding| RiskFindingEvidence {
+                    code: finding.code.clone(),
+                    severity: match finding.severity {
+                        atf_risk::Severity::Info => RiskSeverity::Info,
+                        atf_risk::Severity::Medium => RiskSeverity::Medium,
+                        atf_risk::Severity::High => RiskSeverity::High,
+                        atf_risk::Severity::Critical => RiskSeverity::Critical,
+                    },
+                })
+                .collect();
             (
-                atf_risk::evaluate_with_events(
-                    &intent,
-                    &state.risk_config,
-                    chain.iter().map(|stored| &stored.event),
-                ),
-                "SUCCEEDED",
+                findings,
+                RiskEvaluatedPayload {
+                    outcome: OptionalModuleOutcome::Succeeded { result: evidence },
+                },
             )
         }
-        _ => (Vec::new(), "NOT_RUN"),
+        Ok(_) => (
+            Vec::new(),
+            RiskEvaluatedPayload {
+                outcome: OptionalModuleOutcome::NotRun {
+                    reason_code: "POLICY_FORBID".into(),
+                },
+            },
+        ),
+        Err(_) => (
+            Vec::new(),
+            RiskEvaluatedPayload {
+                outcome: OptionalModuleOutcome::NotRun {
+                    reason_code: "POLICY_ERROR".into(),
+                },
+            },
+        ),
     };
-    let risk_evidence = serde_json::json!({
-        "status": risk_status,
-        "findings": &risk_findings,
-    });
 
     let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
     let evaluated_at = Timestamp::now();
@@ -129,13 +165,17 @@ async fn create_intent(State(state): State<AppState>, body: Bytes) -> Response {
             organization_id: intent.principal.organization_id.clone(),
             intent_id: intent.intent_id.clone(),
             expected_intent_hash: admitted.intent_hash,
+            expected_lifecycle_version: admitted.lifecycle.version,
             evaluation: EvaluationInput {
                 evaluation_id: atf_core::new_ulid(),
                 evaluated_at,
-                evidence: serde_json::json!({
-                    "policy": policy_evidence,
-                    "risk": risk_evidence,
-                }),
+                policy: policy_evidence,
+                risk: risk_evidence,
+                simulation: SimulationCompletedPayload {
+                    outcome: OptionalModuleOutcome::NotRun {
+                        reason_code: "SIMULATOR_NOT_IMPLEMENTED".into(),
+                    },
+                },
             },
             decision,
             decided_at: Timestamp::now(),
@@ -191,6 +231,7 @@ fn store_error_response(operation: &'static str, error: StoreError) -> Response 
         ),
         StoreError::IntentConflict { .. }
         | StoreError::IntentHashMismatch { .. }
+        | StoreError::LifecycleConflict { .. }
         | StoreError::DecisionConflict { .. }
         | StoreError::FinalizationConflict { .. } => error_response(
             StatusCode::CONFLICT,

@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use atf_audit::{
     ApprovalRequestedPayload, AuditPayload, ContextEnrichedPayload, DecisionRecordedPayload,
-    EventType, IdentityRejectedPayload, IdentityVerifiedPayload, IntentReceivedPayload,
-    KillSwitchPayload, NewAuditEvent, OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome,
-    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
-    SimulationCompletedPayload,
+    EventType, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
+    IdentityVerifiedPayload, IntentReceivedPayload, KillSwitchPayload, NewAuditEvent,
+    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
+    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
 };
 use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, Timestamp};
 
@@ -123,6 +123,12 @@ fn typed_events_apply_only_their_documented_lifecycle_effect() {
         agent_id: "agent-1".into(),
         reason_code: "BAD_SIGNATURE".into(),
     });
+    let identity_skipped =
+        AuditPayload::IdentityVerificationSkipped(IdentityVerificationSkippedPayload {
+            organization_id: "alpha-lab".into(),
+            agent_id: "agent-1".into(),
+            reason_code: "IDENTITY_GATEWAY_NOT_WIRED".into(),
+        });
     let policy = AuditPayload::PolicyEvaluated(PolicyEvaluatedPayload {
         outcome: RequiredModuleOutcome::Succeeded {
             result: PolicyOutcome::Permit,
@@ -154,6 +160,14 @@ fn typed_events_apply_only_their_documented_lifecycle_effect() {
     assert_eq!(
         identity_rejected.next_state(Some(State::Received)).unwrap(),
         Some(State::IdentityRejected)
+    );
+    assert_eq!(
+        identity_skipped.next_state(Some(State::Received)).unwrap(),
+        Some(State::IdentityUnverified)
+    );
+    assert_eq!(
+        policy.next_state(Some(State::IdentityUnverified)).unwrap(),
+        Some(State::PolicyEvaluated)
     );
     assert_eq!(
         policy.next_state(Some(State::IdentityVerified)).unwrap(),

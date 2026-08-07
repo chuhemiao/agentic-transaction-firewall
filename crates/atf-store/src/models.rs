@@ -1,5 +1,6 @@
 use crate::audit::StoredAuditEvent;
-use atf_core::Timestamp;
+use atf_audit::{PolicyEvaluatedPayload, RiskEvaluatedPayload, SimulationCompletedPayload};
+use atf_core::{IntentLifecycleState, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,9 @@ pub struct AdmissionInput {
 pub struct EvaluationInput {
     pub evaluation_id: String,
     pub evaluated_at: Timestamp,
-    pub evidence: Value,
+    pub policy: PolicyEvaluatedPayload,
+    pub risk: RiskEvaluatedPayload,
+    pub simulation: SimulationCompletedPayload,
 }
 
 /// Input for the second short durable-state transaction. Policy and Risk run
@@ -31,6 +34,7 @@ pub struct FinalizationInput {
     pub organization_id: String,
     pub intent_id: String,
     pub expected_intent_hash: String,
+    pub expected_lifecycle_version: i64,
     pub evaluation: EvaluationInput,
     pub decision: Decision,
     pub decided_at: Timestamp,
@@ -42,7 +46,17 @@ pub struct AdmittedIntent {
     pub intent: TransactionIntent,
     pub intent_hash: String,
     pub received_at: Timestamp,
+    pub lifecycle: StoredLifecycle,
     pub audit_event: StoredAuditEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredLifecycle {
+    pub state: IntentLifecycleState,
+    pub version: i64,
+    pub contract_version: i32,
+    pub last_event_id: Option<String>,
+    pub updated_at: Timestamp,
 }
 
 /// Canonical evaluation envelope currently written by DS-004. The schema
@@ -67,5 +81,6 @@ pub struct FinalizedDecision {
     pub decision: Decision,
     pub decision_hash: String,
     pub decided_at: Timestamp,
+    pub lifecycle: StoredLifecycle,
     pub audit_event: StoredAuditEvent,
 }

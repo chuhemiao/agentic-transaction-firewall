@@ -7,6 +7,12 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Migration 0002 and contract-v1 Intent lifecycle persistence with optimistic
+  versions, last-event pointers, typed-event replay, compatibility backfill,
+  stale-writer rejection, and atomic rollback tests on PostgreSQL.
+- Explicit Shadow-only `IdentityVerificationSkipped` /
+  `IDENTITY_UNVERIFIED` evidence plus typed Policy, Risk, Simulation, and
+  Decision phase events committed with each Gateway finalization.
 - Row-locked, per-organization PostgreSQL Audit append in `atf-store`, plus
   restart-safe verification of canonical bytes/hashes, contiguous sequence,
   predecessor links, redundant columns, and the committed chain head.

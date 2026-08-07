@@ -5,14 +5,14 @@ use thiserror::Error;
 
 /// The stable Intent lifecycle states defined by PRD §16.2.1.
 ///
-/// Persistence is deliberately outside this type. DS-007 will store and
-/// advance it, while reusing [`validate_lifecycle_transition`] as the single
-/// domain transition table.
+/// Persistence reuses [`validate_lifecycle_transition`] as the single domain
+/// transition table; storage and transport layers must not define their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IntentLifecycleState {
     Received,
     IdentityVerified,
+    IdentityUnverified,
     IdentityRejected,
     PolicyEvaluated,
     RiskEvaluated,
@@ -35,9 +35,10 @@ pub enum IntentLifecycleState {
 }
 
 impl IntentLifecycleState {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Received,
         Self::IdentityVerified,
+        Self::IdentityUnverified,
         Self::IdentityRejected,
         Self::PolicyEvaluated,
         Self::RiskEvaluated,
@@ -65,11 +66,15 @@ impl IntentLifecycleState {
         match self {
             State::Received => &[
                 State::IdentityVerified,
+                State::IdentityUnverified,
                 State::IdentityRejected,
                 State::Expired,
                 State::Cancelled,
             ],
             State::IdentityVerified => &[State::PolicyEvaluated, State::Expired, State::Cancelled],
+            State::IdentityUnverified => {
+                &[State::PolicyEvaluated, State::Expired, State::Cancelled]
+            }
             State::PolicyEvaluated => &[State::RiskEvaluated, State::Expired, State::Cancelled],
             State::RiskEvaluated => &[State::SimulationCompleted, State::Expired, State::Cancelled],
             State::SimulationCompleted => &[
@@ -119,6 +124,7 @@ impl IntentLifecycleState {
         match self {
             Self::Received => "RECEIVED",
             Self::IdentityVerified => "IDENTITY_VERIFIED",
+            Self::IdentityUnverified => "IDENTITY_UNVERIFIED",
             Self::IdentityRejected => "IDENTITY_REJECTED",
             Self::PolicyEvaluated => "POLICY_EVALUATED",
             Self::RiskEvaluated => "RISK_EVALUATED",

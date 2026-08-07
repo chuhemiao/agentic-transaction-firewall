@@ -4,6 +4,7 @@
 mod common;
 
 use atf_audit::EventType;
+use atf_core::IntentLifecycleState;
 use atf_gateway::build_router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -57,7 +58,14 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
     let event_types: Vec<EventType> = chain.iter().map(|stored| stored.event.event_type).collect();
     assert_eq!(
         event_types,
-        vec![EventType::IntentReceived, EventType::DecisionRecorded]
+        vec![
+            EventType::IntentReceived,
+            EventType::IdentityVerificationSkipped,
+            EventType::PolicyEvaluated,
+            EventType::RiskEvaluated,
+            EventType::SimulationCompleted,
+            EventType::DecisionRecorded,
+        ]
     );
     let recorded = &chain.last().unwrap().event;
     assert_eq!(recorded.data["decision"], "PERMIT");
@@ -71,10 +79,26 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         .await?
         .expect("Decision must be durably readable");
     assert_eq!(
-        finalized.evaluation.evidence["policy"]["status"],
+        finalized.evaluation.evidence["identity"]["reason_code"],
+        "IDENTITY_GATEWAY_NOT_WIRED"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["policy"]["outcome"]["status"],
         "SUCCEEDED"
     );
-    assert_eq!(finalized.evaluation.evidence["risk"]["status"], "SUCCEEDED");
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["outcome"]["status"],
+        "SUCCEEDED"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["simulation"]["outcome"]["status"],
+        "NOT_RUN"
+    );
+    assert_eq!(
+        finalized.lifecycle.state,
+        IntentLifecycleState::DecidedPermit
+    );
+    assert_eq!(finalized.lifecycle.version, 6);
 
     store.close().await;
     database.destroy().await?;
@@ -98,11 +122,54 @@ async fn posting_an_over_budget_intent_denies_and_records_risk_as_not_run(
         .load_finalized_decision("alpha-lab", "01J0000000000000000000G2")
         .await?
         .expect("denial must be durable");
-    assert_eq!(finalized.evaluation.evidence["risk"]["status"], "NOT_RUN");
     assert_eq!(
-        finalized.evaluation.evidence["risk"]["findings"],
-        serde_json::json!([])
+        finalized.evaluation.evidence["risk"]["outcome"]["status"],
+        "NOT_RUN"
     );
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
+        "POLICY_FORBID"
+    );
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn policy_evaluation_failure_commits_an_explicit_fail_closed_terminal_state(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("policy_error").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+
+    let response = app
+        .oneshot(post_intent_request("01J0000000000000000000PE", "12.123456"))
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_json(response).await?["decision"], "ERROR");
+    let finalized = store
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000PE")
+        .await?
+        .expect("fail-closed Decision must be durable when PostgreSQL is healthy");
+    assert_eq!(
+        finalized.lifecycle.state,
+        IntentLifecycleState::DecidedError
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["policy"]["outcome"]["status"],
+        "ERROR"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["policy"]["outcome"]["error_code"],
+        "POLICY_EVALUATION_ERROR"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
+        "POLICY_ERROR"
+    );
+    assert_eq!(store.load_verified_audit_chain("alpha-lab").await?.len(), 6);
 
     store.close().await;
     database.destroy().await?;

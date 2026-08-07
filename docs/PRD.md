@@ -27,8 +27,8 @@
 截至 PRD v1.2：
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
-2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `IntentReceived`，Finalization 原子提交 Evaluation + Decision + 绑定的 `DecisionRecorded`；重启或第二实例可读取原始 Decision，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006 已定义 21 个稳定 Lifecycle State、完整单向转换表、27 类版本化 Audit Payload 和严格 JSON Schema；当前持久化的 `IntentReceived`/`DecisionRecorded` 已改用类型化构造。Policy/Risk/Simulation 的中间事件仍未由 Gateway 发出，Lifecycle State 也尚未在 PostgreSQL 中事务性执行；Identity、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1011,7 +1011,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006 已实现 21 状态的纯转换契约、27 类 `schema_version: 1` 类型化 Payload、Intent Scope 校验和严格 JSON Schema；当前请求路径持久化的 `IntentReceived` 与绑定的 `DecisionRecorded` 均通过类型化构造器产生。Policy/Risk/Simulation 中间事件、PostgreSQL 原子状态转换、Query API、Checkpoint 与恢复仍未实现。
+当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006/DS-007 已实现 22 状态转换契约、28 类 `schema_version: 1` 类型化 Payload、Intent Scope 校验、严格 JSON Schema、PostgreSQL Lifecycle State/Version/Event Pointer，以及读取时的类型化事件重放。当前请求路径在一个 Finalization Transaction 中产生 `IdentityVerificationSkipped`、`PolicyEvaluated`、`RiskEvaluated`、`SimulationCompleted` 和绑定的 `DecisionRecorded`。Query API、Checkpoint、Evaluator Lease 与恢复仍未实现。
 
 ### 16.1 目标
 
@@ -1021,31 +1021,32 @@ x402 Adapter：
 
 1. IntentReceived
 2. IdentityVerified
-3. IdentityRejected
-4. ContextEnriched
-5. PolicyEvaluated
-6. RiskEvaluated
-7. SimulationCompleted
-8. DecisionRecorded
-9. ApprovalRequested
-10. ApprovalApproved
-11. ApprovalRejected
-12. ExecutionGrantIssued
-13. ExecutionSubmitted
-14. ExecutionConfirmed
-15. ExecutionFailed
-16. SettlementVerified
-17. ServiceDelivered
-18. ReconciliationFailed
-19. BudgetReserved
-20. BudgetCommitted
-21. BudgetReleased
-22. PolicyChanged
-23. AgentPaused
-24. KillSwitchEnabled
-25. KillSwitchDisabled
-26. IntentExpired
-27. IntentCancelled
+3. IdentityVerificationSkipped
+4. IdentityRejected
+5. ContextEnriched
+6. PolicyEvaluated
+7. RiskEvaluated
+8. SimulationCompleted
+9. DecisionRecorded
+10. ApprovalRequested
+11. ApprovalApproved
+12. ApprovalRejected
+13. ExecutionGrantIssued
+14. ExecutionSubmitted
+15. ExecutionConfirmed
+16. ExecutionFailed
+17. SettlementVerified
+18. ServiceDelivered
+19. ReconciliationFailed
+20. BudgetReserved
+21. BudgetCommitted
+22. BudgetReleased
+23. PolicyChanged
+24. AgentPaused
+25. KillSwitchEnabled
+26. KillSwitchDisabled
+27. IntentExpired
+28. IntentCancelled
 
 `DecisionRecorded` 必须包含 Canonical Intent Hash、Decision Kind、Decision ID/Hash、组织与 Agent 作用域，以及 Policy/Risk/Context/Simulation 版本引用。事件 Payload 在进入持久化前必须经过对应的版本化 Schema 校验。
 
@@ -1056,7 +1057,7 @@ Intent 生命周期至少支持以下状态，并只允许显式定义的单向�
 ```text
 RECEIVED
   ├─> IDENTITY_REJECTED (terminal)
-  └─> IDENTITY_VERIFIED
+  └─> IDENTITY_VERIFIED | IDENTITY_UNVERIFIED
         -> POLICY_EVALUATED
         -> RISK_EVALUATED
         -> SIMULATION_COMPLETED
@@ -1073,7 +1074,7 @@ EXECUTION_CONFIRMED -> SETTLEMENT_VERIFIED | RECONCILIATION_FAILED
 
 `IDENTITY_REJECTED`、`DECIDED_DENY`、`DECIDED_ERROR`、`REJECTED`、`EXECUTION_FAILED`、`SETTLEMENT_VERIFIED`、`RECONCILIATION_FAILED`、`EXPIRED` 和 `CANCELLED` 是终止状态。`EXPIRED`/`CANCELLED` 只允许在 `EXECUTION_SUBMITTED` 之前由转换表列明的状态进入。
 
-`NOT_RUN` 是 Risk/Simulation 等模块的带原因 Outcome，不是 Lifecycle State。未实现或因前序拒绝而未运行的模块必须显式记录 `NOT_RUN`，仍通过唯一的阶段事件进入下一状态；它不代表成功，不得绕过安全必需阶段产生执行授权。权威事件映射、Payload 字段和全部转换见 `docs/audit-model.md`。当前 DS-006 只完成纯领域契约；DS-007 才负责 PostgreSQL State/Version 与匹配 Audit Event 的原子提交和并发冲突控制。
+`NOT_RUN` 是 Risk/Simulation 等模块的带原因 Outcome，不是 Lifecycle State。未实现或因前序拒绝而未运行的模块必须显式记录 `NOT_RUN`，仍通过唯一的阶段事件进入下一状态；它不代表成功，不得绕过安全必需阶段产生执行授权。`IDENTITY_UNVERIFIED` 是当前未接入 Identity Gateway 时的显式 Shadow-only 兼容状态，不得被解释为 `IDENTITY_VERIFIED`，也不得单独作为 Execution Grant 的依据。权威事件映射、Payload 字段、持久化列、重放和全部转换见 `docs/audit-model.md`。DS-007 已负责 PostgreSQL State/Version/Event Pointer 与匹配 Audit Event 的原子提交、并发冲突控制和读取时重放。
 
 历史风险规则必须声明统计边界：`REQUESTED`、`PERMITTED`、`EXECUTED` 或 `SETTLED`。例如重复购买在当前 Shadow Mode 统计同组织的 `DecisionRecorded(PERMIT)`；未来可按业务配置升级为 `ExecutionConfirmed` 或 `SettlementVerified`，但不得继续以 `IntentReceived` 代替购买事实。
 
@@ -1088,7 +1089,7 @@ MVP：
 5. 管理员也不能静默删除。
 6. 链作用域必须明确为每组织独立链或有严格组织索引的全局链；PostgreSQL Persistence 实施前必须通过 ADR 选择并发与恢复策略，禁止由表结构偶然决定。
 7. 必须定义接收与完成两个原子事务边界：Intent 与 Idempotency Reservation 同步提交；最终 Decision、`DecisionRecorded` 和 Idempotency Result 同步提交。任何可查询 Decision 都必须有对应 Audit Evidence，不能依赖一个跨外部调用的长事务。
-8. Enforce Mode 下 Audit 写入失败必须 Fail Closed；Shadow Mode 只允许进入有界、持久化的本地缓冲并立即告警，不能使用无界内存队列。
+8. Enforce Mode 下 Audit 写入失败必须 Fail Closed。当前 Durable Shadow Gateway 同样以 PostgreSQL 为唯一权威，数据库或 Audit 写入失败时返回失败，不得以进程内或本地缓冲伪装成已持久化 Decision；未来离线诊断缓冲只能保存非权威运维信号。
 
 ### 16.4 留存策略与合规边界
 
@@ -1280,7 +1281,7 @@ Rust 主要组件：
 
 1. §26 要求"Audit 写入失败时阻止 Enforce Mode 执行"，这意味着 Audit 存储（PostgreSQL）是 Enforce Mode 的可用性瓶颈，必须显式设计而非默认单实例。
 2. 生产参考部署建议 PostgreSQL 采用主从复制（如 Patroni/RDS Multi-AZ），Gateway 侧对 Audit 写入使用同步提交到主节点，只有主节点确认写入后才返回 Decision。
-3. Shadow Mode 不受此约束：Audit 写入失败时降级为本地缓冲 + 异步重试，不阻塞交易评估，因为 Shadow Mode 本身不接管签名权限。
+3. Shadow Mode 不接管签名权限，但 Durable Shadow 的可查询 Decision/Audit 仍必须以 PostgreSQL 成功提交为前提；写入失败时可以继续计算非权威诊断结果，但 API 必须 Fail Closed，且不得把内存/本地缓冲结果标记为已持久化 Decision。
 4. 单机部署（30.2）明确不提供 HA 保证，需在文档中标注"仅适合个人/小团队，无 Audit 高可用"。
 5. 备份策略：PostgreSQL 定期快照 + WAL 归档，Merkle 检查点（16.3）额外冗余存储于对象存储，用于在数据库损坏后独立验证审计链完整性。
 
@@ -1292,7 +1293,7 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
 3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
 4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
-5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository 和 Gateway 请求路径接入已落地；Lifecycle、Evaluator Lease/Fencing、原子幂等结果和 admitted-but-unfinalized Recovery 尚未实现。
+5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放和 Gateway 请求路径接入已落地；Evaluator Lease/Fencing、原子幂等结果和 admitted-but-unfinalized Recovery 尚未实现。
 6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
@@ -1712,7 +1713,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 按以下顺序一次交付一个可验证的垂直功能：
 
 1. **P0.1 PostgreSQL Persistence（基础能力已完成）**：持久化 Intent、Evaluation、Decision、Audit，已证明 Final Decision 的 Restart/Second-instance Recovery 与并发 Append；未完成 Evaluation 的恢复属于后续 Lifecycle/Idempotency 工作。
-2. **P0.2 Lifecycle State Machine（领域契约已完成）**：DS-006 已定义并穷举验证合法状态转换与类型化事件；DS-007 负责事务性持久化和并发执行。
+2. **P0.2 Lifecycle State Machine（已完成当前 Shadow 边界）**：DS-006/DS-007 已定义并穷举验证合法状态转换与类型化事件，完成 PostgreSQL 事务持久化、预期版本并发控制、事件指针和读取重放；Identity 接入后必须将当前显式 `IDENTITY_UNVERIFIED` 分支替换为可验证身份事实。
 3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
 4. **P0.4 Idempotency & Replay Protection**：同 Key 同 Hash 返回原 Decision；不同 Hash 返回 409；并发只有一个 Evaluator。
 5. **P0.5 Identity Gateway Wiring**：Domain-separated Envelope、Key Lifecycle、Nonce 和组织绑定先于 Policy/Risk。

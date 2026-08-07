@@ -58,7 +58,9 @@ injected Audit-failure rollback tests. DS-005 was completed on 2026-08-08 by
 making those repositories the Gateway's only Decision/Audit path, adding live
 storage readiness, and proving restart/second-instance reads plus durable Risk
 history on real PostgreSQL. DS-006 completed the lifecycle and typed Audit
-domain contract; the next task is DS-007.
+domain contract. DS-007 completed transactional lifecycle persistence, typed
+phase emission, replay verification, and stale-writer rejection; the next task
+is DS-008.
 
 ### Present but incomplete or unwired
 
@@ -67,18 +69,18 @@ domain contract; the next task is DS-007.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
-- Gateway Policy/Risk evidence is canonical and has typed payload contracts,
-  but the intermediate events and explicit persisted transitions are not yet
-  emitted.
-- `atf-store` is wired for admission/finalization, but has no lifecycle,
-  evaluator lease/fencing, exact idempotent result, or admitted-work recovery.
+- Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
+  intermediate events; Identity is explicitly recorded as skipped until the
+  verifier is wired.
+- `atf-store` is wired for admission/finalization and contract-v1 lifecycle
+  replay, but has no evaluator lease/fencing, exact idempotent result, or
+  admitted-work recovery.
 - GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
   non-health routes remain unsafe for shared deployment.
 
 ### Missing release controls
 
-- Lifecycle transactions, durable idempotency, evaluator recovery, and nonce
-  replay protection.
+- Durable idempotency, evaluator recovery, and nonce replay protection.
 - Rust semantic validation and supported action profiles.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
@@ -312,34 +314,51 @@ decision-relevant free-form Audit payloads with typed, schema-validated data.
   3. Each lifecycle event has a typed payload and maps to a transition or explicit non-state event.
 - **Verification:** transition-table unit/property tests; full DoD.
 
-**Delivered boundary:** `atf-core` owns 21 stable states and the only pure
-transition table; exhaustive tests evaluate all 441 state pairs and every
-terminal successor. `atf-audit` owns 27 canonical version-1 payload variants,
+**Delivered boundary:** DS-006 originally established 21 stable states and 27
+events; DS-007 adds the explicit Shadow-only `IDENTITY_UNVERIFIED` state and
+`IdentityVerificationSkipped` event. `atf-core` remains the only pure
+transition table, now exhaustively testing all 484 state pairs and every
+terminal successor. `atf-audit` owns 28 canonical version-1 payload variants,
 tagged required/optional module outcomes, intent-scope validation, and explicit
 event effects. Real typed Rust output is checked against a closed JSON Schema,
-and the store's current admission/finalization producers no longer assemble
-free-form Audit JSON. Persistence of lifecycle state/version and atomic
-state-plus-event enforcement remain DS-007.
+and the store's admission/finalization producers no longer assemble free-form
+Audit JSON.
 
 ### DS-007 — Enforce lifecycle transitions transactionally `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Store lifecycle state/version with each Intent and advance it
 with the matching Audit event in one transaction. Record explicit evaluation
 failure rather than leaving accepted requests silently in progress.
 
 - **Dependencies:** DS-004, DS-005, DS-006.
-- **Likely files:** `migrations/0002_lifecycle.sql`,
-  `crates/atf-store/src/lifecycle.rs`, `services/gateway/src/routes.rs`,
-  `crates/atf-store/tests/lifecycle.rs`.
+- **Implemented files:** `migrations/0002_intent_lifecycle.sql`,
+  `crates/atf-store/src/lifecycle.rs`, `crates/atf-store/src/repository.rs`,
+  `services/gateway/src/routes.rs`, `crates/atf-store/tests/repository.rs`.
 - **Acceptance criteria:**
   1. State and matching Audit event are atomically visible.
   2. Optimistic version/locking prevents concurrent invalid transitions.
-  3. Internal Policy/Risk/store failure ends in an explicit fail-closed state.
+  3. Policy/Risk failure commits an explicit `DECIDED_ERROR` when storage is
+     healthy; store/Audit failure rolls the attempted batch back and fails the
+     request closed without claiming a durable Decision.
 - **Verification:** race and injected-failure integration tests; real Gateway failure smoke; full DoD.
 
+**Delivered boundary:** New Intents commit `RECEIVED/v1` with a pointer to the
+typed `IntentReceived` event. Finalization row-locks the Intent, verifies the
+expected version and existing replay, then atomically commits typed
+`IdentityVerificationSkipped`, `PolicyEvaluated`, `RiskEvaluated`,
+`SimulationCompleted`, and `DecisionRecorded` evidence with the Evaluation,
+Decision, and `DECIDED_*/v6` materialization. Contract-v1 readers replay typed
+events and compare state/version/event pointer/time. Real PostgreSQL tests
+cover legacy migration without canonical-byte rewriting, concurrent stale
+writers, middle-of-batch rollback, state tampering, and Policy/Risk error
+terminal states. Identity remains explicitly unverified and non-executable
+until DS-016.
+
 ### DS-008 — Close the Intent envelope and version contract `[S]`
+
+**Status:** Next.
 
 **Description:** Reject unknown core envelope fields, define supported
 `spec_version` values, and keep extensions only in hash-bound `context` or

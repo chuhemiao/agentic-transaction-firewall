@@ -41,13 +41,15 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-005:** moved Gateway Decision/Audit state to PostgreSQL, removed the in-memory fallback, and proved readiness plus restart/second-instance reads.
 - [x] **DS-006:** defined the complete lifecycle transition contract and
   versioned typed Audit payloads; current durable producers use it.
-- [ ] **NEXT — DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.
-- [ ] **Checkpoint C1:** DS-001..DS-007 complete; restart, second-instance,
+- [x] **DS-007:** persisted contract-v1 lifecycle state/version/event pointers;
+  atomically emits typed phase evidence and rejects stale writers, partial
+  batches, and replay/materialization drift.
+- [x] **Checkpoint C1:** DS-001..DS-007 complete; restart, second-instance,
   concurrent Audit append, and invalid-transition/race tests pass.
 
 ### C2 Trusted admission
 
-- [ ] **DS-008:** close unknown core fields and supported Intent-version contract. Depends: DS-007.
+- [ ] **NEXT — DS-008:** close unknown core fields and supported Intent-version contract. Depends: DS-007.
 - [ ] **DS-009:** add common Rust semantic validation and stable codes. Depends: DS-008.
 - [ ] **DS-010:** add profile dispatch and supported Payment/Agent-Commerce profile. Depends: DS-009.
 - [ ] **DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.

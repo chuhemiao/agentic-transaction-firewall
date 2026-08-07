@@ -77,6 +77,14 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
         ),
         (
             intent(),
+            AuditPayload::IdentityVerificationSkipped(IdentityVerificationSkippedPayload {
+                organization_id: text("alpha-lab"),
+                agent_id: text("agent-1"),
+                reason_code: text("IDENTITY_GATEWAY_NOT_WIRED"),
+            }),
+        ),
+        (
+            intent(),
             AuditPayload::ContextEnriched(ContextEnrichedPayload {
                 context_hash: hash('c'),
                 source_ids: vec![text("oracle-snapshot-1")],

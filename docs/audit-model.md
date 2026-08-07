@@ -1,23 +1,23 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-006 domain contract
+Status: DS-007 transactional lifecycle contract
 
-Version: 1
+Version: 2
 
-Authority: `docs/PRD.md` §16, ADR-0002, and `tasks/plan.md` DS-006
+Authority: `docs/PRD.md` §16, ADR-0002, and `tasks/plan.md` DS-006/DS-007
 
 ## Objective
 
 Define one stable, fail-closed Intent lifecycle and versioned Audit payload
-contract before PostgreSQL begins enforcing lifecycle state in DS-007. The
-model must make skipped work explicit, make every state change attributable to
-one typed event, and prevent an invalid, backward, or post-terminal transition
-from being interpreted as progress.
+contract, then persist and replay that contract in PostgreSQL. The model makes
+skipped work explicit, makes every state change attributable to one typed
+event, and prevents invalid, stale, backward, partial, or post-terminal
+transitions from being interpreted as progress.
 
-This document specifies domain behavior only. DS-007 will add persisted state,
-optimistic versioning/locking, and atomic state-plus-Audit transitions. It must
-reuse this model rather than define a second transition table in SQL or the
-Gateway.
+The Rust lifecycle module remains the only transition table. PostgreSQL stores
+the materialized state, optimistic version, contract version, and last
+state-producing Audit event. Repository transactions validate the Rust
+contract, append typed evidence, and update the materialized state atomically.
 
 ## Technology, structure, and commands
 
@@ -27,6 +27,10 @@ Gateway.
   effects.
 - `crates/atf-audit/src/event.rs`: canonical event envelope and typed
   constructor/parser.
+- `crates/atf-store/src/lifecycle.rs`: transactional replay and persistence
+  boundary.
+- `crates/atf-store/migrations/0002_lifecycle.sql`: additive lifecycle schema
+  and compatibility backfill.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and
@@ -53,7 +57,7 @@ The stable state set is:
 
 ```text
 RECEIVED
-  -> IDENTITY_VERIFIED
+  -> IDENTITY_VERIFIED | IDENTITY_UNVERIFIED
        -> POLICY_EVALUATED
             -> RISK_EVALUATED
                  -> SIMULATION_COMPLETED
@@ -80,6 +84,14 @@ transition. A current Shadow evaluation may stop durably at
 absence of later modules does not make a Permit or Review terminal in the
 long-term state machine.
 
+`IDENTITY_UNVERIFIED` is the explicit compatibility branch for the current
+Shadow-only Gateway, where an Identity verifier is not yet wired. It records
+that the phase was skipped; it is not identity assurance and cannot authorize
+execution. DS-016 replaces this branch with `IDENTITY_VERIFIED` for verified
+requests. A valid lifecycle transition is necessary but never sufficient for
+an execution grant: later Decision binding and the Enforce path must require
+the verified identity evidence referenced by that grant.
+
 ## Explicit module outcomes
 
 `NOT_RUN` is a module outcome, not an Intent lifecycle state. A generic
@@ -87,6 +99,9 @@ long-term state machine.
 and would permit repeated self-transitions.
 
 - Policy is security-required and records `SUCCEEDED` or `ERROR` only.
+- Identity records `IdentityVerified`, `IdentityRejected`, or the explicit
+  `IdentityVerificationSkipped` compatibility event. A skipped identity phase
+  is allowed only for non-executable Shadow evaluation.
 - Risk records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Policy denial is a valid
   reason for Risk `NOT_RUN`.
 - Simulation records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Until a Simulator is
@@ -104,8 +119,9 @@ carry contradictory fields such as both a result and an error.
 |---|---|
 | `IntentReceived` | initialize `RECEIVED`; invalid if a state already exists |
 | `IdentityVerified` | `RECEIVED -> IDENTITY_VERIFIED` |
+| `IdentityVerificationSkipped` | `RECEIVED -> IDENTITY_UNVERIFIED` |
 | `IdentityRejected` | `RECEIVED -> IDENTITY_REJECTED` |
-| `PolicyEvaluated` | `IDENTITY_VERIFIED -> POLICY_EVALUATED` |
+| `PolicyEvaluated` | Verified/Unverified identity -> `POLICY_EVALUATED` |
 | `RiskEvaluated` | `POLICY_EVALUATED -> RISK_EVALUATED` |
 | `SimulationCompleted` | `RISK_EVALUATED -> SIMULATION_COMPLETED` |
 | `DecisionRecorded(PERMIT)` | `SIMULATION_COMPLETED -> DECIDED_PERMIT` |
@@ -138,7 +154,7 @@ Every row below also carries `schema_version: 1`.
 | Event family | Required typed fields |
 |---|---|
 | Intent received | organization, Agent, idempotency key, Intent hash, amount, resource |
-| Identity verified/rejected | organization, Agent, key/envelope evidence or stable rejection code |
+| Identity verified/rejected/skipped | organization, Agent, key/envelope evidence, stable rejection code, or stable skip code |
 | Context enriched | context hash and source IDs |
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries |
@@ -158,6 +174,78 @@ but state changes and decision evidence use stable codes and typed fields. Raw
 payload construction remains only as an explicit legacy compatibility escape
 hatch; the Gateway/store admission and finalization path uses typed payloads.
 
+## DS-007 persisted lifecycle contract
+
+Each Intent row stores these lifecycle fields:
+
+| Field | Meaning |
+|---|---|
+| `lifecycle_state` | Materialized current state from the Rust lifecycle enum |
+| `lifecycle_version` | Monotonic count of state-producing events; admission starts at 1 |
+| `lifecycle_contract_version` | `1` for the typed/replayable DS-007 contract; `0` for migrated compatibility rows |
+| `lifecycle_event_id` | Audit event that established the materialized state |
+| `lifecycle_updated_at` | Database timestamp of the last state transition |
+
+New rows must use contract version 1. Migrated pre-DS-007 rows use contract
+version 0 because their historical free-form evidence cannot be made typed by
+rewriting immutable Audit bytes. Compatibility rows remain readable, but no
+reader may report that they satisfy the replayable contract.
+
+### Admission transaction
+
+The repository creates the idempotency reservation, Intent row, initial
+`RECEIVED` state/version, and typed `IntentReceived` Audit event in one
+transaction. The stored event pointer must reference that event. Failure of any
+write rolls back the entire admission; a caller can never observe an Intent
+without its initial evidence or initial state without its Intent.
+
+### Evaluation finalization transaction
+
+Policy and Risk may run outside a database transaction. Finalization is a
+single repository transaction which:
+
+1. locks the Intent and checks the caller's expected lifecycle version;
+2. validates typed Identity, Policy, Risk, Simulation, and Decision outcomes
+   and their cross-field consistency;
+3. appends each typed event in canonical phase order and advances the same
+   Rust lifecycle state after each event;
+4. inserts the immutable Evaluation and Decision rows;
+5. updates the materialized state/version/event pointer; and
+6. stores the completed idempotency response.
+
+Concurrent finalizers using the same expected version cannot both succeed.
+The stale writer returns a lifecycle conflict and commits no Evaluation,
+Decision, Audit event, state update, or idempotency result.
+
+### Reader replay and append boundary
+
+For contract-version-1 rows, repository reads replay all state-producing typed
+events for the Intent and compare the resulting state, transition count, and
+last event ID with the materialized columns. A missing, unknown, malformed,
+out-of-order, or legacy lifecycle payload fails closed as durable-state
+corruption. Contract-version-0 rows use the documented compatibility reader
+and are never silently promoted.
+
+The generic append API rejects Intent lifecycle events. Those events may only
+be emitted by repository operations that update state in the same transaction.
+Typed non-state operational and administrative events remain appendable by the
+generic API.
+
+### Failure rules
+
+- Policy or Risk evaluation failure is durable evidence, not an omitted phase:
+  when PostgreSQL is healthy, typed `ERROR` evidence and `DECIDED_ERROR` commit
+  together.
+- Simulation that is not wired records typed `NOT_RUN` evidence with a stable
+  reason code.
+- An Audit append, state update, Evaluation/Decision insert, or idempotency
+  completion failure rolls back the finalization batch and leaves the prior
+  durable state for safe retry/recovery.
+- If PostgreSQL itself is unavailable, the Gateway fails closed. It cannot
+  claim a durable error Decision when no durable evidence could be committed.
+- The current Shadow result conveys no execution authority, especially when
+  its identity state is `IDENTITY_UNVERIFIED`.
+
 ## Testing and security boundaries
 
 Always:
@@ -167,6 +255,12 @@ Always:
 - test every terminal state against every possible next state;
 - serialize real Rust payloads through the canonical Audit envelope and
   validate them against the JSON Schema;
+- replay lifecycle events and compare state, version, and event pointer on
+  every contract-version-1 read;
+- race concurrent finalizers and prove exactly one expected-version writer
+  succeeds;
+- inject a failure in the middle of a finalization batch and prove every write
+  in that batch rolls back;
 - reject event/payload mismatches, unsupported payload versions, unknown
   fields, empty identifiers, and malformed hashes;
 - preserve canonical bytes for already supported legacy event names.
@@ -178,12 +272,14 @@ Never:
   successful;
 - let an administrative event advance an Intent;
 - let `NOT_RUN` imply success or authorize execution;
-- add database state enforcement in this task; DS-007 must do that atomically.
+- append an Intent lifecycle event without changing persisted state in the same
+  transaction.
 
 Threats addressed are Audit payload confusion/tampering, backward or
-post-terminal state advancement, ambiguous skipped modules, and repudiation
-caused by free-form decision evidence. Authentication, RBAC, rate limits,
-external checkpoints, and database lifecycle race enforcement remain tracked
+post-terminal state advancement, stale-writer races, state/event split brain,
+partial evidence batches, ambiguous skipped modules, fabricated identity
+assurance, and repudiation caused by free-form decision evidence.
+Authentication, RBAC, rate limits, and external checkpoints remain tracked in
 later tasks.
 
 ## Success criteria
@@ -196,6 +292,13 @@ later tasks.
    or malformed typed payloads.
 5. Current durable `IntentReceived` and `DecisionRecorded` producers no longer
    assemble free-form JSON payloads.
+6. Admission and finalization make state plus matching typed Audit evidence
+   atomically visible, or make none of the attempted writes visible.
+7. Optimistic version checks and row locking prevent two stale writers from
+   advancing the same Intent.
+8. Contract-version-1 reads replay typed evidence and reject any mismatch with
+   materialized lifecycle state, version, or last event ID.
 
-There are no open DS-006 design questions. Transactional persistence and
-concurrency semantics remain deliberately deferred to DS-007.
+There are no open DS-007 lifecycle persistence questions. Identity
+verification, Decision/execution binding, and Enforce authorization remain
+explicit later milestones and must preserve this contract.

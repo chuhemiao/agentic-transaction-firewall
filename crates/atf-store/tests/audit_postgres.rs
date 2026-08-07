@@ -31,7 +31,7 @@ async fn concurrent_same_organization_appends_form_one_linear_chain() -> Result<
         let barrier = Arc::clone(&barrier);
         writers.push(tokio::spawn(async move {
             let event = NewAuditEvent::new(
-                EventType::PolicyEvaluated,
+                EventType::KillSwitchTriggered,
                 occurred_at(writer),
                 None,
                 serde_json::json!({"writer": writer}),
@@ -208,7 +208,7 @@ async fn append_boundary_rejects_invalid_event_and_unknown_organization_without_
     let store = Store::connect(&database.url).await?;
 
     let invalid_event = NewAuditEvent::new(
-        EventType::IntentReceived,
+        EventType::KillSwitchTriggered,
         occurred_at(1),
         None,
         serde_json::json!("not-an-object"),
@@ -239,7 +239,7 @@ async fn append_boundary_rejects_invalid_event_and_unknown_organization_without_
 
 fn event(index: usize) -> NewAuditEvent {
     NewAuditEvent::new(
-        EventType::IntentReceived,
+        EventType::KillSwitchTriggered,
         occurred_at(index),
         None,
         serde_json::json!({"index": index}),

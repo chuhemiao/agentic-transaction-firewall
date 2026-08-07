@@ -49,6 +49,11 @@ impl Store {
         organization_id: &str,
         event: NewAuditEvent,
     ) -> Result<StoredAuditEvent, StoreError> {
+        if event.event_type.has_lifecycle_effect() {
+            return Err(StoreError::InvalidAuditEvent {
+                reason: "Intent lifecycle events require an atomic state transaction",
+            });
+        }
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET LOCAL lock_timeout = '5s'")
             .execute(&mut *transaction)

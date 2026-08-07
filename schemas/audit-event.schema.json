@@ -20,6 +20,7 @@
       "enum": [
         "IntentReceived",
         "IdentityVerified",
+        "IdentityVerificationSkipped",
         "IdentityRejected",
         "ContextEnriched",
         "PolicyEvaluated",
@@ -63,6 +64,7 @@
   "oneOf": [
     { "$ref": "#/$defs/intentReceivedEvent" },
     { "$ref": "#/$defs/identityVerifiedEvent" },
+    { "$ref": "#/$defs/identityVerificationSkippedEvent" },
     { "$ref": "#/$defs/identityRejectedEvent" },
     { "$ref": "#/$defs/contextEnrichedEvent" },
     { "$ref": "#/$defs/policyEvaluatedEvent" },
@@ -240,6 +242,17 @@
         "agent_id": { "$ref": "#/$defs/nonEmpty" },
         "key_id": { "$ref": "#/$defs/nonEmpty" },
         "envelope_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "identityVerificationSkipped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
       }
     },
     "identityRejected": {
@@ -493,6 +506,9 @@
     },
     "identityVerifiedEvent": {
       "properties": { "event_type": { "const": "IdentityVerified" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityVerified" } }
+    },
+    "identityVerificationSkippedEvent": {
+      "properties": { "event_type": { "const": "IdentityVerificationSkipped" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityVerificationSkipped" } }
     },
     "identityRejectedEvent": {
       "properties": { "event_type": { "const": "IdentityRejected" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityRejected" } }

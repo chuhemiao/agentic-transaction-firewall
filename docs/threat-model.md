@@ -32,7 +32,7 @@ real network request path, but no execution path or production secret.
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004 atomically binds business rows to Audit evidence, and DS-005 makes that durable path authoritative for Gateway traffic. Independent checkpoints, retention, and privileged-database threat controls remain later work |
+| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, and DS-007 atomically binds lifecycle state/version/event pointers then replays typed events on reads. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
@@ -64,9 +64,12 @@ secret. The realistic attack surface today includes:
   the full organization chain for each permitted request; bounded snapshot
   queries and request/rate limits are still required to resist growth-based
   denial of service.
-- **Evaluator crash and stale completion** — admission is durable, but the
-  running Gateway has no lifecycle reservation or recovery path. A crash
-  before finalization can strand an Intent, and a retry currently conflicts.
+- **Evaluator crash and stale completion** — admission durably records
+  `RECEIVED/v1`; finalization row-locks the Intent and rejects a stale expected
+  lifecycle version, so concurrent stale completions cannot both commit. A
+  crash before finalization remains visible but can still strand an Intent,
+  and a retry currently conflicts because there is no evaluator lease or
+  recovery path.
   ADR-0002 requires finite leases with
   monotonically increasing fencing generations and immutable evaluation
   inputs, so a recovered worker cannot be overwritten by a late predecessor;

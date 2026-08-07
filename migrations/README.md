@@ -12,6 +12,12 @@ their SHA-256 hashes. Composite foreign keys prevent cross-tenant references.
 writer and a consistent-snapshot verifier; callers cannot choose sequence,
 predecessor, or event hash.
 
+Migration 0002 adds the DS-007 materialized Intent lifecycle state, optimistic
+version, contract version, last state-producing Audit event pointer, and update
+timestamp. Existing rows are backfilled as compatibility contract version 0;
+their immutable Audit bytes are not rewritten. New repository writes use the
+typed, replayable contract version 1.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

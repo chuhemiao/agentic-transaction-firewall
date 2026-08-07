@@ -1,14 +1,21 @@
 use crate::audit::{
     append_in_transaction, load_verified_in_transaction, AuditReferences, StoredAuditEvent,
 };
+use crate::lifecycle::{
+    append_event as append_lifecycle_event, state_from_str as lifecycle_state_from_str,
+    validate_finalization_input, verify_replay as verify_lifecycle_replay,
+    CONTRACT_VERSION as LIFECYCLE_CONTRACT_VERSION,
+};
 use crate::models::{
     AdmissionInput, AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation,
+    StoredLifecycle,
 };
 use crate::{Store, StoreError};
 use atf_audit::{
-    AuditPayload, DecisionRecordedPayload, EventType, IntentReceivedPayload, NewAuditEvent,
+    AuditPayload, DecisionRecordedPayload, EventType, IdentityVerificationSkippedPayload,
+    IntentReceivedPayload, NewAuditEvent,
 };
-use atf_core::{sort_json_keys, Timestamp};
+use atf_core::{sort_json_keys, IntentLifecycleState, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
 use chrono::{DateTime, Utc};
@@ -30,6 +37,11 @@ struct IntentRow {
     created_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
     received_at: DateTime<Utc>,
+    lifecycle_state: String,
+    lifecycle_version: i64,
+    lifecycle_contract_version: i32,
+    lifecycle_event_id: Option<String>,
+    lifecycle_updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, FromRow)]
@@ -53,6 +65,7 @@ struct VerifiedIntent {
     intent: TransactionIntent,
     intent_hash: String,
     received_at: Timestamp,
+    lifecycle: StoredLifecycle,
 }
 
 impl Store {
@@ -65,6 +78,25 @@ impl Store {
         let canonical_intent = intent.canonical_value();
         let canonical_intent_bytes = intent.canonical_bytes();
         let intent_hash = intent.canonical_hash();
+        let event = NewAuditEvent::from_payload(
+            received_at,
+            Some(intent.intent_id.clone()),
+            AuditPayload::IntentReceived(IntentReceivedPayload {
+                organization_id: organization_id.clone(),
+                agent_id: intent.principal.agent_id.clone(),
+                idempotency_key: intent.idempotency_key.clone(),
+                intent_hash: intent_hash.clone(),
+                amount: intent.transaction.amount,
+                resource_id: intent.resource.resource_id.clone(),
+            }),
+        )?;
+        let lifecycle = StoredLifecycle {
+            state: IntentLifecycleState::Received,
+            version: 1,
+            contract_version: LIFECYCLE_CONTRACT_VERSION,
+            last_event_id: Some(event.event_id.clone()),
+            updated_at: received_at,
+        };
 
         let mut transaction = self.pool.begin().await?;
         set_write_timeouts(&mut transaction).await?;
@@ -81,8 +113,16 @@ impl Store {
                 intent_hash,
                 created_at,
                 expires_at,
-                received_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                received_at,
+                lifecycle_state,
+                lifecycle_version,
+                lifecycle_contract_version,
+                lifecycle_event_id,
+                lifecycle_updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15
+            )
             "#,
         )
         .bind(&organization_id)
@@ -95,22 +135,15 @@ impl Store {
         .bind(intent.created_at.as_datetime())
         .bind(intent.expires_at.as_datetime())
         .bind(received_at.as_datetime())
+        .bind(lifecycle.state.as_str())
+        .bind(lifecycle.version)
+        .bind(lifecycle.contract_version)
+        .bind(&lifecycle.last_event_id)
+        .bind(lifecycle.updated_at.as_datetime())
         .execute(&mut *transaction)
         .await
         .map_err(|error| map_admission_insert_error(error, &intent))?;
 
-        let event = NewAuditEvent::from_payload(
-            received_at,
-            Some(intent.intent_id.clone()),
-            AuditPayload::IntentReceived(IntentReceivedPayload {
-                organization_id: organization_id.clone(),
-                agent_id: intent.principal.agent_id.clone(),
-                idempotency_key: intent.idempotency_key.clone(),
-                intent_hash: intent_hash.clone(),
-                amount: intent.transaction.amount,
-                resource_id: intent.resource.resource_id.clone(),
-            }),
-        )?;
         let audit_event = append_in_transaction(
             &mut transaction,
             &organization_id,
@@ -125,6 +158,7 @@ impl Store {
             intent,
             intent_hash,
             received_at,
+            lifecycle,
             audit_event,
         })
     }
@@ -148,6 +182,12 @@ impl Store {
         };
         let verified = verify_intent_row(organization_id, row)?;
         let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
+        verify_lifecycle_replay(
+            organization_id,
+            &verified.intent,
+            &verified.lifecycle,
+            &chain,
+        )?;
         let audit_event = exactly_one_admission_event(
             chain,
             organization_id,
@@ -162,8 +202,36 @@ impl Store {
             intent: verified.intent,
             intent_hash: verified.intent_hash,
             received_at: verified.received_at,
+            lifecycle: verified.lifecycle,
             audit_event,
         }))
+    }
+
+    /// Load a materialized lifecycle only after replaying all typed state
+    /// evidence for contract-version-1 Intents in the same snapshot.
+    pub async fn load_intent_lifecycle(
+        &self,
+        organization_id: &str,
+        intent_id: &str,
+    ) -> Result<Option<StoredLifecycle>, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        set_read_snapshot(&mut transaction).await?;
+        let Some(row) =
+            load_intent_row(&mut transaction, organization_id, intent_id, false).await?
+        else {
+            transaction.commit().await?;
+            return Ok(None);
+        };
+        let verified = verify_intent_row(organization_id, row)?;
+        let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
+        verify_lifecycle_replay(
+            organization_id,
+            &verified.intent,
+            &verified.lifecycle,
+            &chain,
+        )?;
+        transaction.commit().await?;
+        Ok(Some(verified.lifecycle))
     }
 
     /// Atomically persist Evaluation, Decision, and the foreign-key-bound
@@ -200,6 +268,31 @@ impl Store {
                 stored: verified_intent.intent_hash,
             });
         }
+        if verified_intent.lifecycle.contract_version != LIFECYCLE_CONTRACT_VERSION {
+            return Err(StoreError::InvalidRepositoryInput {
+                reason: format!(
+                    "Intent `{}` uses compatibility lifecycle contract version {}; it cannot be advanced by the typed writer",
+                    input.intent_id, verified_intent.lifecycle.contract_version
+                ),
+            });
+        }
+        if verified_intent.lifecycle.version != input.expected_lifecycle_version {
+            return Err(StoreError::LifecycleConflict {
+                organization_id: input.organization_id,
+                intent_id: input.intent_id,
+                expected_version: input.expected_lifecycle_version,
+                stored_version: verified_intent.lifecycle.version,
+                stored_state: verified_intent.lifecycle.state.to_string(),
+            });
+        }
+        let existing_chain =
+            load_verified_in_transaction(&mut transaction, &input.organization_id).await?;
+        verify_lifecycle_replay(
+            &input.organization_id,
+            &verified_intent.intent,
+            &verified_intent.lifecycle,
+            &existing_chain,
+        )?;
 
         let already_finalized: bool = sqlx::query_scalar(
             r#"
@@ -227,7 +320,20 @@ impl Store {
             intent_id: input.intent_id.clone(),
             intent_hash: verified_intent.intent_hash.clone(),
             evaluated_at,
-            evidence: input.evaluation.evidence.clone(),
+            evidence: serde_json::json!({
+                "identity": AuditPayload::IdentityVerificationSkipped(
+                    IdentityVerificationSkippedPayload {
+                        organization_id: input.organization_id.clone(),
+                        agent_id: verified_intent.intent.principal.agent_id.clone(),
+                        reason_code: "IDENTITY_GATEWAY_NOT_WIRED".into(),
+                    }
+                ).to_data(),
+                "policy": AuditPayload::PolicyEvaluated(input.evaluation.policy.clone()).to_data(),
+                "risk": AuditPayload::RiskEvaluated(input.evaluation.risk.clone()).to_data(),
+                "simulation": AuditPayload::SimulationCompleted(
+                    input.evaluation.simulation.clone()
+                ).to_data(),
+            }),
         };
         let (canonical_evaluation, canonical_evaluation_bytes, evaluation_hash) =
             canonical_document(&evaluation)?;
@@ -284,9 +390,60 @@ impl Store {
         .await
         .map_err(|error| map_finalization_insert_error(error, &input))?;
 
-        let event = NewAuditEvent::from_payload(
+        let mut lifecycle = verified_intent.lifecycle.clone();
+        let phase_reference = || AuditReferences {
+            evaluation_id: Some(evaluation.evaluation_id.clone()),
+            decision_id: None,
+        };
+        append_lifecycle_event(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
+            evaluated_at,
+            AuditPayload::IdentityVerificationSkipped(IdentityVerificationSkippedPayload {
+                organization_id: input.organization_id.clone(),
+                agent_id: verified_intent.intent.principal.agent_id.clone(),
+                reason_code: "IDENTITY_GATEWAY_NOT_WIRED".into(),
+            }),
+            phase_reference(),
+            &mut lifecycle,
+        )
+        .await?;
+        append_lifecycle_event(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
+            evaluated_at,
+            AuditPayload::PolicyEvaluated(input.evaluation.policy.clone()),
+            phase_reference(),
+            &mut lifecycle,
+        )
+        .await?;
+        append_lifecycle_event(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
+            evaluated_at,
+            AuditPayload::RiskEvaluated(input.evaluation.risk.clone()),
+            phase_reference(),
+            &mut lifecycle,
+        )
+        .await?;
+        append_lifecycle_event(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
+            evaluated_at,
+            AuditPayload::SimulationCompleted(input.evaluation.simulation.clone()),
+            phase_reference(),
+            &mut lifecycle,
+        )
+        .await?;
+        let audit_event = append_lifecycle_event(
+            &mut transaction,
+            &input.organization_id,
+            &input.intent_id,
             decided_at,
-            Some(input.intent_id.clone()),
             AuditPayload::DecisionRecorded(DecisionRecordedPayload {
                 organization_id: input.organization_id.clone(),
                 agent_id: verified_intent.intent.principal.agent_id.clone(),
@@ -301,17 +458,45 @@ impl Store {
                 amount: verified_intent.intent.transaction.amount,
                 destination: verified_intent.intent.transaction.destination.clone(),
             }),
-        )?;
-        let audit_event = append_in_transaction(
-            &mut transaction,
-            &input.organization_id,
-            event,
             AuditReferences {
                 evaluation_id: Some(evaluation.evaluation_id.clone()),
                 decision_id: Some(input.decision.decision_id.clone()),
             },
+            &mut lifecycle,
         )
         .await?;
+
+        let updated = sqlx::query(
+            r#"
+            UPDATE intents
+            SET lifecycle_state = $4,
+                lifecycle_version = $5,
+                lifecycle_event_id = $6,
+                lifecycle_updated_at = $7
+            WHERE organization_id = $1
+              AND intent_id = $2
+              AND lifecycle_version = $3
+              AND lifecycle_contract_version = 1
+            "#,
+        )
+        .bind(&input.organization_id)
+        .bind(&input.intent_id)
+        .bind(input.expected_lifecycle_version)
+        .bind(lifecycle.state.as_str())
+        .bind(lifecycle.version)
+        .bind(&lifecycle.last_event_id)
+        .bind(lifecycle.updated_at.as_datetime())
+        .execute(&mut *transaction)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(StoreError::LifecycleConflict {
+                organization_id: input.organization_id,
+                intent_id: input.intent_id,
+                expected_version: input.expected_lifecycle_version,
+                stored_version: verified_intent.lifecycle.version,
+                stored_state: verified_intent.lifecycle.state.to_string(),
+            });
+        }
 
         transaction.commit().await?;
         Ok(FinalizedDecision {
@@ -322,6 +507,7 @@ impl Store {
             decision: input.decision,
             decision_hash,
             decided_at,
+            lifecycle,
             audit_event,
         })
     }
@@ -410,6 +596,12 @@ impl Store {
             )?;
 
         let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
+        verify_lifecycle_replay(
+            organization_id,
+            &verified_intent.intent,
+            &verified_intent.lifecycle,
+            &chain,
+        )?;
         let audit_event = exactly_one_decision_event(
             chain,
             organization_id,
@@ -431,6 +623,7 @@ impl Store {
             decision,
             decision_hash,
             decided_at,
+            lifecycle: verified_intent.lifecycle,
             audit_event,
         }))
     }
@@ -474,7 +667,12 @@ async fn load_intent_row(
             intent_hash::text AS intent_hash,
             created_at,
             expires_at,
-            received_at
+            received_at,
+            lifecycle_state,
+            lifecycle_version,
+            lifecycle_contract_version,
+            lifecycle_event_id,
+            lifecycle_updated_at
         FROM intents
         WHERE organization_id = $1 AND intent_id = $2
         FOR UPDATE
@@ -491,7 +689,12 @@ async fn load_intent_row(
             intent_hash::text AS intent_hash,
             created_at,
             expires_at,
-            received_at
+            received_at,
+            lifecycle_state,
+            lifecycle_version,
+            lifecycle_contract_version,
+            lifecycle_event_id,
+            lifecycle_updated_at
         FROM intents
         WHERE organization_id = $1 AND intent_id = $2
         "#
@@ -529,23 +732,6 @@ fn canonical_document<T: Serialize>(value: &T) -> Result<(Value, Vec<u8>, String
     Ok((canonical, bytes, hash))
 }
 
-fn validate_finalization_input(input: &FinalizationInput) -> Result<(), StoreError> {
-    if input.decision.intent_id != input.intent_id {
-        return Err(StoreError::DecisionBindingMismatch {
-            reason: format!(
-                "Decision names `{}` but finalization requested `{}`",
-                input.decision.intent_id, input.intent_id
-            ),
-        });
-    }
-    if !input.evaluation.evidence.is_object() {
-        return Err(StoreError::InvalidRepositoryInput {
-            reason: "Evaluation evidence must be a JSON object".into(),
-        });
-    }
-    Ok(())
-}
-
 fn verify_intent_row(organization_id: &str, row: IntentRow) -> Result<VerifiedIntent, StoreError> {
     let intent: TransactionIntent =
         serde_json::from_slice(&row.canonical_intent_bytes).map_err(|error| {
@@ -557,6 +743,42 @@ fn verify_intent_row(organization_id: &str, row: IntentRow) -> Result<VerifiedIn
     let canonical = intent.canonical_value();
     let bytes = intent.canonical_bytes();
     let hash = intent.canonical_hash();
+    let lifecycle_state = lifecycle_state_from_str(&row.lifecycle_state).ok_or_else(|| {
+        durable_corrupt(
+            organization_id,
+            format!(
+                "Intent `{}` has unknown lifecycle state `{}`",
+                row.intent_id, row.lifecycle_state
+            ),
+        )
+    })?;
+    if row.lifecycle_version <= 0 || !matches!(row.lifecycle_contract_version, 0 | 1) {
+        return Err(durable_corrupt(
+            organization_id,
+            format!(
+                "Intent `{}` has invalid lifecycle version metadata",
+                row.intent_id
+            ),
+        ));
+    }
+    if row.lifecycle_contract_version == LIFECYCLE_CONTRACT_VERSION
+        && row.lifecycle_event_id.is_none()
+    {
+        return Err(durable_corrupt(
+            organization_id,
+            format!(
+                "Intent `{}` lacks its state-producing Audit event pointer",
+                row.intent_id
+            ),
+        ));
+    }
+    let lifecycle = StoredLifecycle {
+        state: lifecycle_state,
+        version: row.lifecycle_version,
+        contract_version: row.lifecycle_contract_version,
+        last_event_id: row.lifecycle_event_id.clone(),
+        updated_at: Timestamp::from_datetime(row.lifecycle_updated_at),
+    };
     let columns_match = row.organization_id == organization_id
         && row.intent_id == intent.intent_id
         && row.idempotency_key == intent.idempotency_key
@@ -581,6 +803,7 @@ fn verify_intent_row(organization_id: &str, row: IntentRow) -> Result<VerifiedIn
         intent,
         intent_hash: hash,
         received_at: Timestamp::from_datetime(row.received_at),
+        lifecycle,
     })
 }
 

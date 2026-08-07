@@ -2,8 +2,10 @@ use atf_core::{validate_lifecycle_transition, IntentLifecycleState as State};
 
 const ALLOWED: &[(State, State)] = &[
     (State::Received, State::IdentityVerified),
+    (State::Received, State::IdentityUnverified),
     (State::Received, State::IdentityRejected),
     (State::IdentityVerified, State::PolicyEvaluated),
+    (State::IdentityUnverified, State::PolicyEvaluated),
     (State::PolicyEvaluated, State::RiskEvaluated),
     (State::RiskEvaluated, State::SimulationCompleted),
     (State::SimulationCompleted, State::DecidedPermit),
@@ -25,6 +27,8 @@ const ALLOWED: &[(State, State)] = &[
     (State::Received, State::Cancelled),
     (State::IdentityVerified, State::Expired),
     (State::IdentityVerified, State::Cancelled),
+    (State::IdentityUnverified, State::Expired),
+    (State::IdentityUnverified, State::Cancelled),
     (State::PolicyEvaluated, State::Expired),
     (State::PolicyEvaluated, State::Cancelled),
     (State::RiskEvaluated, State::Expired),

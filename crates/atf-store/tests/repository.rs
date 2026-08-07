@@ -1,4 +1,9 @@
-use atf_core::{Amount, Timestamp};
+use atf_audit::{
+    AuditPayload, EventType, IntentCancelledPayload, NewAuditEvent, OptionalModuleOutcome,
+    PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome, RiskEvaluatedPayload,
+    SimulationCompletedPayload,
+};
+use atf_core::{Amount, IntentLifecycleState as State, Timestamp};
 use atf_decision::{Decision, DecisionKind, Reason};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
@@ -33,6 +38,13 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
     assert_eq!(admitted.intent, intent);
     assert_eq!(admitted.intent_hash, intent.canonical_hash());
     assert_eq!(admitted.received_at.to_string(), "2026-08-08T01:00:00.123Z");
+    assert_eq!(admitted.lifecycle.state, State::Received);
+    assert_eq!(admitted.lifecycle.version, 1);
+    assert_eq!(admitted.lifecycle.contract_version, 1);
+    assert_eq!(
+        admitted.lifecycle.last_event_id.as_deref(),
+        Some(admitted.audit_event.event.event_id.as_str())
+    );
     assert_eq!(
         admitted.audit_event.event.event_type,
         atf_audit::EventType::IntentReceived
@@ -159,14 +171,8 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
             expected_intent_hash: admitted.intent_hash.clone(),
-            evaluation: EvaluationInput {
-                evaluation_id: "evaluation-a".into(),
-                evaluated_at: timestamp("2026-08-08T01:00:01Z"),
-                evidence: serde_json::json!({
-                    "policy": {"decision": "PERMIT"},
-                    "risk": {"findings": []}
-                }),
-            },
+            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: decision.clone(),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -174,6 +180,13 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
 
     assert_eq!(finalized.decision, decision);
     assert_eq!(finalized.evaluation.intent_hash, admitted.intent_hash);
+    assert_eq!(finalized.lifecycle.state, State::DecidedPermit);
+    assert_eq!(finalized.lifecycle.version, 6);
+    assert_eq!(finalized.lifecycle.contract_version, 1);
+    assert_eq!(
+        finalized.lifecycle.last_event_id.as_deref(),
+        Some(finalized.audit_event.event.event_id.as_str())
+    );
     assert_eq!(
         finalized.audit_event.evaluation_id.as_deref(),
         Some("evaluation-a")
@@ -190,16 +203,26 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
     assert_eq!(reloaded, finalized);
 
     let chain = store.load_verified_audit_chain("org-a").await?;
-    assert_eq!(chain.len(), 2);
+    assert_eq!(chain.len(), 6);
     assert_eq!(
-        chain[1].event.event_type,
-        atf_audit::EventType::DecisionRecorded
+        chain
+            .iter()
+            .map(|stored| stored.event.event_type)
+            .collect::<Vec<_>>(),
+        vec![
+            EventType::IntentReceived,
+            EventType::IdentityVerificationSkipped,
+            EventType::PolicyEvaluated,
+            EventType::RiskEvaluated,
+            EventType::SimulationCompleted,
+            EventType::DecisionRecorded,
+        ]
     );
-    assert_eq!(chain[1].evaluation_id.as_deref(), Some("evaluation-a"));
-    assert_eq!(chain[1].decision_id.as_deref(), Some("decision-a"));
+    assert_eq!(chain[5].evaluation_id.as_deref(), Some("evaluation-a"));
+    assert_eq!(chain[5].decision_id.as_deref(), Some("decision-a"));
     assert!(matches!(
-        chain[1].event.typed_payload()?,
-        atf_audit::AuditPayload::DecisionRecorded(_)
+        chain[5].event.typed_payload()?,
+        AuditPayload::DecisionRecorded(_)
     ));
 
     store.close().await;
@@ -227,7 +250,7 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
         LANGUAGE plpgsql
         AS $$
         BEGIN
-            IF NEW.event_type = 'DecisionRecorded' THEN
+            IF NEW.event_type = 'RiskEvaluated' THEN
                 RAISE EXCEPTION 'injected finalization failure' USING ERRCODE = '55000';
             END IF;
             RETURN NEW;
@@ -253,11 +276,8 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
             expected_intent_hash: admitted.intent_hash,
-            evaluation: EvaluationInput {
-                evaluation_id: "evaluation-a".into(),
-                evaluated_at: timestamp("2026-08-08T01:00:01Z"),
-                evidence: serde_json::json!({"policy": {"decision": "PERMIT"}}),
-            },
+            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -285,6 +305,14 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
     let chain = store.load_verified_audit_chain("org-a").await?;
     assert_eq!(chain.len(), 1);
     assert_eq!(chain[0].sequence, 1);
+    assert_eq!(
+        store
+            .load_intent_lifecycle("org-a", "intent-a")
+            .await?
+            .expect("the admitted lifecycle remains")
+            .state,
+        State::Received
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -298,7 +326,7 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
     database.seed_organization("org-a").await?;
     let store = Store::connect(&database.url).await?;
     let intent = sample_intent("org-a", "intent-a", "idem-a", "12.50");
-    store
+    let admitted = store
         .admit_intent(AdmissionInput {
             intent,
             received_at: timestamp("2026-08-08T01:00:00Z"),
@@ -310,11 +338,8 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
             organization_id: "org-a".into(),
             intent_id: "intent-a".into(),
             expected_intent_hash: "f".repeat(64),
-            evaluation: EvaluationInput {
-                evaluation_id: "evaluation-a".into(),
-                evaluated_at: timestamp("2026-08-08T01:00:01Z"),
-                evidence: serde_json::json!({"policy": {"decision": "PERMIT"}}),
-            },
+            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -328,6 +353,45 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
     .fetch_one(&database.pool)
     .await?;
     assert_eq!((evaluations, decisions), (0, 0));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("time_order").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    let admitted = store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+        })
+        .await?;
+
+    let error = store
+        .finalize_decision(FinalizationInput {
+            organization_id: "org-a".into(),
+            intent_id: "intent-a".into(),
+            expected_intent_hash: admitted.intent_hash,
+            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:02Z"),
+            decision: sample_decision("decision-a", "intent-a"),
+            decided_at: timestamp("2026-08-08T01:00:01Z"),
+        })
+        .await
+        .expect_err("a Decision cannot predate the Evaluation it records");
+    assert!(matches!(error, StoreError::InvalidRepositoryInput { .. }));
+    let (evaluations, decisions): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM evaluations), (SELECT count(*) FROM decisions)",
+    )
+    .fetch_one(&database.pool)
+    .await?;
+    assert_eq!((evaluations, decisions), (0, 0));
+    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 1);
 
     store.close().await;
     database.destroy().await?;
@@ -405,6 +469,196 @@ async fn read_api_rejects_a_decision_without_bound_audit_evidence() -> Result<()
     store.close().await;
     database.destroy().await?;
     Ok(())
+}
+
+#[tokio::test]
+async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("lifecycle_race").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    let admitted = store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+        })
+        .await?;
+
+    let input_a = FinalizationInput {
+        organization_id: "org-a".into(),
+        intent_id: "intent-a".into(),
+        expected_intent_hash: admitted.intent_hash.clone(),
+        expected_lifecycle_version: admitted.lifecycle.version,
+        evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
+        decision: sample_decision("decision-a", "intent-a"),
+        decided_at: timestamp("2026-08-08T01:00:02Z"),
+    };
+    let input_b = FinalizationInput {
+        organization_id: "org-a".into(),
+        intent_id: "intent-a".into(),
+        expected_intent_hash: admitted.intent_hash,
+        expected_lifecycle_version: admitted.lifecycle.version,
+        evaluation: evaluation_input("evaluation-b", "2026-08-08T01:00:01Z"),
+        decision: sample_decision("decision-b", "intent-a"),
+        decided_at: timestamp("2026-08-08T01:00:02Z"),
+    };
+
+    let store_a = store.clone();
+    let store_b = store.clone();
+    let (result_a, result_b) = tokio::join!(
+        store_a.finalize_decision(input_a),
+        store_b.finalize_decision(input_b)
+    );
+
+    let results = [result_a, result_b];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(StoreError::LifecycleConflict { .. })))
+            .count(),
+        1
+    );
+    let (evaluations, decisions): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM evaluations), (SELECT count(*) FROM decisions)",
+    )
+    .fetch_one(&database.pool)
+    .await?;
+    assert_eq!((evaluations, decisions), (1, 1));
+    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 6);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifecycle_reader_rejects_materialized_state_that_disagrees_with_audit_replay(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("lifecycle_tamper").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+        })
+        .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE intents
+        SET lifecycle_state = 'IDENTITY_UNVERIFIED', lifecycle_version = 2
+        WHERE organization_id = 'org-a' AND intent_id = 'intent-a'
+        "#,
+    )
+    .execute(&database.pool)
+    .await?;
+
+    let error = store
+        .load_intent_lifecycle("org-a", "intent-a")
+        .await
+        .expect_err("materialized lifecycle drift must fail closed");
+    assert!(matches!(error, StoreError::DurableStateCorrupt { .. }));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn generic_audit_append_cannot_create_lifecycle_evidence_without_state(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("lifecycle_append_boundary").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+        })
+        .await?;
+
+    let event = NewAuditEvent::from_payload(
+        timestamp("2026-08-08T01:00:01Z"),
+        Some("intent-a".into()),
+        AuditPayload::IntentCancelled(IntentCancelledPayload {
+            actor_id: "operator-a".into(),
+            reason_code: "TEST_CANCEL".into(),
+        }),
+    )?;
+    let error = store
+        .append_audit_event("org-a", event)
+        .await
+        .expect_err("generic append must not split lifecycle state from its evidence");
+    assert!(matches!(error, StoreError::InvalidAuditEvent { .. }));
+    assert_eq!(store.load_verified_audit_chain("org-a").await?.len(), 1);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("risk_error").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    let admitted = store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+        })
+        .await?;
+    let mut evaluation = evaluation_input("evaluation-a", "2026-08-08T01:00:01Z");
+    evaluation.risk.outcome = OptionalModuleOutcome::Error {
+        error_code: "RISK_EVALUATION_ERROR".into(),
+    };
+    let mut decision = sample_decision("decision-a", "intent-a");
+    decision.decision = DecisionKind::Error;
+
+    let finalized = store
+        .finalize_decision(FinalizationInput {
+            organization_id: "org-a".into(),
+            intent_id: "intent-a".into(),
+            expected_intent_hash: admitted.intent_hash,
+            expected_lifecycle_version: admitted.lifecycle.version,
+            evaluation,
+            decision,
+            decided_at: timestamp("2026-08-08T01:00:02Z"),
+        })
+        .await?;
+
+    assert_eq!(finalized.lifecycle.state, State::DecidedError);
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["outcome"]["error_code"],
+        "RISK_EVALUATION_ERROR"
+    );
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+fn evaluation_input(evaluation_id: &str, evaluated_at: &str) -> EvaluationInput {
+    EvaluationInput {
+        evaluation_id: evaluation_id.into(),
+        evaluated_at: timestamp(evaluated_at),
+        policy: PolicyEvaluatedPayload {
+            outcome: RequiredModuleOutcome::Succeeded {
+                result: PolicyOutcome::Permit,
+            },
+            policy_ids: vec!["policy-a".into()],
+        },
+        risk: RiskEvaluatedPayload {
+            outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
+        },
+        simulation: SimulationCompletedPayload {
+            outcome: OptionalModuleOutcome::NotRun {
+                reason_code: "SIMULATOR_NOT_IMPLEMENTED".into(),
+            },
+        },
+    }
 }
 
 fn sample_intent(

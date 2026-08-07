@@ -80,6 +80,14 @@ pub struct IdentityVerifiedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct IdentityVerificationSkippedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IdentityRejectedPayload {
     pub organization_id: String,
     pub agent_id: String,
@@ -265,6 +273,7 @@ pub struct IntentCancelledPayload {
 pub enum AuditPayload {
     IntentReceived(IntentReceivedPayload),
     IdentityVerified(IdentityVerifiedPayload),
+    IdentityVerificationSkipped(IdentityVerificationSkippedPayload),
     IdentityRejected(IdentityRejectedPayload),
     ContextEnriched(ContextEnrichedPayload),
     PolicyEvaluated(PolicyEvaluatedPayload),
@@ -297,6 +306,7 @@ impl AuditPayload {
         match self {
             Self::IntentReceived(_) => EventType::IntentReceived,
             Self::IdentityVerified(_) => EventType::IdentityVerified,
+            Self::IdentityVerificationSkipped(_) => EventType::IdentityVerificationSkipped,
             Self::IdentityRejected(_) => EventType::IdentityRejected,
             Self::ContextEnriched(_) => EventType::ContextEnriched,
             Self::PolicyEvaluated(_) => EventType::PolicyEvaluated,
@@ -329,6 +339,7 @@ impl AuditPayload {
         let fields = match self {
             Self::IntentReceived(value) => encode(value),
             Self::IdentityVerified(value) => encode(value),
+            Self::IdentityVerificationSkipped(value) => encode(value),
             Self::IdentityRejected(value) => encode(value),
             Self::ContextEnriched(value) => encode(value),
             Self::PolicyEvaluated(value) => encode(value),
@@ -362,6 +373,9 @@ impl AuditPayload {
         let payload = match event_type {
             EventType::IntentReceived => Self::IntentReceived(decode(event_type, fields)?),
             EventType::IdentityVerified => Self::IdentityVerified(decode(event_type, fields)?),
+            EventType::IdentityVerificationSkipped => {
+                Self::IdentityVerificationSkipped(decode(event_type, fields)?)
+            }
             EventType::IdentityRejected => Self::IdentityRejected(decode(event_type, fields)?),
             EventType::ContextEnriched => Self::ContextEnriched(decode(event_type, fields)?),
             EventType::PolicyEvaluated => Self::PolicyEvaluated(decode(event_type, fields)?),
@@ -430,6 +444,14 @@ impl AuditPayload {
                 )?;
                 sha256(event_type, "envelope_hash", &value.envelope_hash)?;
             }
+            Self::IdentityVerificationSkipped(value) => strings(
+                event_type,
+                &[
+                    ("organization_id", &value.organization_id),
+                    ("agent_id", &value.agent_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
             Self::IdentityRejected(value) => strings(
                 event_type,
                 &[
@@ -647,6 +669,7 @@ impl AuditPayload {
                 };
             }
             Self::IdentityVerified(_) => State::IdentityVerified,
+            Self::IdentityVerificationSkipped(_) => State::IdentityUnverified,
             Self::IdentityRejected(_) => State::IdentityRejected,
             Self::PolicyEvaluated(_) => State::PolicyEvaluated,
             Self::RiskEvaluated(_) => State::RiskEvaluated,
