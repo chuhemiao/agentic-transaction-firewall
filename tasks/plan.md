@@ -49,7 +49,10 @@ the single durable boundary, Audit chains serialize per organization, and
 admission/finalization plus fenced evaluator recovery have explicit
 invariants. DS-002 was completed on 2026-08-08 with the `atf-store` boundary,
 embedded migration runner, constrained base Schema, append-only triggers, and
-real PostgreSQL migration CI. The next task is DS-003.
+real PostgreSQL migration CI. DS-003 was completed on 2026-08-08 with
+row-locked per-organization append, consistent-snapshot reload/verification,
+explicit event occurrence time, and real concurrent/corruption PostgreSQL
+tests. The next task is DS-004.
 
 ### Present but incomplete or unwired
 
@@ -218,6 +221,8 @@ foreign keys, tenant keys and append-only protections.
 - **Verification:** `cargo test -p atf-store --test migrations` against PostgreSQL; full DoD.
 
 ### DS-003 — Implement concurrent per-organization Audit append `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Persist typed Audit events using a locked organization chain
 head so concurrent writers cannot fork a chain. Reload and verify a chain from

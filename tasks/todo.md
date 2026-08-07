@@ -32,9 +32,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-002:** added `atf-store`, embedded migration runner, constrained
   tenant-aware PostgreSQL Schema, append-only Audit protection, and real
   PostgreSQL CI tests.
-- [ ] **NEXT — DS-003:** implement concurrent per-organization Audit
-  append/verification. Depends: DS-002.
-- [ ] **DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
+- [x] **DS-003:** implemented concurrent per-organization Audit append,
+  consistent-snapshot reload/verification, and corruption/no-fork tests on
+  PostgreSQL 17.10.
+- [ ] **NEXT — DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
 - [ ] **DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.
 - [ ] **DS-006:** define lifecycle states and typed Audit payloads. Depends: DS-001.
 - [ ] **DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.

@@ -48,11 +48,11 @@ Agent Intent
   address, and order frequency, PRD §12.2, still need an explicit
   PERMITTED/EXECUTED/SETTLED accounting boundary).*
 - **`atf-audit`** — `AuditEvent`/`EventType` (PRD §16.2 plus
-  `DecisionRecorded`) and an in-memory,
+  `DecisionRecorded`), a store-safe `NewAuditEvent` envelope, and an in-memory,
   append-only `AuditLedger` that hash-chains events and can `verify_chain()`
   to detect after-the-fact tampering (PRD §16.3). *Implemented as a
   library and called from `services/gateway`, but that request path still
-  uses only the in-memory ledger; the new PostgreSQL tables are not wired.*
+  uses only the in-memory ledger; `atf-store`'s durable writer is not wired.*
 - **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
   minus the Simulator branch (no `atf-simulator` yet). *Implemented
   (partial).*
@@ -61,9 +61,10 @@ Agent Intent
   creates organization-scoped Intent/Evaluation/Decision records,
   per-organization Audit heads/events, canonical JSON plus exact bytes and
   SHA-256 hashes, composite tenant foreign keys, and append-only Audit
-  triggers. *Implemented as the durable schema foundation; no Audit append or
-  admission/finalization repository APIs exist yet, and Gateway does not use
-  it.*
+  triggers. It now serializes concurrent appends with a per-organization
+  chain-head row lock and reloads/verifies the complete persisted chain under
+  one consistent snapshot. *Implemented through DS-003; admission/finalization
+  repository APIs and Gateway wiring do not exist yet.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -90,8 +91,9 @@ Agent Intent
   [`ADR-0002`](decisions/0002-durable-state-contract.md) now fixes the
   PostgreSQL ownership boundary, per-organization Audit serialization, short
   admission/finalization transactions, and evaluator fencing/recovery rules.
-  `atf-store` and the base migration now exist; durable repository and Gateway
-  wiring remain unimplemented.
+  `atf-store`, the base migration, and the durable Audit writer/verifier now
+  exist; admission/finalization repository transactions and Gateway wiring
+  remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -110,6 +112,10 @@ organization's persisted chain-head row, allocate the next sequence/hash, add
 the immutable event, and advance the head in one transaction. Store operations
 lock Intent/idempotency/evaluation rows in stable order before locking the
 single organization head, so no operation reverses the order or spans tenants.
+The DS-003 implementation also validates the locked tail before extending it
+and reloads a chain under a read-only repeatable snapshot, rejecting canonical
+JSON/byte/hash disagreement, gaps, wrong predecessors, head mismatch, deletion,
+mutation, or sequence reordering. Gateway traffic does not use this path yet.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -217,8 +223,9 @@ complete Decision Engine:
   calls for PostgreSQL). There is also no rate limiting, no TLS termination
   config, and no multi-instance story — this is a reference wiring, not a
   production deployment target. ADR-0002 and migration 0001 resolve the
-  target transaction and constrained table design, but the Gateway does not
-  receive their guarantees until DS-003..DS-005 land.
+  target transaction and constrained table design, and DS-003 implements the
+  Audit append guarantee, but the Gateway does not receive durable guarantees
+  until DS-004..DS-005 land.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

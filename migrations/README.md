@@ -8,6 +8,9 @@ Migration 0001 creates the schema metadata, organizations, Intents,
 Evaluations, Decisions, per-organization Audit heads, and append-only Audit
 events. Canonical documents retain both JSONB and exact canonical bytes beside
 their SHA-256 hashes. Composite foreign keys prevent cross-tenant references.
+`atf-store` extends this schema through a `SELECT ... FOR UPDATE` chain-head
+writer and a consistent-snapshot verifier; callers cannot choose sequence,
+predecessor, or event hash.
 
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
@@ -19,6 +22,9 @@ role may create temporary databases and roles:
 ```bash
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
   cargo test -p atf-store --test migrations
+
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  cargo test -p atf-store --test audit_postgres
 ```
 
 The authoritative transaction, per-organization chain, evaluator recovery,

@@ -1,8 +1,10 @@
 //! The single PostgreSQL boundary for durable ATF state.
 //!
 //! Cross-table admission and finalization operations will live here rather
-//! than in the Gateway. This first slice owns schema migration and compatibility
-//! checks; repository transactions are added by DS-004.
+//! than in the Gateway. Schema migration/compatibility and durable Audit append
+//! are implemented; admission/finalization transactions are added by DS-004.
+
+mod audit;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -11,6 +13,8 @@ use sqlx::{
     PgPool,
 };
 use thiserror::Error;
+
+pub use audit::StoredAuditEvent;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
@@ -44,6 +48,21 @@ pub enum StoreError {
         minimum_reader_version: i32,
         minimum_writer_version: i32,
     },
+
+    #[error("invalid Audit event: {reason}")]
+    InvalidAuditEvent { reason: &'static str },
+
+    #[error("organization `{organization_id}` does not exist")]
+    OrganizationNotFound { organization_id: String },
+
+    #[error("Audit chain for organization `{organization_id}` is corrupt: {reason}")]
+    AuditChainCorrupt {
+        organization_id: String,
+        reason: String,
+    },
+
+    #[error("Audit event JSON is invalid: {0}")]
+    AuditEventJson(#[from] serde_json::Error),
 }
 
 /// A verified connection pool. Construction fails closed when migrations have

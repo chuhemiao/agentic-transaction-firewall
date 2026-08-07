@@ -48,8 +48,9 @@ If you're asked to "continue" or "keep going through the TODO list":
 
 - `crates/atf-core`, `atf-intent`, `atf-identity`, `atf-policy`, `atf-risk`,
   `atf-audit`, `atf-decision`, `atf-store` and `cli/atf-cli`,
-  `services/gateway`: real, tested Rust code. `atf-store` currently owns only
-  migration/schema compatibility; repository operations begin at DS-003.
+  `services/gateway`: real, tested Rust code. `atf-store` currently owns
+  migration/schema compatibility and durable per-organization Audit append;
+  admission/finalization repository operations begin at DS-004.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

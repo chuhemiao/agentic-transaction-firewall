@@ -32,7 +32,7 @@ real network request path, but no execution path or production secret.
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: the in-memory producer is hash-chained, and migration 0001 now provides organization-scoped PostgreSQL Audit tables whose triggers reject UPDATE, DELETE, and TRUNCATE even after an application role is granted table privileges. Gateway still writes only to memory; row-locked append, cutover, and independent checkpoints remain DS-003..DS-005/later work |
+| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, while DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, detecting deletion, mutation, and sequence reordering. Gateway still writes only to memory; cutover and independent checkpoints remain DS-004..DS-005/later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
@@ -62,8 +62,9 @@ secret. The realistic attack surface today includes:
   duplicate-purchase rule, but restart loss and multi-instance divergence
   remain until the Gateway persistence cutover. Migration 0001 now provides
   constrained per-organization tables and append-only Audit protection, while
-  ADR-0002 makes PostgreSQL the only target authority and specifies chain-head
-  row locks; neither affects the current request path yet.
+  ADR-0002 makes PostgreSQL the only target authority. DS-003 implements the
+  chain-head row lock and verifier, but neither affects the current request
+  path yet.
 - **Evaluator crash and stale completion** — the running Gateway has no
   durable reservation or recovery path. ADR-0002 requires finite leases with
   monotonically increasing fencing generations and immutable evaluation

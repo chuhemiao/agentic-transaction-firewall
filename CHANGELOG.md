@@ -7,6 +7,13 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Row-locked, per-organization PostgreSQL Audit append in `atf-store`, plus
+  restart-safe verification of canonical bytes/hashes, contiguous sequence,
+  predecessor links, redundant columns, and the committed chain head.
+- Real PostgreSQL concurrency and corruption tests proving same-organization
+  no-fork append, independent organization genesis records, and fail-closed
+  handling of deletion, mutation, sequence reordering, malformed input, and a
+  corrupt locked tail.
 - `atf-store` with an embedded SQLx migration runner, fail-closed Schema
   compatibility checks, and migration 0001 for tenant-scoped Intents,
   Evaluations, Decisions, Audit chain heads/events, and schema metadata.

@@ -57,15 +57,17 @@ Only the following crates are implemented so far:
   received or denied request is not treated as a purchase.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only, with tamper detection (`verify_chain`), including the
-  `DecisionRecorded` lifecycle event. In-memory only — no persistent store
-  yet.
+  `DecisionRecorded` lifecycle event. Its `AuditLedger` remains in-memory;
+  `atf-store` now provides the separate persistent writer/verifier.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
 - `crates/atf-store` — the SQLx/PostgreSQL persistence boundary, embedded
   migration runner, schema compatibility check, and initial constrained
   tables for organizations, Intents, Evaluations, Decisions, per-organization
-  Audit heads/events, and schema metadata. Repository transactions and Gateway
-  wiring are not implemented yet.
+  Audit heads/events, and schema metadata. It row-locks each organization's
+  head for concurrent Audit append and can reload/verify canonical bytes,
+  hashes, sequence, predecessor links, and the head after restart. Admission/
+  finalization transactions and Gateway wiring are not implemented yet.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
@@ -79,8 +81,8 @@ The durable-state contract is fixed in
 single authority, Audit chains are serialized per organization, and admission
 and finalization use separate atomic transactions with fenced evaluator
 recovery. `DS-002` now provides the store/migration/schema foundation; the
-concurrent append algorithm, transactional repositories, and Gateway cutover
-remain `DS-003`..`DS-005`.
+`DS-003` concurrent append/verifier is also complete. Transactional
+repositories and Gateway cutover remain `DS-004`..`DS-005`.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -128,8 +130,9 @@ semantics (evaluate only, never execute).
    `atf-audit` respectively).
 7. ~~`atf-audit` — the Audit Ledger (PRD §16).~~ Done as a library:
    hash-chained `AuditEvent`s, append-only, `verify_chain()` detects
-   after-the-fact tampering. In-memory only (no PostgreSQL, per the PRD's
-   own MVP design).
+   after-the-fact tampering. The Gateway still uses that in-memory ledger;
+   durable per-organization append/reload now exists separately in
+   `atf-store` and is waiting for the DS-004/DS-005 request-path cutover.
 8. ~~`services/gateway` — wire Policy/Risk/Decision/Audit into one request
    path.~~ Done: `POST /v1/intents` runs Policy → (if permitted) Risk →
    Decision merge, records `IntentReceived`/`PolicyEvaluated`/
@@ -148,8 +151,9 @@ semantics (evaluate only, never execute).
   to the official cargo-deny 0.20.2 Action release commit.
 - PostgreSQL persistence and a transactional Intent lifecycle; process
   restart and multiple instances must preserve the same Decision/Audit state.
-  ADR-0002 and the initial `atf-store` Schema/migration are complete;
-  concurrent append, repository transactions, and Gateway cutover remain.
+  ADR-0002, the initial `atf-store` Schema/migration, and concurrent
+  per-organization Audit append/reload verification are complete; repository
+  transactions and Gateway cutover remain.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay

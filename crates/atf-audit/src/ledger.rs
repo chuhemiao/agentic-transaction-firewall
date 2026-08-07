@@ -1,15 +1,14 @@
-use atf_core::{new_ulid, Timestamp};
+use atf_core::Timestamp;
 
 use crate::error::ChainVerificationError;
-use crate::event::{AuditEvent, EventType};
+use crate::event::{AuditEvent, EventType, NewAuditEvent};
 
 /// In-memory, append-only, hash-chained Audit Ledger (PRD §16.3).
 ///
 /// This is domain logic, not a storage layer: PRD §16.3's MVP design calls
 /// for a PostgreSQL append-only table, which this crate does not implement.
-/// A persistent implementation would wrap this same chaining and
-/// verification logic around real durable storage (same pattern as
-/// `atf-identity`'s in-memory registry) — see `docs/architecture.md`.
+/// `atf-store` wraps the same canonical event/hash logic with a row-locked,
+/// per-organization durable chain; the Gateway cutover is still pending.
 #[derive(Debug, Default)]
 pub struct AuditLedger {
     events: Vec<AuditEvent>,
@@ -35,14 +34,8 @@ impl AuditLedger {
         data: serde_json::Value,
     ) -> &AuditEvent {
         let prev_event_hash = self.events.last().map(AuditEvent::canonical_hash);
-        let event = AuditEvent {
-            event_id: new_ulid(),
-            event_type,
-            occurred_at: Timestamp::now(),
-            intent_id,
-            prev_event_hash,
-            data,
-        };
+        let event = NewAuditEvent::new(event_type, Timestamp::now(), intent_id, data)
+            .chain(prev_event_hash);
         self.events.push(event);
         self.events.last().expect("an event was just pushed")
     }

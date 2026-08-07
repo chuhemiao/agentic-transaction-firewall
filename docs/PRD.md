@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、内存 Hash Chain Audit、Identity Library、CLI 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已记录 `IntentReceived`、`PolicyEvaluated`、`RiskEvaluated` 和 `DecisionRecorded`；重复购买只统计同组织此前 `PERMIT` 的 Decision。
-3. Identity 尚未接入 Gateway；持久化、真实幂等、确定性 Replay、Context Provenance、Policy Bundle Versioning 和 Metrics 尚未完成。
+3. Identity 尚未接入 Gateway；PostgreSQL 基础 Schema 和并发安全的 Audit Append/重载验证已实现，但 Admission/Finalization Repository、Gateway 持久化切换、真实幂等、确定性 Replay、Context Provenance、Policy Bundle Versioning 和 Metrics 尚未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1283,9 +1283,9 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 
 1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
-3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`；`atf-store` 的基础 Schema、Migration Runner 与兼容性检查。
+3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`；`atf-store` 的基础 Schema、Migration Runner、兼容性检查，以及每组织行锁 Audit Append/重载验证。
 4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
-5. `PARTIALLY_IMPLEMENTED`：PostgreSQL 基础 Schema 已落地；Repository 事务、Gateway 接入和 Restart Recovery 尚未实现。
+5. `PARTIALLY_IMPLEMENTED`：PostgreSQL 基础 Schema 与 Audit Append/Restart Verification 已落地；Admission/Finalization Repository、Gateway 接入和完整 Request-path Restart Recovery 尚未实现。
 6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。

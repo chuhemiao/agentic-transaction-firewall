@@ -31,10 +31,14 @@ order. The executable order is:
 - [x] DS-002 Add `atf-store`, embedded migrations, schema-version fail-closed
   checks, tenant constraints, and database-enforced append-only Audit rows;
   run the migration suite against PostgreSQL 17.10 in CI.
+- [x] DS-003 Serialize each organization's Audit appends with a locked head;
+  verify persisted canonical bytes/hash/order/head after restart and reject
+  corruption before extending a bad tail.
 
 - [~] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
-  append-only Audit chain. The base schema is real; repository operations,
-  concurrent append, Gateway cutover, and restart proof remain.
+  append-only Audit chain. The base schema and concurrent Audit writer/verifier
+  are real; admission/finalization repositories, Gateway cutover, and complete
+  request-path restart proof remain.
 - [~] P0.2 Intent lifecycle state machine. `IntentReceived`,
   `PolicyEvaluated`, `RiskEvaluated`, and `DecisionRecorded` exist; identity,
   simulation, approval, execution, settlement, expiry, and cancellation
@@ -55,8 +59,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-003` — implement row-locked concurrent
-per-organization Audit append and reload/verification in `atf-store`.
+**Immediate next task:** `DS-004` — add atomic admission and finalization
+repository transactions around the durable Audit writer.
 
 ## Later releases
 

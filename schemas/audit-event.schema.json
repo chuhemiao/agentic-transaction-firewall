@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atf.dev/schemas/audit-event.schema.json",
   "title": "ATF Audit Event",
-  "description": "One entry in the append-only Audit Ledger hash chain (docs/PRD.md §16). atf-audit produces this shape and services/gateway records events on the live Shadow Mode request path.",
+  "description": "One entry in the append-only Audit Ledger hash chain (docs/PRD.md §16). atf-audit produces this shape, atf-store persists it, and services/gateway still records it in memory on the live Shadow Mode request path.",
   "type": "object",
   "additionalProperties": true,
   "required": ["event_id", "event_type", "occurred_at", "prev_event_hash"],
@@ -42,7 +42,7 @@
     },
     "prev_event_hash": {
       "type": ["string", "null"],
-      "description": "Hex-encoded hash of the previous event in the chain (PRD §16.3). Null only for the very first event ever recorded."
+      "description": "Hex-encoded hash of the previous event in the chain (PRD §16.3). Null only for the first event in that declared chain scope."
     },
     "data": {
       "type": "object",
