@@ -78,11 +78,45 @@ Agent Intent
   enabled. `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
   (JSON Schema path) are explicitly reviewed permissive licenses. Broader
   audit/secret/SAST/SBOM gates remain planned under GAP-CI-001.
+- **Durable-state design** —
+  [`ADR-0002`](decisions/0002-durable-state-contract.md) now fixes the
+  PostgreSQL ownership boundary, per-organization Audit serialization, short
+  admission/finalization transactions, and evaluator fencing/recovery rules.
+  *Accepted design only: `atf-store`, migrations, and durable Gateway wiring
+  do not exist yet.*
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, `migrations/`, `fuzz/` is a scaffolded directory with a
 `README.md` describing what belongs there and which roadmap phase (PRD §31)
 will fill it in. None of it is wired into the Cargo workspace yet.
+
+## Accepted durable-state contract (not implemented)
+
+ADR-0002 makes PostgreSQL the only authoritative state for accepted Intents,
+Evaluations, Decisions, idempotency, identity nonces, and Audit. The storage
+crate owns cross-table transactions; the Gateway and domain crates must not
+reconstruct them from table-level repositories.
+
+Each organization has an independent Audit chain. Appenders lock that
+organization's persisted chain-head row, allocate the next sequence/hash, add
+the immutable event, and advance the head in one transaction. Store operations
+lock Intent/idempotency/evaluation rows in stable order before locking the
+single organization head, so no operation reverses the order or spans tenants.
+
+The target request path has two critical atomic visibility boundaries:
+
+1. admission commits the canonical Intent, idempotency binding, lifecycle
+   state, evaluator reservation, and `IntentReceived` evidence together;
+2. finalization verifies a lease-generation fencing token, then commits the
+   Evaluation, Decision, typed Audit evidence, and idempotency result together.
+
+Policy, Risk, and later external enrichment run between those transactions
+without open database locks. Short lease/context-snapshot transactions are
+allowed, but no final Decision is returned or queried until finalization
+commits. Database or Audit failure rolls back the paired state transition and
+fails closed; there is no in-memory or local-buffer write fallback. The exact
+invariants, migration compatibility policy, rejected alternatives, and staged
+implementation order are in ADR-0002.
 
 ## Data flow through today's skeleton
 
@@ -174,7 +208,8 @@ complete Decision Engine:
   `Mutex`, so a process restart loses everything (PRD §16.3's MVP design
   calls for PostgreSQL). There is also no rate limiting, no TLS termination
   config, and no multi-instance story — this is a reference wiring, not a
-  production deployment target.
+  production deployment target. ADR-0002 resolves the target transaction and
+  chain design, but none of its storage guarantees are implemented yet.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3

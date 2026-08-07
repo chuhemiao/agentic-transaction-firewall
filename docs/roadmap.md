@@ -6,7 +6,9 @@ detailed dependency graph, task acceptance criteria and verification commands
 are in [`../tasks/plan.md`](../tasks/plan.md); the one-item-at-a-time execution
 queue is [`../tasks/todo.md`](../tasks/todo.md). Gap evidence remains in
 `docs/audit-gap-matrix.md`, and the execution-last rationale is recorded in
-`docs/decisions/0001-durable-shadow-before-enforce.md`.
+`docs/decisions/0001-durable-shadow-before-enforce.md`. The accepted
+durable-state transaction and Audit-chain contract is
+`docs/decisions/0002-durable-state-contract.md`.
 
 ## Current release: Durable Shadow Mode
 
@@ -23,6 +25,9 @@ order. The executable order is:
 
 - [x] BL-001 Restore the cargo-deny baseline without weakening wildcard,
   license, or source policy; pin CI to cargo-deny 0.20.2 semantics.
+- [x] DS-001 Fix the PostgreSQL ownership boundary, per-organization
+  chain-head locking, atomic admission/finalization, fenced evaluator
+  recovery, and migration compatibility in ADR-0002.
 
 - [ ] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain.
@@ -46,8 +51,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-001` — record the PostgreSQL transaction,
-evaluator-recovery and per-organization Audit-chain contract in ADR-0002.
+**Immediate next task:** `DS-002` — create `atf-store`, the migration runner,
+and the initial constrained PostgreSQL schema defined by ADR-0002.
 
 ## Later releases
 

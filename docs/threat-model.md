@@ -27,12 +27,12 @@ real network request path, but no execution path or production secret.
 | 4 | Policy bypass | The gateway has one Policy-first evaluation path and no execution route. It is still unauthenticated, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
-| 7 | Nonce replay | Unmitigated: `idempotency_key` is only schema-level; the gateway does not enforce uniqueness and signed identity envelopes have no nonce |
+| 7 | Nonce replay | Unmitigated in code: `idempotency_key` is only schema-level and signed identity envelopes have no nonce. ADR-0002 fixes the target atomic reservation, nonce-consumption, lease, and fencing contract, but DS-012..DS-016 must implement it |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
-| 12 | Audit log deletion | Partially addressed: `atf-audit` is append-only in its public API and hash-chained, but storage is process memory, has no independent checkpoint, and disappears on restart |
+| 12 | Audit log deletion | Partially addressed: `atf-audit` is append-only in its public API and hash-chained, but storage is process memory, has no independent checkpoint, and disappears on restart. ADR-0002 selects row-locked per-organization chains and atomic state/evidence commits; DS-002..DS-005 remain unimplemented |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Unmitigated: the action category exists, but the Intent has no typed spender/allowance fields and no unlimited-approval rule |
@@ -60,7 +60,14 @@ secret. The realistic attack surface today includes:
 - **History poisoning and process-local state** — lifecycle semantics now
   prevent denied or cross-organization requests from triggering the
   duplicate-purchase rule, but restart loss and multi-instance divergence
-  remain until PostgreSQL persistence lands.
+  remain until PostgreSQL persistence lands. ADR-0002 makes PostgreSQL the
+  only authority, uses per-organization chain-head row locks, and forbids an
+  in-memory fallback; this is a reviewed design, not a current mitigation.
+- **Evaluator crash and stale completion** — the running Gateway has no
+  durable reservation or recovery path. ADR-0002 requires finite leases with
+  monotonically increasing fencing generations and immutable evaluation
+  inputs, so a recovered worker cannot be overwritten by a late predecessor;
+  implementation is still pending.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   `cargo deny` in CI; the broader controls listed above remain open.
 

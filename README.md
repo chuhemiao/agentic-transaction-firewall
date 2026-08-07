@@ -69,6 +69,13 @@ Only the following crates are implemented so far:
   verification is not wired in yet (no way to register an Agent's key
   through this service). Never executes anything — evaluate-only.
 
+The durable-state contract is now fixed in
+[`ADR-0002`](docs/decisions/0002-durable-state-contract.md): PostgreSQL is the
+single authority, Audit chains are serialized per organization, and admission
+and finalization use separate atomic transactions with fenced evaluator
+recovery. This is a design milestone only; `atf-store`, migrations, and the
+Gateway cutover are not implemented yet.
+
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
@@ -135,6 +142,8 @@ semantics (evaluate only, never execute).
   to the official cargo-deny 0.20.2 Action release commit.
 - PostgreSQL persistence and a transactional Intent lifecycle; process
   restart and multiple instances must preserve the same Decision/Audit state.
+  The transaction, per-organization Audit-chain, recovery, and migration
+  contract is complete in ADR-0002; implementation starts with `DS-002`.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay

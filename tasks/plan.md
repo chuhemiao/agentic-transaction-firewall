@@ -44,7 +44,10 @@ rejected by the wildcard rule. `BL-001` was defined to repair this baseline
 before feature work rather than treat a configured CI job as a passing gate.
 
 BL-001 was completed on 2026-08-07 with the restrictive wildcard/source policy
-intact. The next task is DS-001.
+intact. DS-001 was completed the same day by accepting ADR-0002: PostgreSQL is
+the single durable boundary, Audit chains serialize per organization, and
+admission/finalization plus fenced evaluator recovery have explicit
+invariants. The next task is DS-002.
 
 ### Present but incomplete or unwired
 
@@ -174,6 +177,8 @@ pin CI to the reviewed cargo-deny behavior.
 ## 7. Phase 2 — Durable Shadow Mode
 
 ### DS-001 — Decide the durable transaction and Audit-chain contract `[S]`
+
+**Status:** Complete (2026-08-07).
 
 **Description:** Add ADR-0002 selecting a shared PostgreSQL storage boundary,
 per-organization Audit chains, chain-head locking, and two short transactions:

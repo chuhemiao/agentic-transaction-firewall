@@ -24,6 +24,13 @@ license texts, unused license allowances were removed, and CI is pinned to the
 official v2.1.1 Action commit for cargo-deny 0.20.2. Wildcard and unknown-source
 denial remain enabled; `cargo deny check` passes.
 
+DS-001 fixed the missing persistence design contract on 2026-08-07 in
+ADR-0002. It selects one PostgreSQL storage boundary, per-organization
+row-locked Audit chains, atomic admission/finalization, evaluator fencing, and
+forward-only migration compatibility. This reduces design ambiguity only;
+the runtime gaps remain open until DS-002 and its dependent implementation
+tasks land.
+
 ## Module inventory
 
 | Module | State | Evidence |
@@ -107,6 +114,7 @@ denial remain enabled; `cargo deny check` passes.
 - **module:** Gateway persistence and identity envelopes
 - **current_state:** `MISSING`
 - **evidence:** `idempotency_key` is stored only in an in-memory event payload; there is no uniqueness constraint, conflict response, nonce, or concurrency guard.
+- **design evidence:** ADR-0002 now specifies unique organization/key binding, finite leases, monotonically increasing fencing generations, same-hash retry semantics, and atomic nonce consumption; none is implemented yet.
 - **security_impact:** duplicate and concurrent requests are re-evaluated; signed requests can be replayed.
 - **financial_impact:** repeated payment authorization and inconsistent decisions after policy/history changes.
 - **severity:** `CRITICAL`
@@ -274,13 +282,13 @@ denial remain enabled; `cargo deny check` passes.
 
 - **module:** `atf-audit`, Gateway
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** append-only API, hash chain, tamper test, and `DecisionRecorded` exist; chain is process-local/global, event payloads are mostly untyped, and no checkpoint/query/retention controls exist.
+- **evidence:** append-only API, hash chain, tamper test, and `DecisionRecorded` exist; chain is process-local/global, event payloads are mostly untyped, and no checkpoint/query/retention controls exist. ADR-0002 has selected row-locked per-organization chain heads and atomic state/evidence commits, but there is no PostgreSQL implementation yet.
 - **security_impact:** restart, privileged process memory, or database design mistakes can erase or fork evidence.
 - **financial_impact:** transaction authorization history may be incomplete or unverifiable.
 - **severity:** `HIGH`
 - **recommended_change:** per-organization transactional chains, typed lifecycle payloads, query indexes, verification jobs, and external Merkle checkpoints.
 - **required_tests:** concurrent append, organization chain isolation, restart verification, tamper/delete/reorder, checkpoint recovery.
-- **dependencies:** PostgreSQL persistence and lifecycle model.
+- **dependencies:** PostgreSQL persistence and lifecycle model; the chain scope and lock-order prerequisite is complete in ADR-0002.
 - **target_release:** Durable Shadow Mode P0.1-P0.3, checkpoints later.
 - **acceptance_criteria:** accepted events survive restart, chain verification is deterministic per declared scope, and deletion/reordering is detectable.
 
@@ -288,14 +296,14 @@ denial remain enabled; `cargo deny check` passes.
 
 - **module:** Gateway state, Audit store, migrations/deploy
 - **current_state:** `MISSING`
-- **evidence:** `Mutex<AuditLedger>` and `Mutex<HashMap<...Decision>>`; `migrations/` contains only a README.
+- **evidence:** `Mutex<AuditLedger>` and `Mutex<HashMap<...Decision>>`; `migrations/` contains only a README. ADR-0002 defines the missing storage and transaction contract, but `atf-store`, schema, and Gateway cutover do not exist.
 - **security_impact:** restart erases accepted requests and anti-replay/history state; multiple instances diverge.
 - **financial_impact:** Decisions disappear, duplicate/budget controls reset, and recovery is impossible.
 - **severity:** `CRITICAL`
 - **recommended_change:** PostgreSQL migrations and a transactional repository for Intent, evaluation, Decision, and Audit append.
 - **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency, database-unavailable fail-closed behavior.
-- **dependencies:** lifecycle transaction boundary and organization chain policy.
-- **target_release:** Durable Shadow Mode P0.1 (next vertical feature).
+- **dependencies:** lifecycle transaction boundary and organization chain policy are fixed by ADR-0002; implementation starts at DS-002.
+- **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
 
 ### GAP-SEC-001 — API Security
@@ -375,8 +383,8 @@ denial remain enabled; `cargo deny check` passes.
 
 ## Next vertical feature
 
-P0.1 PostgreSQL persistence is next: define the lifecycle transaction
-boundary, add migrations, persist accepted Intents/Decisions/Audit events,
-and prove restart plus concurrent append behavior. Identity, idempotency,
-replay, and budget work must build on that durable boundary rather than add
-more process-local state.
+`DS-002` is next: create `atf-store`, the migration runner, and the initial
+constrained PostgreSQL schema under ADR-0002. Later DS-003..DS-005 add
+concurrent Audit append, atomic repositories, and Gateway restart behavior;
+identity, idempotency, replay, and budget work must build on that durable
+boundary rather than add more process-local state.

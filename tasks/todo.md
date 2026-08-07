@@ -26,9 +26,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ### C1 Durable state
 
-- [ ] **NEXT — DS-001:** decide durable transactions, evaluator recovery and
-  per-org Audit-chain contract. Depends: BL-001.
-- [ ] **DS-002:** create `atf-store` and the initial PostgreSQL migration. Depends: DS-001.
+- [x] **DS-001:** accepted ADR-0002 for durable transactions, fenced evaluator
+  recovery, forward-only migration compatibility, and row-locked per-org
+  Audit chains.
+- [ ] **NEXT — DS-002:** create `atf-store` and the initial PostgreSQL
+  migration. Depends: DS-001.
 - [ ] **DS-003:** implement concurrent per-organization Audit append/verification. Depends: DS-002.
 - [ ] **DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
 - [ ] **DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.

@@ -7,6 +7,10 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- ADR-0002 defining PostgreSQL as the single durable state boundary,
+  row-locked per-organization Audit chains, atomic admission/finalization,
+  fenced evaluator recovery, fail-closed database behavior, and forward-only
+  schema compatibility.
 - A dependency-ordered delivery plan and one-feature-at-a-time TODO covering
   Durable Shadow Mode, reference simulation/adapters, Approval/Enforce gates,
   and ecosystem work.
