@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-007 transactional lifecycle contract
+Status: DS-015 transactional Intent and identity lifecycle contract
 
-Version: 2
+Version: 3
 
-Authority: `docs/PRD.md` §16, ADR-0002, and `tasks/plan.md` DS-006/DS-007
+Authority: `docs/PRD.md` §16–17, ADR-0002, and `tasks/plan.md` DS-006/DS-007/DS-015
 
 ## Objective
 
@@ -29,8 +29,8 @@ contract, append typed evidence, and update the materialized state atomically.
   constructor/parser.
 - `crates/atf-store/src/lifecycle.rs`: transactional replay and persistence
   boundary.
-- `crates/atf-store/migrations/0002_lifecycle.sql`: additive lifecycle schema
-  and compatibility backfill.
+- `migrations/0002_intent_lifecycle.sql` and `migrations/0004_identity.sql`:
+  additive Intent and identity lifecycle schemas.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and
@@ -139,7 +139,8 @@ carry contradictory fields such as both a result and an error.
 | `ReconciliationFailed` | `EXECUTION_CONFIRMED -> RECONCILIATION_FAILED` |
 | `IntentExpired` | any explicitly expirable state -> `EXPIRED` |
 | `IntentCancelled` | any explicitly cancellable state -> `CANCELLED` |
-| `ContextEnriched`, `ServiceDelivered`, Budget, Policy, Agent, and Kill Switch events | typed non-state evidence; lifecycle state is unchanged |
+| `AgentRegistered`, `AgentStatusChanged`, `IdentityKeyRegistered`, `IdentityKeyRevoked` | typed Agent/Key lifecycle evidence; Intent lifecycle state is unchanged |
+| `ContextEnriched`, `ServiceDelivered`, Budget, Policy, `AgentPaused`, and Kill Switch events | typed non-state evidence; Intent lifecycle state is unchanged |
 
 Previously published `ApprovalGranted`, `ExecutionRequested`, and
 `KillSwitchTriggered` wire variants remain decodable for Audit hash stability.
@@ -166,6 +167,8 @@ Every row below also carries `schema_version: 1`.
 | Budget | budget/reservation IDs, fixed-point amount string, and asset identifier |
 | Policy changed | bundle ID/hash and actor ID |
 | Agent paused | organization/Agent/actor IDs and stable reason code |
+| Agent registered/status changed | organization/Agent, canonical record hash, lifecycle version, actor, status and optional previous status/reason |
+| Identity key registered/revoked | organization/Agent/exact Key ID, public-key fingerprint, canonical key-record hash, lifecycle version, actor, validity window or revocation/reason; never raw/private key bytes |
 | Kill Switch | scope, actor ID, and stable reason code |
 | Intent expired/cancelled | stable reason code and, for cancellation, actor ID |
 
@@ -299,6 +302,7 @@ later tasks.
 8. Contract-version-1 reads replay typed evidence and reject any mismatch with
    materialized lifecycle state, version, or last event ID.
 
-There are no open DS-007 lifecycle persistence questions. Identity
-verification, Decision/execution binding, and Enforce authorization remain
-explicit later milestones and must preserve this contract.
+There are no open DS-007 Intent or DS-015 Agent/Key lifecycle persistence
+questions. Gateway identity/Nonce verification, Decision/execution binding,
+and Enforce authorization remain explicit later milestones and must preserve
+this contract.

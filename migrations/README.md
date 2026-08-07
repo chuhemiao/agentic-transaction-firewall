@@ -29,6 +29,14 @@ recovery must increment that generation and records only a fenced fail-closed
 Decision while Evaluation Context snapshots are unavailable. Canonical
 Intent/Decision/Audit bytes are not rewritten.
 
+Migration 0004 adds DS-015 organization-scoped Agent and exact Ed25519
+identity-key lifecycle. Canonical records, exact bytes, hashes, monotonic
+versions and last-event pointers make typed operator Audit evidence mandatory.
+Only public keys are stored. Agent registration bindings and key material/time
+windows are immutable; terminal Agents, revoked Keys, row deletion and table
+truncate are database-guarded. Existing Intent/Decision/Audit bytes are not
+rewritten.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

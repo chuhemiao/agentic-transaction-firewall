@@ -58,8 +58,10 @@ Only the following crates are implemented so far:
   `ATF_INTENT_V1` Identity Envelope: explicitly sorted canonical JSON binds
   organization, Agent, exact key ID, Intent hash, five-minute lifetime, nonce,
   audience and environment before strict Ed25519 verification. The registry
-  never tries every key and returns typed verified identity facts. Persistence,
-  nonce consumption and Gateway wiring remain DS-015/DS-016.
+  never tries every key and returns typed verified identity facts. DS-015 adds
+  validated key activation/expiry/revocation metadata; PostgreSQL is now the
+  durable Agent/Key authority. Nonce consumption and Gateway wiring remain
+  DS-016.
 - `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
   Intent.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
@@ -100,8 +102,14 @@ Only the following crates are implemented so far:
   replay typed events and reject any materialized-state mismatch; concurrent
   finalizers cannot both advance the same Intent. The Gateway uses this
   boundary for all accepted Intents, Evaluations, Decisions, Audit writes, and
-  Decision reads.
-- `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, and `atf policy test`.
+  Decision reads. Migration 0004 adds immutable organization-scoped Agent and
+  Ed25519 public-key lifecycle rows; every version points to the typed Audit
+  event committed atomically with it, and verified reads recompute canonical
+  bytes/hashes after restart.
+- `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
+  and offline `atf identity` provision/register/status/revoke commands. The
+  identity commands read `DATABASE_URL` from the environment and accept only
+  public key material.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
   Audit into one request path: `POST /v1/intents` and
@@ -151,8 +159,10 @@ reservation, evaluator lease/fencing token and immutable completed-result
 binding. `DS-013` adds exact completed retry, stage-boundary lease heartbeats,
 concurrent result convergence, and request-driven fail-closed recovery of
 expired admissions. `DS-014` replaces raw-hash signatures with the canonical,
-domain-separated Identity Envelope and exact-key verification. `DS-015`,
-durable Agent/key lifecycle and offline provisioning, is next.
+domain-separated Identity Envelope and exact-key verification. `DS-015` adds
+durable Agent/key lifecycle, atomic operator Audit evidence and offline
+provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
+next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -250,6 +260,13 @@ semantics (evaluate only, never execute).
     Key ID, Intent hash, a closed five-minute lifetime, nonce, audience and
     environment. Strict Ed25519 verification has no raw-hash/any-key fallback;
     a published vector and mutation tests lock the cross-language contract.
+15. ~~Durable Agent/Key lifecycle and offline provisioning.~~ Done in DS-015:
+    migration 0004 stores canonical organization-scoped Agent and exact
+    Ed25519 public-key records with lifecycle versions/event pointers;
+    registration, status and irreversible revocation commit typed Audit in the
+    same transaction. Restart, bounded rotation overlap, concurrency,
+    rollback, tenant isolation, tamper and real CLI tests pass without storing
+    private keys.
 
 ### Remaining before Phase 2 can close out
 
@@ -266,7 +283,8 @@ semantics (evaluate only, never execute).
   states, an exhaustively tested transition table, explicit `NOT_RUN` module
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
   DS-007 extends the active contract to 22 states/28 events with an explicit
-  Shadow-only `IDENTITY_UNVERIFIED` branch.
+  Shadow-only `IDENTITY_UNVERIFIED` branch; DS-015 adds four typed Agent/Key
+  operator events without changing the Intent state machine.
 - ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
@@ -290,10 +308,14 @@ semantics (evaluate only, never execute).
   evidence for structural/common/Profile rejection.
 - ~~Concurrent durable idempotency reservation, evaluator fencing, and atomic
   result binding.~~ Done in DS-012. Same-hash result return/recovery is
-  complete in DS-013; DS-014 defines the signed Envelope, while durable
-  Key/Agent state and atomic Nonce replay protection remain DS-015/DS-016.
-- Durable Agent/Key lifecycle and `atf-identity` Gateway wiring before
-  Policy/Risk, including atomic Nonce consumption and Identity Audit evidence.
+  complete in DS-013; DS-014 defines the signed Envelope and DS-015 persists
+  exact Agent/Key authority. Atomic signed-Nonce replay protection remains
+  DS-016.
+- ~~Durable Agent/Key lifecycle and offline provisioning.~~ Done in DS-015
+  with restart-safe verification, typed mutation Audit and no private-key
+  storage.
+- Wire `atf-identity` into Gateway admission before Policy/Risk, including
+  atomic Nonce consumption and request Identity Audit evidence (DS-016).
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
   Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API

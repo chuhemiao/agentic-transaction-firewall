@@ -128,7 +128,7 @@ impl IdentityEnvelope {
     }
 }
 
-fn is_canonical_identifier(value: &str, minimum_bytes: usize) -> bool {
+pub(crate) fn is_canonical_identifier(value: &str, minimum_bytes: usize) -> bool {
     (minimum_bytes..=MAX_IDENTIFIER_BYTES).contains(&value.len())
         && value
             .bytes()

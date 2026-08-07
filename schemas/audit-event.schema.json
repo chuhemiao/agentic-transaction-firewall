@@ -47,6 +47,10 @@
         "KillSwitchDisabled",
         "PolicyChanged",
         "AgentPaused",
+        "AgentRegistered",
+        "AgentStatusChanged",
+        "IdentityKeyRegistered",
+        "IdentityKeyRevoked",
         "IntentExpired",
         "IntentCancelled"
       ]
@@ -86,6 +90,10 @@
     { "$ref": "#/$defs/budgetReleasedEvent" },
     { "$ref": "#/$defs/policyChangedEvent" },
     { "$ref": "#/$defs/agentPausedEvent" },
+    { "$ref": "#/$defs/agentRegisteredEvent" },
+    { "$ref": "#/$defs/agentStatusChangedEvent" },
+    { "$ref": "#/$defs/identityKeyRegisteredEvent" },
+    { "$ref": "#/$defs/identityKeyRevokedEvent" },
     { "$ref": "#/$defs/killSwitchEnabledEvent" },
     { "$ref": "#/$defs/killSwitchDisabledEvent" },
     { "$ref": "#/$defs/intentExpiredEvent" },
@@ -122,6 +130,9 @@
       "maxLength": 512
     },
     "operatorScope": { "type": "null" },
+    "agentStatus": {
+      "enum": ["ACTIVE", "SHADOW_ONLY", "PAUSED", "REVOKED", "EXPIRED"]
+    },
     "policyOutcome": {
       "oneOf": [
         {
@@ -470,6 +481,76 @@
         "reason_code": { "$ref": "#/$defs/nonEmpty" }
       }
     },
+    "agentRegistered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "status", "record_hash", "lifecycle_version", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "status": { "$ref": "#/$defs/agentStatus" },
+        "record_hash": { "$ref": "#/$defs/sha256" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "agentStatusChanged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "previous_status", "status", "record_hash", "lifecycle_version", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "previous_status": { "$ref": "#/$defs/agentStatus" },
+        "status": { "$ref": "#/$defs/agentStatus" },
+        "record_hash": { "$ref": "#/$defs/sha256" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "identityKeyRegistered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "key_id", "algorithm", "public_key_fingerprint", "key_record_hash", "activates_at", "expires_at", "lifecycle_version", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "key_id": { "$ref": "#/$defs/nonEmpty" },
+        "algorithm": { "const": "ED25519" },
+        "public_key_fingerprint": { "$ref": "#/$defs/sha256" },
+        "key_record_hash": { "$ref": "#/$defs/sha256" },
+        "activates_at": { "type": "string", "format": "date-time" },
+        "expires_at": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "identityKeyRevoked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "key_id", "public_key_fingerprint", "key_record_hash", "revoked_at", "lifecycle_version", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "key_id": { "$ref": "#/$defs/nonEmpty" },
+        "public_key_fingerprint": { "$ref": "#/$defs/sha256" },
+        "key_record_hash": { "$ref": "#/$defs/sha256" },
+        "revoked_at": { "type": "string", "format": "date-time" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
     "killSwitch": {
       "type": "object",
       "additionalProperties": false,
@@ -572,6 +653,18 @@
     },
     "agentPausedEvent": {
       "properties": { "event_type": { "const": "AgentPaused" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/agentPaused" } }
+    },
+    "agentRegisteredEvent": {
+      "properties": { "event_type": { "const": "AgentRegistered" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/agentRegistered" } }
+    },
+    "agentStatusChangedEvent": {
+      "properties": { "event_type": { "const": "AgentStatusChanged" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/agentStatusChanged" } }
+    },
+    "identityKeyRegisteredEvent": {
+      "properties": { "event_type": { "const": "IdentityKeyRegistered" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/identityKeyRegistered" } }
+    },
+    "identityKeyRevokedEvent": {
+      "properties": { "event_type": { "const": "IdentityKeyRevoked" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/identityKeyRevoked" } }
     },
     "killSwitchEnabledEvent": {
       "properties": { "event_type": { "const": "KillSwitchEnabled" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/killSwitch" } }

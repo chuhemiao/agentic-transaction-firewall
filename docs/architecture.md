@@ -49,9 +49,10 @@ Agent Intent
   `IdentityRegistry` checks Agent scope/status/lifetime, selects only the
   declared Key ID, performs strict Ed25519 verification and returns typed
   `VerifiedIdentity`; raw-hash and try-any-key verification paths no longer
-  exist. *Implemented as a domain library — still not called from
-  `services/gateway`; durable Agent/Key lifecycle is DS-015 and Gateway plus
-  atomic Nonce consumption is DS-016.*
+  exist. `IdentityKeyRecord` adds explicit activation, expiry and irreversible
+  revocation. *Implemented as a domain library with DS-015 durable authority —
+  still not called from `services/gateway`; Gateway verification plus atomic
+  Nonce consumption is DS-016.*
 - **`atf-policy`** — Cedar `PolicySet` parsing + minimal
   `evaluate(intent) -> cedar_policy::Response`. *Partially implemented: no
   Cedar Schema or versioned Bundle manifest yet.*
@@ -65,7 +66,7 @@ Agent Intent
   *Implemented (partial — daily cumulative spend, first-time destination
   address, and order frequency, PRD §12.2, still need an explicit
   PERMITTED/EXECUTED/SETTLED accounting boundary).*
-- **`atf-audit`** — `AuditEvent`/`EventType`, 28 canonical version-1 typed
+- **`atf-audit`** — `AuditEvent`/`EventType`, 32 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
   `AuditLedger` with hash-chain verification (PRD §16.3). Its closed JSON
@@ -95,11 +96,17 @@ Agent Intent
   + completed idempotency result. Contract-v1 readers replay typed
   events and compare materialized state/version/pointer/time. Read APIs expose
   only records whose canonical bytes/hashes, lifecycle replay, and matching
-  verified Audit evidence agree. It also exposes a live schema/connectivity
-  readiness check. *Implemented and wired into the Gateway for admission,
-  finalization, lifecycle/history reads, and readiness.*
+  verified Audit evidence agree. Migration 0004 adds canonical Agent and exact
+  Ed25519 public-key records, monotonic lifecycle versions, Audit event
+  pointers and database guards against rebinding/deletion/truncate. Identity
+  mutations and typed operator events commit atomically; repeatable-read loads
+  reverify the full Audit chain and record hashes. It also exposes a live
+  schema/connectivity readiness check. *Implemented and wired into the Gateway
+  for admission/finalization/lifecycle/history/readiness; identity state is
+  implemented for offline provisioning but not yet wired into Gateway.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
-  `atf policy test`. *Implemented.*
+  `atf policy test`, plus offline `atf identity` Agent/public-key
+  provision/status/revoke commands. *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
   durable admission -> Policy -> (if permitted)
@@ -141,9 +148,9 @@ Agent Intent
   validator, DS-010 Agent-Commerce Payment profile, and DS-011 safe API
   error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
   foundation, DS-013 exact retry/stage-heartbeat/request-driven recovery, and
-  DS-014 domain-separated Identity Envelope now exist. Additional action
-  profiles, durable identity lifecycle and authenticated nonce replay
-  protection remain unimplemented.
+  DS-014 domain-separated Identity Envelope and DS-015 durable Agent/Key
+  lifecycle plus offline provisioning now exist. Additional action profiles
+  and authenticated nonce replay protection remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -317,12 +324,11 @@ complete Decision Engine:
 - Policy Bundle versioning/rollback and multi-bundle conflict resolution
   (PRD §11.3).
 - Budget model and atomic reserve/commit/release (PRD §9.4).
-- `atf-identity`'s domain-separated Envelope and exact-key verifier are
-  implemented but still unwired: nothing calls
-  `IdentityRegistry::verify_envelope`, Agent/Key records are not durable, and
-  Nonces are not consumed. Key activation/expiry/revocation windows and local
-  operator provisioning belong to DS-015; Gateway admission and atomic Nonce
-  use belong to DS-016. The in-memory registry is not deployment authority.
+- `atf-identity`'s domain-separated Envelope, exact-key verifier and DS-015
+  PostgreSQL Agent/Key lifecycle are implemented but still unwired: Gateway
+  does not load a verified snapshot or call envelope verification, and Nonces
+  are not consumed. Gateway admission and atomic Nonce use belong to DS-016.
+  Process memory is not deployment authority.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization

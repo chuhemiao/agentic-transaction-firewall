@@ -39,6 +39,10 @@ pub enum EventType {
     KillSwitchDisabled,
     PolicyChanged,
     AgentPaused,
+    AgentRegistered,
+    AgentStatusChanged,
+    IdentityKeyRegistered,
+    IdentityKeyRevoked,
     IntentExpired,
     IntentCancelled,
 }
@@ -66,9 +70,26 @@ impl EventType {
                 | Self::KillSwitchDisabled
                 | Self::PolicyChanged
                 | Self::AgentPaused
+                | Self::AgentRegistered
+                | Self::AgentStatusChanged
+                | Self::IdentityKeyRegistered
+                | Self::IdentityKeyRevoked
                 | Self::ApprovalGranted
                 | Self::ExecutionRequested
         )
+    }
+
+    /// Events whose evidence is authoritative only when committed with the
+    /// corresponding Intent, Agent, or Key state mutation.
+    pub const fn requires_atomic_state_transaction(self) -> bool {
+        self.has_lifecycle_effect()
+            || matches!(
+                self,
+                Self::AgentRegistered
+                    | Self::AgentStatusChanged
+                    | Self::IdentityKeyRegistered
+                    | Self::IdentityKeyRevoked
+            )
     }
 }
 
@@ -152,8 +173,8 @@ pub struct AuditEvent {
     pub event_id: String,
     pub event_type: EventType,
     pub occurred_at: Timestamp,
-    /// `None` for events not tied to one Intent — `PolicyChanged`,
-    /// `AgentPaused`, `KillSwitchTriggered`.
+    /// `None` for events not tied to one Intent — for example Policy,
+    /// Agent/Key, and Kill Switch operator events.
     pub intent_id: Option<String>,
     /// Canonical hash of the event immediately before this one in the
     /// chain. `None` only for that chain's first event.

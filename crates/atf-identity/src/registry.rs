@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::Signature;
 
-use crate::envelope::is_canonical_key_id;
-use crate::{AgentRecord, EnvelopeVerificationContext, IdentityEnvelope, IdentityError};
+use crate::{
+    AgentRecord, EnvelopeVerificationContext, IdentityEnvelope, IdentityError, IdentityKeyRecord,
+};
 
 /// Identity facts authenticated by one exact registered key. This proves
 /// provenance only; Policy/Risk still decide whether the Intent is allowed.
@@ -23,7 +24,7 @@ pub struct VerifiedIdentity {
 #[derive(Default)]
 pub struct IdentityRegistry {
     agents: HashMap<String, AgentRecord>,
-    keys: HashMap<(String, String), VerifyingKey>,
+    keys: HashMap<(String, String), IdentityKeyRecord>,
 }
 
 impl IdentityRegistry {
@@ -31,32 +32,32 @@ impl IdentityRegistry {
         Self::default()
     }
 
-    pub fn register_agent(&mut self, record: AgentRecord) {
-        self.agents.insert(record.agent_id.clone(), record);
-    }
-
-    /// Register one explicitly addressed Agent key. Reusing a key ID fails;
-    /// key material is never silently replaced.
-    pub fn register_key(
-        &mut self,
-        agent_id: &str,
-        key_id: &str,
-        key: VerifyingKey,
-    ) -> Result<(), IdentityError> {
-        if !self.agents.contains_key(agent_id) {
-            return Err(IdentityError::UnknownAgent(agent_id.to_owned()));
-        }
-        if !is_canonical_key_id(key_id) {
-            return Err(IdentityError::InvalidEnvelopeField { field: "key_id" });
-        }
-        let address = (agent_id.to_owned(), key_id.to_owned());
-        if self.keys.contains_key(&address) {
-            return Err(IdentityError::DuplicateKeyId {
-                agent_id: agent_id.to_owned(),
-                key_id: key_id.to_owned(),
+    pub fn register_agent(&mut self, record: AgentRecord) -> Result<(), IdentityError> {
+        record.validate()?;
+        if self.agents.contains_key(&record.agent_id) {
+            return Err(IdentityError::DuplicateAgentId {
+                agent_id: record.agent_id,
             });
         }
-        self.keys.insert(address, key);
+        self.agents.insert(record.agent_id.clone(), record);
+        Ok(())
+    }
+
+    /// Register one explicitly addressed Agent key and its mandatory lifecycle
+    /// metadata. Reusing a key ID fails; key material is never replaced.
+    pub fn register_key(&mut self, record: IdentityKeyRecord) -> Result<(), IdentityError> {
+        record.validate()?;
+        if !self.agents.contains_key(&record.agent_id) {
+            return Err(IdentityError::UnknownAgent(record.agent_id));
+        }
+        let address = (record.agent_id.clone(), record.key_id.clone());
+        if self.keys.contains_key(&address) {
+            return Err(IdentityError::DuplicateKeyId {
+                agent_id: record.agent_id,
+                key_id: record.key_id,
+            });
+        }
+        self.keys.insert(address, record);
         Ok(())
     }
 
@@ -121,8 +122,38 @@ impl IdentityRegistry {
                 agent_id: envelope.agent_id.clone(),
                 key_id: envelope.key_id.clone(),
             })?;
+        if key.activates_at > envelope.issued_at {
+            return Err(IdentityError::KeyNotYetActive {
+                agent_id: envelope.agent_id.clone(),
+                key_id: envelope.key_id.clone(),
+            });
+        }
+        if key
+            .revoked_at
+            .is_some_and(|revoked_at| revoked_at <= context.verification_time)
+        {
+            return Err(IdentityError::KeyRevoked {
+                agent_id: envelope.agent_id.clone(),
+                key_id: envelope.key_id.clone(),
+            });
+        }
+        if let Some(expires_at) = key.expires_at {
+            if expires_at <= context.verification_time {
+                return Err(IdentityError::KeyExpired {
+                    agent_id: envelope.agent_id.clone(),
+                    key_id: envelope.key_id.clone(),
+                });
+            }
+            if envelope.expires_at > expires_at {
+                return Err(IdentityError::EnvelopeExceedsKeyLifetime {
+                    agent_id: envelope.agent_id.clone(),
+                    key_id: envelope.key_id.clone(),
+                });
+            }
+        }
         let signature = Signature::from_bytes(signature_bytes);
-        key.verify_strict(&envelope.canonical_bytes(), &signature)
+        key.verifying_key
+            .verify_strict(&envelope.canonical_bytes(), &signature)
             .map_err(|_| IdentityError::InvalidSignature {
                 agent_id: envelope.agent_id.clone(),
                 key_id: envelope.key_id.clone(),

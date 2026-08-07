@@ -17,6 +17,7 @@ anyhow = { workspace = true }
 atf-audit = { workspace = true }
 atf-core = { workspace = true }
 atf-decision = { workspace = true }
+atf-identity = { workspace = true }
 atf-intent = { workspace = true }
 chrono = { workspace = true }
 home = { workspace = true }
@@ -25,3 +26,6 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+ed25519-dalek = { workspace = true }

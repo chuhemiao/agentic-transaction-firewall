@@ -248,6 +248,59 @@ pub struct AgentPausedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct AgentRegisteredPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub status: String,
+    pub record_hash: String,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentStatusChangedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub previous_status: String,
+    pub status: String,
+    pub record_hash: String,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityKeyRegisteredPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub key_id: String,
+    pub algorithm: String,
+    pub public_key_fingerprint: String,
+    pub key_record_hash: String,
+    pub activates_at: Timestamp,
+    pub expires_at: Option<Timestamp>,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityKeyRevokedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub key_id: String,
+    pub public_key_fingerprint: String,
+    pub key_record_hash: String,
+    pub revoked_at: Timestamp,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KillSwitchPayload {
     pub scope: String,
     pub actor_id: String,
@@ -295,6 +348,10 @@ pub enum AuditPayload {
     BudgetReleased(BudgetPayload),
     PolicyChanged(PolicyChangedPayload),
     AgentPaused(AgentPausedPayload),
+    AgentRegistered(AgentRegisteredPayload),
+    AgentStatusChanged(AgentStatusChangedPayload),
+    IdentityKeyRegistered(IdentityKeyRegisteredPayload),
+    IdentityKeyRevoked(IdentityKeyRevokedPayload),
     KillSwitchEnabled(KillSwitchPayload),
     KillSwitchDisabled(KillSwitchPayload),
     IntentExpired(IntentExpiredPayload),
@@ -328,6 +385,10 @@ impl AuditPayload {
             Self::BudgetReleased(_) => EventType::BudgetReleased,
             Self::PolicyChanged(_) => EventType::PolicyChanged,
             Self::AgentPaused(_) => EventType::AgentPaused,
+            Self::AgentRegistered(_) => EventType::AgentRegistered,
+            Self::AgentStatusChanged(_) => EventType::AgentStatusChanged,
+            Self::IdentityKeyRegistered(_) => EventType::IdentityKeyRegistered,
+            Self::IdentityKeyRevoked(_) => EventType::IdentityKeyRevoked,
             Self::KillSwitchEnabled(_) => EventType::KillSwitchEnabled,
             Self::KillSwitchDisabled(_) => EventType::KillSwitchDisabled,
             Self::IntentExpired(_) => EventType::IntentExpired,
@@ -361,6 +422,10 @@ impl AuditPayload {
             | Self::BudgetReleased(value) => encode(value),
             Self::PolicyChanged(value) => encode(value),
             Self::AgentPaused(value) => encode(value),
+            Self::AgentRegistered(value) => encode(value),
+            Self::AgentStatusChanged(value) => encode(value),
+            Self::IdentityKeyRegistered(value) => encode(value),
+            Self::IdentityKeyRevoked(value) => encode(value),
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => encode(value),
             Self::IntentExpired(value) => encode(value),
             Self::IntentCancelled(value) => encode(value),
@@ -403,6 +468,12 @@ impl AuditPayload {
             EventType::BudgetReleased => Self::BudgetReleased(decode(event_type, fields)?),
             EventType::PolicyChanged => Self::PolicyChanged(decode(event_type, fields)?),
             EventType::AgentPaused => Self::AgentPaused(decode(event_type, fields)?),
+            EventType::AgentRegistered => Self::AgentRegistered(decode(event_type, fields)?),
+            EventType::AgentStatusChanged => Self::AgentStatusChanged(decode(event_type, fields)?),
+            EventType::IdentityKeyRegistered => {
+                Self::IdentityKeyRegistered(decode(event_type, fields)?)
+            }
+            EventType::IdentityKeyRevoked => Self::IdentityKeyRevoked(decode(event_type, fields)?),
             EventType::KillSwitchEnabled => Self::KillSwitchEnabled(decode(event_type, fields)?),
             EventType::KillSwitchDisabled => Self::KillSwitchDisabled(decode(event_type, fields)?),
             EventType::IntentExpired => Self::IntentExpired(decode(event_type, fields)?),
@@ -603,6 +674,84 @@ impl AuditPayload {
                     ("reason_code", &value.reason_code),
                 ],
             )?,
+            Self::AgentRegistered(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("status", &value.status),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                agent_status(event_type, "status", &value.status)?;
+                sha256(event_type, "record_hash", &value.record_hash)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
+            Self::AgentStatusChanged(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("previous_status", &value.previous_status),
+                        ("status", &value.status),
+                        ("actor_id", &value.actor_id),
+                        ("reason_code", &value.reason_code),
+                    ],
+                )?;
+                agent_status(event_type, "previous_status", &value.previous_status)?;
+                agent_status(event_type, "status", &value.status)?;
+                sha256(event_type, "record_hash", &value.record_hash)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
+            Self::IdentityKeyRegistered(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("key_id", &value.key_id),
+                        ("algorithm", &value.algorithm),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                if value.algorithm != "ED25519" {
+                    return Err(invalid(event_type, "algorithm must be ED25519"));
+                }
+                sha256(
+                    event_type,
+                    "public_key_fingerprint",
+                    &value.public_key_fingerprint,
+                )?;
+                sha256(event_type, "key_record_hash", &value.key_record_hash)?;
+                if value
+                    .expires_at
+                    .is_some_and(|expires_at| expires_at <= value.activates_at)
+                {
+                    return Err(invalid(event_type, "expires_at must follow activates_at"));
+                }
+                positive_version(event_type, value.lifecycle_version)?;
+            }
+            Self::IdentityKeyRevoked(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("key_id", &value.key_id),
+                        ("actor_id", &value.actor_id),
+                        ("reason_code", &value.reason_code),
+                    ],
+                )?;
+                sha256(
+                    event_type,
+                    "public_key_fingerprint",
+                    &value.public_key_fingerprint,
+                )?;
+                sha256(event_type, "key_record_hash", &value.key_record_hash)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => strings(
                 event_type,
                 &[
@@ -630,6 +779,10 @@ impl AuditPayload {
             self,
             Self::PolicyChanged(_)
                 | Self::AgentPaused(_)
+                | Self::AgentRegistered(_)
+                | Self::AgentStatusChanged(_)
+                | Self::IdentityKeyRegistered(_)
+                | Self::IdentityKeyRevoked(_)
                 | Self::KillSwitchEnabled(_)
                 | Self::KillSwitchDisabled(_)
         )
@@ -698,6 +851,10 @@ impl AuditPayload {
             | Self::BudgetReleased(_)
             | Self::PolicyChanged(_)
             | Self::AgentPaused(_)
+            | Self::AgentRegistered(_)
+            | Self::AgentStatusChanged(_)
+            | Self::IdentityKeyRegistered(_)
+            | Self::IdentityKeyRevoked(_)
             | Self::KillSwitchEnabled(_)
             | Self::KillSwitchDisabled(_) => return Ok(current),
         };
@@ -846,6 +1003,32 @@ fn sha256(
             event_type,
             format!("{field} must be 64 lowercase SHA-256 hex characters"),
         ))
+    }
+}
+
+fn agent_status(
+    event_type: EventType,
+    field: &'static str,
+    value: &str,
+) -> Result<(), AuditPayloadError> {
+    if matches!(
+        value,
+        "ACTIVE" | "SHADOW_ONLY" | "PAUSED" | "REVOKED" | "EXPIRED"
+    ) {
+        Ok(())
+    } else {
+        Err(invalid(
+            event_type,
+            format!("{field} is not an Agent status"),
+        ))
+    }
+}
+
+fn positive_version(event_type: EventType, version: u64) -> Result<(), AuditPayloadError> {
+    if version > 0 {
+        Ok(())
+    } else {
+        Err(invalid(event_type, "lifecycle_version must be positive"))
     }
 }
 

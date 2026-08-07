@@ -1,7 +1,7 @@
 # ATF Delivery Plan
 
 Updated: 2026-08-08
-Planning baseline: `main` at `d112e7e`
+Planning baseline: `main` at `73ef1c1`
 
 ## 1. Purpose and source of truth
 
@@ -70,12 +70,15 @@ idempotency reservation/result transactions, database-clock evaluator leases,
 renewal/reclaim and generation fencing. DS-013 added exact completed retry,
 stage-boundary heartbeat, concurrent result convergence and request-driven
 fail-closed recovery. DS-014 added the canonical domain-separated Identity
-Envelope and exact-key verifier; the next task is DS-015.
+Envelope and exact-key verifier. DS-015 added restart-safe Agent/Key lifecycle,
+atomic operator Audit evidence and offline provisioning; the next task is
+DS-016.
 
 ### Present but incomplete or unwired
 
-- Identity has a domain-separated canonical Envelope and exact-key verifier,
-  but Agent/Key state remains in memory and Gateway does not call it.
+- Identity has a domain-separated canonical Envelope, exact-key verifier and
+  PostgreSQL-backed Agent/Key lifecycle with offline provisioning, but Gateway
+  does not call it and signed Nonces are not consumed.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
@@ -91,9 +94,9 @@ Envelope and exact-key verifier; the next task is DS-015.
 
 ### Missing release controls
 
-- Durable Agent/Key lifecycle, authenticated Nonce replay protection and
-  deterministic Context-based recovery; the pure Identity Envelope, exact
-  result return and restrictive request-driven recovery are complete.
+- Authenticated Nonce replay protection and deterministic Context-based
+  recovery; the Identity Envelope, durable Agent/Key authority, exact result
+  return and restrictive request-driven recovery are complete.
 - Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, background recovery operations and
@@ -333,7 +336,7 @@ decision-relevant free-form Audit payloads with typed, schema-validated data.
 events; DS-007 adds the explicit Shadow-only `IDENTITY_UNVERIFIED` state and
 `IdentityVerificationSkipped` event. `atf-core` remains the only pure
 transition table, now exhaustively testing all 484 state pairs and every
-terminal successor. `atf-audit` owns 28 canonical version-1 payload variants,
+terminal successor. `atf-audit` owns 32 canonical version-1 payload variants,
 tagged required/optional module outcomes, intent-scope validation, and explicit
 event effects. Real typed Rust output is checked against a closed JSON Schema,
 and the store's admission/finalization producers no longer assemble free-form
@@ -592,11 +595,13 @@ environment, millisecond timestamps, a maximum five-minute lifetime and a
 IDs, validates Agent organization/environment/status/lifetime, uses strict
 Ed25519 verification over Envelope bytes only, and returns `VerifiedIdentity`.
 The former raw-hash/try-any-key API is removed. A Node/OpenSSL-derived JSON
-vector and Rust mutation tests lock every signed field. Persistence, Key
-activation/revocation metadata and offline provisioning remain DS-015; Gateway
+vector and Rust mutation tests lock every signed field. DS-015 now persists
+Key activation/revocation metadata and exposes offline provisioning; Gateway
 wiring and atomic Nonce consumption remain DS-016.
 
 ### DS-015 — Persist Agent and key lifecycle `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Store Agent records and key metadata with activation,
 expiration and revocation windows. Add offline/local operator CLI commands for
@@ -611,6 +616,20 @@ initial provisioning so no unauthenticated Admin HTTP endpoint is introduced.
   2. A bounded old/new key overlap works and is selected by `key_id`.
   3. Provision/revoke operations are audited without storing private keys.
 - **Verification:** lifecycle integration tests and CLI provision/revoke smoke; full DoD.
+
+**Delivered boundary:** migration 0004 makes PostgreSQL the organization-scoped
+authority for canonical Agent records and exact Ed25519 public keys. Agent
+status and key revocation are monotonic lifecycle versions whose current rows
+point to `AgentRegistered`, `AgentStatusChanged`, `IdentityKeyRegistered`, or
+`IdentityKeyRevoked` evidence committed in the same transaction. Verified
+repeatable-read loads recompute canonical bytes/hashes and check the complete
+Audit chain. Database guards reject rebinding, deletion, un-revocation and
+truncate. Restart tests cover paused/expired/revoked Agents,
+inactive/expired/revoked Keys, bounded old/new overlap, strict `key_id`, tenant
+isolation, duplicate rollback, concurrent mutation and tamper. The real
+`atf identity` CLI provisions, registers, pauses and revokes with
+`DATABASE_URL`; it accepts and stores public keys only. Gateway authentication
+and atomic Nonce consumption remain DS-016.
 
 ### DS-016 — Wire identity and nonce consumption before Policy/Risk `[M]`
 

@@ -6,6 +6,9 @@ pub enum StoreError {
     #[error("typed Audit payload is invalid: {0}")]
     AuditPayload(#[from] atf_audit::AuditPayloadError),
 
+    #[error("identity domain rejected durable state: {0}")]
+    IdentityDomain(#[from] atf_identity::IdentityError),
+
     #[error("PostgreSQL operation failed: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -33,6 +36,39 @@ pub enum StoreError {
 
     #[error("organization `{organization_id}` does not exist")]
     OrganizationNotFound { organization_id: String },
+
+    #[error("Agent `{agent_id}` already exists in organization `{organization_id}`")]
+    AgentConflict {
+        organization_id: String,
+        agent_id: String,
+    },
+
+    #[error("Agent `{agent_id}` does not exist in organization `{organization_id}`")]
+    AgentNotFound {
+        organization_id: String,
+        agent_id: String,
+    },
+
+    #[error("identity key `{key_id}` already exists for Agent `{agent_id}` in organization `{organization_id}`")]
+    IdentityKeyConflict {
+        organization_id: String,
+        agent_id: String,
+        key_id: String,
+    },
+
+    #[error("identity key `{key_id}` does not exist for Agent `{agent_id}` in organization `{organization_id}`")]
+    IdentityKeyNotFound {
+        organization_id: String,
+        agent_id: String,
+        key_id: String,
+    },
+
+    #[error("durable identity state for Agent `{agent_id}` in organization `{organization_id}` is corrupt: {reason}")]
+    IdentityStateCorrupt {
+        organization_id: String,
+        agent_id: String,
+        reason: String,
+    },
 
     #[error(
         "Intent admission conflicts with an immutable record in organization `{organization_id}` (intent `{intent_id}`, idempotency key `{idempotency_key}`)"

@@ -49,9 +49,9 @@ impl Store {
         organization_id: &str,
         event: NewAuditEvent,
     ) -> Result<StoredAuditEvent, StoreError> {
-        if event.event_type.has_lifecycle_effect() {
+        if event.event_type.requires_atomic_state_transaction() {
             return Err(StoreError::InvalidAuditEvent {
-                reason: "Intent lifecycle events require an atomic state transaction",
+                reason: "lifecycle events require an atomic state transaction",
             });
         }
         let mut transaction = self.pool.begin().await?;

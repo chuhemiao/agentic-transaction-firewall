@@ -1,4 +1,4 @@
-use atf_identity::{EnvelopeVerificationContext, IdentityEnvelope};
+use atf_identity::{EnvelopeVerificationContext, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::TransactionIntent;
 use ed25519_dalek::{Signer, SigningKey};
 
@@ -45,6 +45,18 @@ fn signing_key() -> SigningKey {
     SigningKey::from_bytes(&decode_hex(vector["test_key_seed_hex"].as_str().unwrap()))
 }
 
+fn key_record(key_id: &str, key: ed25519_dalek::VerifyingKey) -> IdentityKeyRecord {
+    IdentityKeyRecord::from_public_key_bytes(
+        "research-agent-01".into(),
+        key_id.into(),
+        &key.to_bytes(),
+        "2098-01-01T00:00:00.000Z".parse().unwrap(),
+        Some("2099-01-01T00:00:00.000Z".parse().unwrap()),
+        None,
+    )
+    .unwrap()
+}
+
 fn signature() -> [u8; 64] {
     decode_hex(vector()["signature_hex"].as_str().unwrap())
 }
@@ -58,7 +70,7 @@ fn agent_record() -> AgentRecord {
         model_provider: "test".into(),
         model_name: "deterministic-vector".into(),
         agent_version: "1.0.0".into(),
-        code_hash: "vector-only".into(),
+        code_hash: "a".repeat(64),
         deployment_environment: "production".into(),
         allowed_tools: Vec::new(),
         allowed_adapters: Vec::new(),
@@ -76,13 +88,12 @@ fn registry() -> IdentityRegistry {
 
 fn registry_for(record: AgentRecord) -> IdentityRegistry {
     let mut registry = IdentityRegistry::new();
-    registry.register_agent(record);
+    registry.register_agent(record).unwrap();
     registry
-        .register_key(
-            "research-agent-01",
+        .register_key(key_record(
             "identity-key-2026-01",
             signing_key().verifying_key(),
-        )
+        ))
         .unwrap();
     registry
 }
@@ -266,11 +277,10 @@ fn every_signed_field_mutation_invalidates_the_published_signature() {
     let context = context();
     let mut registry = registry();
     registry
-        .register_key(
-            "research-agent-01",
+        .register_key(key_record(
             "identity-key-2026-02",
             signing_key().verifying_key(),
-        )
+        ))
         .unwrap();
 
     let mut cases = Vec::new();
@@ -319,16 +329,12 @@ fn verification_uses_only_the_declared_key_and_never_the_legacy_raw_hash() {
     let old_key = SigningKey::from_bytes(&[7; 32]);
     let declared_key = SigningKey::from_bytes(&[8; 32]);
     let mut registry = IdentityRegistry::new();
-    registry.register_agent(agent_record());
+    registry.register_agent(agent_record()).unwrap();
     registry
-        .register_key("research-agent-01", "old-key", old_key.verifying_key())
+        .register_key(key_record("old-key", old_key.verifying_key()))
         .unwrap();
     registry
-        .register_key(
-            "research-agent-01",
-            &envelope.key_id,
-            declared_key.verifying_key(),
-        )
+        .register_key(key_record(&envelope.key_id, declared_key.verifying_key()))
         .unwrap();
 
     let signed_by_other_registered_key = old_key.sign(&envelope.canonical_bytes()).to_bytes();
@@ -354,11 +360,10 @@ fn duplicate_key_ids_are_rejected_instead_of_replacing_key_material() {
     let mut registry = registry();
 
     let error = registry
-        .register_key(
-            "research-agent-01",
+        .register_key(key_record(
             "identity-key-2026-01",
             SigningKey::from_bytes(&[9; 32]).verifying_key(),
-        )
+        ))
         .unwrap_err();
 
     assert_eq!(error.code(), "IDENTITY_KEY_ALREADY_REGISTERED");
@@ -430,7 +435,7 @@ fn agent_status_and_missing_registry_entries_still_fail_closed() {
     assert_eq!(unknown_agent.code(), "IDENTITY_AGENT_UNKNOWN");
 
     let mut no_key = IdentityRegistry::new();
-    no_key.register_agent(agent_record());
+    no_key.register_agent(agent_record()).unwrap();
     let unknown_key = no_key
         .verify_envelope(&intent(), &envelope(), &signature(), &context())
         .unwrap_err();
@@ -442,12 +447,12 @@ fn rotation_overlap_verifies_each_signature_only_under_its_declared_key_id() {
     let first = SigningKey::from_bytes(&[21; 32]);
     let second = SigningKey::from_bytes(&[22; 32]);
     let mut registry = IdentityRegistry::new();
-    registry.register_agent(agent_record());
+    registry.register_agent(agent_record()).unwrap();
     registry
-        .register_key("research-agent-01", "rotation-1", first.verifying_key())
+        .register_key(key_record("rotation-1", first.verifying_key()))
         .unwrap();
     registry
-        .register_key("research-agent-01", "rotation-2", second.verifying_key())
+        .register_key(key_record("rotation-2", second.verifying_key()))
         .unwrap();
 
     for (key_id, key) in [("rotation-1", first), ("rotation-2", second)] {

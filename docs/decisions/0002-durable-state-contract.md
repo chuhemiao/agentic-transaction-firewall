@@ -332,7 +332,8 @@ Costs and residual risks:
 - `DS-014`: implemented canonical domain-separated Identity Envelope bytes,
   pure scope/time validation, exact Key ID selection and strict Ed25519
   verification without a raw-hash fallback.
-- `DS-015`: persist Agent and Key lifecycle plus offline provisioning.
+- `DS-015`: implemented Agent and Key lifecycle plus offline provisioning in
+  migration 0004, with atomic typed Audit evidence and verified restart reads.
 - `DS-016`: add identity-key recheck and nonce consumption to admission.
 - `DS-023`: persist immutable Evaluation Context inputs for deterministic
   crash recovery and replay.

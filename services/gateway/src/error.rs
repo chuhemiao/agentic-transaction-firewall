@@ -136,6 +136,8 @@ impl ApiError {
                 "The idempotent request is in progress or awaiting recovery.",
             ),
             StoreError::IntentConflict { .. }
+            | StoreError::AgentConflict { .. }
+            | StoreError::IdentityKeyConflict { .. }
             | StoreError::IntentHashMismatch { .. }
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
@@ -147,6 +149,7 @@ impl ApiError {
                 "The request conflicts with existing durable state.",
             ),
             StoreError::DurableStateCorrupt { .. }
+            | StoreError::IdentityStateCorrupt { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
             | StoreError::IncompleteDecisionEvidence { .. }
             | StoreError::AuditChainCorrupt { .. } => Self::new(
@@ -155,8 +158,11 @@ impl ApiError {
                 "Durable state failed an integrity check.",
             ),
             StoreError::AuditPayload(_)
+            | StoreError::IdentityDomain(_)
             | StoreError::InvalidAuditEvent { .. }
             | StoreError::InvalidRepositoryInput { .. }
+            | StoreError::AgentNotFound { .. }
+            | StoreError::IdentityKeyNotFound { .. }
             | StoreError::IdempotencyNotFound { .. }
             | StoreError::RecoveredWorkMustFailClosed { .. }
             | StoreError::IntentNotFound { .. }

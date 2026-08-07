@@ -7,6 +7,15 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- Migration 0004 and `atf-store` Agent/identity-key repositories. Canonical
+  organization-scoped records carry exact bytes/hashes, monotonic lifecycle
+  versions and typed Audit event pointers; registration, status changes and
+  irreversible key revocation commit state plus Audit atomically.
+- Offline `atf identity` commands for Agent provisioning, Ed25519 public-key
+  registration, Agent status changes and key revocation. Real CLI/PostgreSQL
+  tests cover restart, bounded key overlap, strict key selection, lifecycle
+  rejection, concurrency, rollback, tenant isolation and tamper; no command,
+  durable row or Audit payload accepts private key material.
 - The canonical `ATF_INTENT_V1` Identity Envelope and strict Ed25519
   verification in `atf-identity`. Sorted compact JSON binds organization,
   Agent, exact Key ID, Intent hash, explicit five-minute lifetime, Nonce,

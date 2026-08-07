@@ -12,10 +12,11 @@ pub use error::ChainVerificationError;
 pub use event::{AuditEvent, EventType, NewAuditEvent};
 pub use ledger::AuditLedger;
 pub use payload::{
-    AgentPausedPayload, ApprovalRejectedPayload, ApprovalRequestedPayload, ApprovalResolvedPayload,
-    AuditPayload, AuditPayloadError, BudgetPayload, ContextEnrichedPayload,
-    DecisionRecordedPayload, ExecutionConfirmedPayload, ExecutionFailedPayload,
-    ExecutionGrantPayload, ExecutionSubmittedPayload, IdentityRejectedPayload,
+    AgentPausedPayload, AgentRegisteredPayload, AgentStatusChangedPayload, ApprovalRejectedPayload,
+    ApprovalRequestedPayload, ApprovalResolvedPayload, AuditPayload, AuditPayloadError,
+    BudgetPayload, ContextEnrichedPayload, DecisionRecordedPayload, ExecutionConfirmedPayload,
+    ExecutionFailedPayload, ExecutionGrantPayload, ExecutionSubmittedPayload,
+    IdentityKeyRegisteredPayload, IdentityKeyRevokedPayload, IdentityRejectedPayload,
     IdentityVerificationSkippedPayload, IdentityVerifiedPayload, IntentCancelledPayload,
     IntentExpiredPayload, IntentReceivedPayload, KillSwitchPayload, OptionalModuleOutcome,
     PolicyChangedPayload, PolicyEvaluatedPayload, PolicyOutcome, ReconciliationFailedPayload,

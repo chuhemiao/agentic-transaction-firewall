@@ -1,8 +1,8 @@
 # Identity Envelope v1
 
-This document fixes the DS-014 Agent identity signature contract. It defines
-the pure domain boundary only: DS-015 persists Agent/key lifecycle, and DS-016
-verifies this envelope plus atomically consumes its nonce during Gateway
+This document fixes the DS-014 Agent identity signature contract. DS-015 now
+persists Agent/key lifecycle; DS-016 verifies this envelope plus atomically
+consumes its nonce during Gateway
 admission. An envelope that verifies proves which registered Agent signed one
 exact Intent; it never grants permission to bypass Policy or Risk.
 
@@ -88,7 +88,8 @@ Keys are addressed by `(agent_id, key_id)`. Duplicate registration of that
 pair fails instead of replacing key material. Verification looks up only the
 declared pair and uses strict Ed25519 verification over canonical bytes. There
 is no legacy raw-hash verifier and no “try every key until one works” fallback.
-Key activation, expiry, revocation and durable rotation overlap are DS-015.
+DS-015 persists key activation, expiry, revocation and durable rotation
+overlap; `IdentityRegistry` applies those explicit records during verification.
 
 A successful verification returns a `VerifiedIdentity` containing the exact
 organization, Agent, key ID, nonce and envelope expiry. DS-016 will consume the

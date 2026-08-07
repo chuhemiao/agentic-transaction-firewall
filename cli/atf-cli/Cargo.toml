@@ -13,13 +13,17 @@ path = "src/main.rs"
 
 [dependencies]
 atf-core = { workspace = true }
+atf-identity = { workspace = true }
 atf-intent = { workspace = true }
 atf-policy = { workspace = true }
 atf-risk = { workspace = true }
 atf-decision = { workspace = true }
+atf-store = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
+sqlx = { workspace = true }

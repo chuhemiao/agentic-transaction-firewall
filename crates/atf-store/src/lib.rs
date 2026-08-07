@@ -3,11 +3,13 @@
 //! Cross-table admission and finalization operations live here rather than in
 //! the Gateway. Schema migration/compatibility, durable Audit append, and the
 //! DS-004 short repository transactions and the DS-005 Gateway cutover are
-//! implemented; DS-007 adds persisted lifecycle state to this boundary.
+//! implemented; DS-007 adds persisted Intent lifecycle and DS-015 adds
+//! persisted Agent/identity-key lifecycle to this boundary.
 
 mod audit;
 mod error;
 mod idempotency;
+mod identity;
 mod lifecycle;
 mod models;
 mod repository;
@@ -17,6 +19,7 @@ use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
 
 pub use audit::StoredAuditEvent;
 pub use error::StoreError;
+pub use identity::{IdentitySnapshot, StoredAgent, StoredIdentityKey};
 pub use models::{
     AdmissionGrant, AdmissionInput, AdmittedIntent, EvaluationInput, EvaluatorLease,
     FinalizationInput, FinalizedDecision, IdempotencyReservation, IdempotencyResult,
@@ -25,7 +28,7 @@ pub use models::{
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 3;
+pub const CURRENT_SCHEMA_VERSION: i32 = 4;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

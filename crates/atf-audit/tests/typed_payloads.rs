@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
 use atf_audit::{
-    ApprovalRequestedPayload, AuditPayload, ContextEnrichedPayload, DecisionRecordedPayload,
-    EventType, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
+    AgentRegisteredPayload, AgentStatusChangedPayload, ApprovalRequestedPayload, AuditPayload,
+    ContextEnrichedPayload, DecisionRecordedPayload, EventType, IdentityKeyRegisteredPayload,
+    IdentityKeyRevokedPayload, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
     IdentityVerifiedPayload, IntentReceivedPayload, KillSwitchPayload, NewAuditEvent,
     OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
     RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
@@ -260,5 +261,70 @@ fn legacy_event_names_remain_decodable_without_becoming_typed_transitions() {
     ] {
         let event_type: EventType = serde_json::from_str(name).unwrap();
         assert!(!event_type.has_typed_payload());
+    }
+}
+
+#[test]
+fn identity_operator_events_are_typed_non_intent_evidence_without_key_material() {
+    let occurred_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
+    let events = [
+        AuditPayload::AgentRegistered(AgentRegisteredPayload {
+            organization_id: "alpha-lab".into(),
+            agent_id: "agent-1".into(),
+            status: "ACTIVE".into(),
+            record_hash: hash('6'),
+            lifecycle_version: 1,
+            actor_id: "operator-1".into(),
+        }),
+        AuditPayload::AgentStatusChanged(AgentStatusChangedPayload {
+            organization_id: "alpha-lab".into(),
+            agent_id: "agent-1".into(),
+            previous_status: "ACTIVE".into(),
+            status: "PAUSED".into(),
+            record_hash: hash('7'),
+            lifecycle_version: 2,
+            actor_id: "operator-1".into(),
+            reason_code: "OPERATOR_PAUSE".into(),
+        }),
+        AuditPayload::IdentityKeyRegistered(IdentityKeyRegisteredPayload {
+            organization_id: "alpha-lab".into(),
+            agent_id: "agent-1".into(),
+            key_id: "key-1".into(),
+            algorithm: "ED25519".into(),
+            public_key_fingerprint: hash('8'),
+            key_record_hash: hash('9'),
+            activates_at: occurred_at,
+            expires_at: Some(Timestamp::from_str("2026-09-08T12:00:00Z").unwrap()),
+            lifecycle_version: 1,
+            actor_id: "operator-1".into(),
+        }),
+        AuditPayload::IdentityKeyRevoked(IdentityKeyRevokedPayload {
+            organization_id: "alpha-lab".into(),
+            agent_id: "agent-1".into(),
+            key_id: "key-1".into(),
+            public_key_fingerprint: hash('8'),
+            key_record_hash: hash('a'),
+            revoked_at: occurred_at,
+            lifecycle_version: 2,
+            actor_id: "operator-1".into(),
+            reason_code: "KEY_COMPROMISED".into(),
+        }),
+    ];
+
+    for payload in events {
+        let expected = payload.clone();
+        let event = NewAuditEvent::from_payload(occurred_at, None, payload)
+            .unwrap()
+            .chain(None);
+        assert!(event.event_type.has_typed_payload());
+        assert!(!event.event_type.has_lifecycle_effect());
+        assert_eq!(event.data["schema_version"], 1);
+        assert_eq!(event.typed_payload().unwrap(), expected);
+        assert_eq!(
+            expected.next_state(Some(State::Received)).unwrap(),
+            Some(State::Received)
+        );
+        assert!(event.data.get("public_key").is_none());
+        assert!(event.data.get("private_key").is_none());
     }
 }

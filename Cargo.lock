@@ -155,12 +155,16 @@ dependencies = [
  "anyhow",
  "atf-core",
  "atf-decision",
+ "atf-identity",
  "atf-intent",
  "atf-policy",
  "atf-risk",
+ "atf-store",
  "clap",
  "serde",
  "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]
@@ -268,8 +272,10 @@ dependencies = [
  "atf-audit",
  "atf-core",
  "atf-decision",
+ "atf-identity",
  "atf-intent",
  "chrono",
+ "ed25519-dalek",
  "home",
  "serde",
  "serde_json",
