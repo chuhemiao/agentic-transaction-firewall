@@ -58,6 +58,10 @@ order. The executable order is:
   typed-resource and same-chain CAIP-2/10/19 relationships, forbid fields owned
   by other financial profiles, and reject every unsupported action pair before
   durable admission or Policy/Risk.
+- [x] DS-011 Standardize safe Gateway errors as
+  `{code,message,request_id,details}`, generate a server-owned request ID for
+  every response, and prove Schema/common/Profile rejection leaves no durable
+  record before Policy/Risk.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -85,9 +89,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-011` — stabilize the Gateway error envelope and
-prove the full Schema → common semantics → profile ordering before durable
-admission and Policy/Risk without exposing internal error details.
+**Immediate next task:** `DS-012` — add the atomic PostgreSQL idempotency
+reservation and evaluator-lease state required for exact retry, conflict and
+recovery semantics.
 
 ## Later releases
 

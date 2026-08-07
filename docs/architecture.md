@@ -104,8 +104,11 @@ Agent Intent
   and verified through restart and two real Gateway processes. Does not call
   `atf-identity`; the organization header is an unauthenticated tenant hint,
   not an authorization boundary. Identity is explicitly recorded as skipped
-  (`IDENTITY_UNVERIFIED`) and cannot authorize execution. Exact idempotent
-  retry, lifecycle recovery, limits, and metrics remain absent.*
+  (`IDENTITY_UNVERIFIED`) and cannot authorize execution. Every response has a
+  server-generated request ID; business/Router/Store errors use one fixed safe
+  JSON envelope without returning raw Schema, SQL, policy or key/internal
+  diagnostics. Exact idempotent retry, lifecycle recovery, configured limits,
+  full trace/Audit correlation, and metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -122,8 +125,8 @@ Agent Intent
   DS-004 admission/finalization transaction subset and DS-005 Gateway cutover
   plus the DS-006 domain contract, DS-007 persisted/replayable lifecycle, and
   DS-008 closed Intent envelope/version contract plus DS-009 common semantic
-  validator and DS-010 Agent-Commerce Payment profile now exist. Additional
-  action profiles,
+  validator, DS-010 Agent-Commerce Payment profile, and DS-011 safe API
+  error/validation-order contract now exist. Additional action profiles,
   idempotency result state, leases/fencing, and recovery remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
@@ -233,6 +236,11 @@ implementation order are in ADR-0002.
     admission but before finalization remains visibly `RECEIVED` but can still
     strand work until leases and idempotent recovery are implemented in
     DS-012/DS-013.
+11. `services/gateway` generates a fresh ULID at the HTTP boundary and returns
+    it as `X-ATF-Request-ID` on every response. Business errors expose only the
+    fixed `{code,message,request_id,details}` contract; validation details are
+    server-owned semantic code/field pairs. Health/readiness keep minimal text
+    bodies. See `docs/api.md` for the code/status and compatibility contract.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -279,9 +287,9 @@ complete Decision Engine:
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization
-  Audit chain for history rules, has no request/body/rate limits, and has no
-  lifecycle recovery worker or exact retry semantics. A duplicate POST currently
-  conflicts, and a failure between admission and finalization can leave an
+  Audit chain for history rules, has no configured header/timeout/rate limits,
+  and has no lifecycle recovery worker or exact retry semantics. A duplicate
+  POST currently conflicts, and a failure between admission and finalization can leave an
   admitted Intent without a Decision. These are explicit DS-012 onward gaps,
   not reasons to reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and

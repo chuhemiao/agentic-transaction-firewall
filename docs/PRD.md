@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `RECEIVED/v1` + `IntentReceived`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、五个类型化阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。其他 Action Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表、28 类版本化 Audit Payload、严格 JSON Schema、PostgreSQL State/Version/Event Pointer 以及读取时事件重放。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。当前 Gateway 尚未接入 Identity，因此显式记录 `IdentityVerificationSkipped -> IDENTITY_UNVERIFIED`；该分支只允许 Shadow Evaluation，不构成身份保证或执行权限。其他 Action Profile、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1322,7 +1322,7 @@ PRD v1.2 不再把目标目录结构等同于完成状态。当前模块分类�
 3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity`。
 4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
 5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放和 Gateway 请求路径接入已落地；Evaluator Lease/Fencing、原子幂等结果和 admitted-but-unfinalized Recovery 尚未实现。
-6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和除已落地 `intent-spec.md` 外的大部分独立 Specification。
+6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和除已落地 `intent-spec.md`/`api.md` 外的大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
 
@@ -1471,6 +1471,15 @@ MVP 必须实现：
 Organization。GET Decision 必须携带 `X-ATF-Organization-ID` 才能按复合租户键
 查询，但该 Header 只是 DS-005 的过渡 Tenant Selector，不构成身份或授权；在
 DS-017/DS-018 完成前，业务接口不得暴露到共享或不可信网络。
+
+DS-011 当前错误契约：业务 Handler、未知路由、Method Not Allowed 和 Store
+失败统一返回顶层 `{code,message,request_id,details}` JSON；`details` 永远是
+数组，只能包含服务端固定的 Semantic/Profile Code 与 Field。每个响应携带
+服务端生成的 `X-ATF-Request-ID`，调用方同名 Header 不被信任。错误响应不得
+复制原始请求、JSON Schema Diagnostics、SQL/Database URL、Policy 文本、Key
+Material 或内部错误字符串。`/healthz` 与 `/readyz` 为编排系统保留最小文本
+Body，但仍返回 Request ID。稳定 Code/Status 和 Validation Ordering 的规范见
+`docs/api.md`。
 
 Durable Shadow Mode 必须补充：
 

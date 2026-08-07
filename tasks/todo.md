@@ -58,8 +58,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-010:** added closed profile dispatch and the supported
   Agent-Commerce Payment profile, including CAIP chain binding and unsupported
   action rejection before durable admission. Depends: DS-009.
-- [ ] **NEXT — DS-011:** stabilize API errors and validation-before-evaluation ordering. Depends: DS-005, DS-009, DS-010.
-- [ ] **DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.
+- [x] **DS-011:** added the stable safe API error envelope, server-owned
+  request IDs and PostgreSQL-backed validation-before-evaluation evidence.
+  Depends: DS-005, DS-009, DS-010.
+- [ ] **NEXT — DS-012:** add atomic durable idempotency reservations. Depends: DS-004, DS-011.
 - [ ] **DS-013:** wire exact retry, conflict, concurrency and evaluator recovery. Depends: DS-012.
 - [ ] **DS-014:** implement the domain-separated Identity Envelope. Depends: DS-008.
 - [ ] **DS-015:** persist Agent/key lifecycle and add offline provisioning. Depends: DS-002, DS-014.

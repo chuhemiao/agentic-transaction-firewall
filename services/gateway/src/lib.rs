@@ -7,6 +7,8 @@
 //! it never signs or submits a transaction. See `docs/architecture.md` for
 //! what's next.
 
+mod error;
+mod request_id;
 mod routes;
 mod state;
 

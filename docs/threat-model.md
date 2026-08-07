@@ -50,7 +50,9 @@ secret. The realistic attack surface today includes:
 - **Unauthenticated HTTP input** to `POST /v1/intents` and tenant-selected
   reads from `GET /v1/intents/{id}/decision`. GET requires
   `X-ATF-Organization-ID`, but callers can forge it until authentication/RBAC
-  lands. There is no request-size limit, rate limit, or completed idempotency.
+  lands. DS-011 replaces caller correlation values with a server-generated ID
+  and makes business errors structurally stable, but there is no configured
+  header/timeout/rate limit or completed idempotency.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -63,7 +65,11 @@ secret. The realistic attack surface today includes:
   CAIP-2/10/19 syntax and same-chain asset/payee binding, forbids fields owned
   by other profiles, and rejects all unsupported action pairs before durable
   admission. Namespace-specific address/asset validation and fuzz/property
-  expansion remain Adapter-profile and DS-037 work.
+  expansion remain Adapter-profile and DS-037 work. DS-011 returns only fixed
+  error codes/messages and server-owned semantic code/field details; raw
+  request values, Schema diagnostics and internal Store/SQL/policy/key text do
+  not cross the HTTP response boundary. PostgreSQL tests prove all validation
+  rejection classes leave Intent/Evaluation/Decision/Audit counts at zero.
 - **Malicious or malformed Cedar policy files** fed to `atf-policy` —
   Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
   signed Bundle validation are still missing.

@@ -64,7 +64,9 @@ the Intent envelope/version contract. DS-009 added deterministic common
 semantic validation and migrated the valid fixture from a pseudo-ULID and
 multi-decade TTL to the declared contract. DS-010 added closed Profile
 dispatch, the supported Agent-Commerce Payment profile, CAIP-bound fixtures,
-and unsupported-action rejection; the next task is DS-011.
+and unsupported-action rejection. DS-011 added safe structured Gateway errors,
+server-owned request IDs and validation-order evidence; the next task is
+DS-012.
 
 ### Present but incomplete or unwired
 
@@ -387,7 +389,8 @@ paths, and lock the then-current x402 fixture hash. Cross-field semantics and
 stable library error codes were deferred to DS-009 and are now complete; the
 fixture received DS-009's documented ULID/TTL migration. Action profiles
 were deferred to DS-010; that task now supports one Payment profile and
-rejects every other action. The HTTP error-envelope contract remains DS-011.
+rejects every other action. DS-011 now supplies the HTTP error-envelope
+contract; atomic idempotency remains DS-012.
 
 ### DS-009 — Add Rust semantic validation with stable codes `[M]`
 
@@ -421,7 +424,7 @@ therefore before Policy/Risk. Previously valid-looking fixtures used
 24-character pseudo-ULIDs and multi-decade TTLs, so they received a documented
 migration and new golden hash. DS-010 now adds the supported Payment-specific
 validation and rejects all other actions; the Gateway-wide
-`{code,message,request_id,details}` response shape remains DS-011.
+`{code,message,request_id,details}` response shape is now complete in DS-011.
 
 ### DS-010 — Add profile dispatch and the supported Payment profile `[M]`
 
@@ -453,9 +456,11 @@ read-only derivable metadata. Every other category/operation returns
 profile Schema and specification document structural/cross-field ownership;
 the x402 example and conformance fixtures use CAIP identifiers and a newly
 locked canonical hash. x402 proof/delivery semantics remain RA-005, while the
-Gateway-wide safe error envelope remains DS-011.
+Gateway-wide safe error envelope is now complete in DS-011.
 
 ### DS-011 — Stabilize API errors and validation ordering `[S]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Return `{code,message,request_id,details}` errors and guarantee
 Schema, semantic and profile validation finish before durable admission and
@@ -470,6 +475,21 @@ before Policy/Risk. Internal messages must not leak SQL, policy or key material.
   2. Internal failures return safe 5xx codes with a correlation ID.
   3. Error JSON is covered by an API contract test.
 - **Verification:** route spy/error-path tests and real curl negatives; full DoD.
+
+**Delivered boundary:** all business-handler, Store, unknown-route and
+method-not-allowed errors now use the exact top-level
+`{code,message,request_id,details}` JSON contract. A fresh server-generated
+ULID overrides any inbound request ID and is returned in
+`X-ATF-Request-ID`; fixed safe messages never serialize raw input, Schema
+diagnostics, SQL/database, policy or key/internal errors. Semantic/Profile
+details expose only stable server-owned code/field pairs. PostgreSQL route
+tests inspect Intent, Evaluation, Decision and Audit counts to prove UTF-8,
+JSON, Schema, common-semantic and Profile rejection happens before durable
+admission and therefore before authoritative Policy/Risk evidence. Store
+unavailability, immutable conflict, tenant-safe not-found and Router 404/405
+paths have the same contract. Health/readiness retain text bodies; full trace
+and Audit request-ID propagation remains DS-033. Exact idempotency reservation
+is next in DS-012.
 
 ### DS-012 — Add atomic idempotency reservation `[M]`
 

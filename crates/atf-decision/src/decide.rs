@@ -30,7 +30,7 @@ pub fn decide(
 ) -> Decision {
     let policy_outcome = match policy {
         Ok(outcome) => outcome,
-        Err(err) => return error_decision(intent, format!("policy evaluation error: {err}")),
+        Err(_) => return error_decision(intent),
     };
 
     let mut reasons: Vec<Reason> = policy_outcome
@@ -73,7 +73,7 @@ pub fn decide(
     }
 }
 
-fn error_decision(intent: &TransactionIntent, message: String) -> Decision {
+fn error_decision(intent: &TransactionIntent) -> Decision {
     Decision {
         decision_id: new_ulid(),
         intent_id: intent.intent_id.clone(),
@@ -81,7 +81,7 @@ fn error_decision(intent: &TransactionIntent, message: String) -> Decision {
         reasons: vec![Reason {
             code: "POLICY_EVALUATION_ERROR".to_string(),
             severity: "critical".to_string(),
-            message,
+            message: "Policy evaluation failed safely.".to_string(),
         }],
     }
 }
@@ -224,6 +224,12 @@ mod tests {
         let decision = decide(&intent, policy, &[]);
         assert_eq!(decision.decision, DecisionKind::Error);
         assert_ne!(decision.decision, DecisionKind::Permit);
+        assert_eq!(decision.reasons.len(), 1);
+        assert_eq!(decision.reasons[0].code, "POLICY_EVALUATION_ERROR");
+        assert_eq!(
+            decision.reasons[0].message,
+            "Policy evaluation failed safely."
+        );
     }
 
     #[test]

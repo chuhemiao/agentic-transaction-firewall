@@ -7,6 +7,13 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- A stable Gateway error contract: business-handler, Store, unknown-route and
+  method errors return `{code,message,request_id,details}` JSON; every response
+  carries a fresh server-generated `X-ATF-Request-ID` and validation details
+  contain only stable semantic code/field pairs.
+- `docs/api.md` with the implemented routes, safe error/status mapping,
+  correlation behavior, compatibility rules and exact validation/admission
+  ordering.
 - Closed, versioned Intent Profile dispatch plus
   `atf.agent-commerce.payment` v1.0. It requires a typed resource, strict
   CAIP-2 network, same-chain CAIP-19 asset and CAIP-10 destination, forbids
@@ -82,6 +89,12 @@ This project has not yet made a tagged release.
 
 ### Security
 
+- Raw request values, JSON Schema diagnostics, SQL/database information,
+  policy text, key material and internal errors are no longer serialized by
+  Gateway business errors; fail-closed Policy `Decision(ERROR)` reasons are
+  fixed rather than embedding Cedar mapping diagnostics. PostgreSQL contract tests prove UTF-8, JSON,
+  Schema, common-semantic and Profile rejection creates no Intent, Evaluation,
+  Decision or Audit record before Policy/Risk.
 - Schema-listed but semantically unimplemented actions can no longer inherit
   only common validation. Cross-chain Payment asset/payee mismatch, malformed
   CAIP IDs, missing typed resource/payee, and smuggled contract/trading fields

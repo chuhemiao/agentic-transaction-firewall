@@ -65,7 +65,11 @@ dispatcher and the protocol-neutral Agent-Commerce Payment v1.0 contract:
 typed resources, strict CAIP-2/10/19 syntax, exact asset/payee chain binding,
 forbidden contract/trading fields, and unsupported-action rejection all occur
 before admission. Protocol-specific and other financial Profiles remain later
-work; the next admission task is DS-011.
+work. DS-011 then fixes one safe business-error envelope, adds a fresh
+server-owned request ID to every response, maps Router/validation/Store errors
+without exposing internal diagnostics, and proves Schema/common/Profile
+rejection leaves all four durable business tables empty. The next admission
+task is DS-012.
 
 ## Module inventory
 
@@ -80,12 +84,12 @@ work; the next admission task is DS-011.
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, atomic admission/finalization, persisted/replayed lifecycle, evidence-gated reads, and live readiness are wired into the Gateway; leases/fencing, idempotent result state, and recovery remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, and `policy test` exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; restart/second-instance reads and dependency readiness are tested. Identity, lifecycle recovery, idempotency, auth, limits, metrics, and query APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; restart/second-instance reads, dependency readiness, stable safe errors, server-owned request IDs, Router fallbacks and validation ordering are tested. Identity, lifecycle recovery, idempotency, auth, configured limits, full correlation, metrics, and query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
 | Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
-| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` now fixes the DS-010 Payment Profile, while `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
+| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
 ## Gap matrix
@@ -350,12 +354,12 @@ work; the next admission task is DS-011.
 
 - **module:** `services/gateway`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** health/readiness and two business routes exist; no body limit, timeout, rate limit, correlation/trace ID, structured code, safe logging policy, or versioned response envelope.
-- **security_impact:** memory/CPU abuse, enumeration, ambiguous errors, and weak incident traceability.
-- **financial_impact:** availability loss and inability to correlate disputed financial actions.
+- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. Health/readiness retain text bodies. Authentication, explicit header/body/timeout/rate configuration, full trace/Audit propagation and a captured-log redaction policy remain absent.
+- **security_impact:** ambiguous/reflected/internal error disclosure is reduced and failures are client-correlatable; unauthenticated enumeration, resource exhaustion and incomplete incident traceability remain.
+- **financial_impact:** availability loss remains possible; a client can now correlate one failed HTTP response with local Store/readiness logs, but not yet with full traces or durable Audit evidence for a disputed action.
 - **severity:** `CRITICAL`
-- **recommended_change:** Tower/Axum security middleware and a uniform typed error/response contract after auth/persistence boundaries are set.
-- **required_tests:** oversized/slow/rate-limited requests, timeout, correlation propagation, log redaction, structured errors.
+- **recommended_change:** retain the DS-011 envelope while adding authentication/RBAC, finite configurable limits, full trace/Audit propagation and redaction through DS-018/DS-033/DS-034.
+- **required_tests:** structured error and local request-ID tests are implemented; oversized/slow/rate-limited requests, timeout, cross-service correlation and captured-log redaction remain.
 - **dependencies:** Authentication/Authorization and observability.
 - **target_release:** Durable Shadow Mode before shared deployment.
 - **acceptance_criteria:** every business request is bounded, attributable, scoped, safely logged, and returns a stable code.
@@ -363,8 +367,8 @@ work; the next admission task is DS-011.
 ### GAP-OBS-001 — Observability
 
 - **module:** Gateway and all evaluators
-- **current_state:** `MISSING`
-- **evidence:** tracing text initialization exists; no `/metrics`, structured spans, counters, histograms, trace IDs, or audit-write alerts.
+- **current_state:** `PARTIALLY_IMPLEMENTED`
+- **evidence:** DS-011 creates one server request ID per HTTP response and includes it with stable codes (not raw Store diagnostics) in Store/readiness failure logs. Tracing text initialization exists, but the ID is not yet propagated into general spans or Audit; no `/metrics`, counters, histograms, trace context, captured-log redaction test, or audit-write alert exists.
 - **security_impact:** attacks, fail-closed spikes, and audit failures are hard to detect.
 - **financial_impact:** latency/error regressions and abnormal transaction patterns remain invisible.
 - **severity:** `MEDIUM`
@@ -423,8 +427,8 @@ work; the next admission task is DS-011.
 
 ## Next vertical feature
 
-`DS-011` is next: stabilize the Gateway error envelope and explicitly prove
-Schema, common-semantic and profile validation ordering before admission and
-Policy/Risk while keeping internal SQL/policy/key details out of responses.
-Identity, idempotency, replay, and budget work must continue to build on the
-durable-only boundary rather than add process-local authority.
+`DS-012` is next: add the atomic PostgreSQL idempotency reservation and
+evaluator-lease state defined by ADR-0002, without holding evaluation-time
+database locks or returning process-local results. Identity, replay, and
+budget work must continue to build on the durable-only boundary rather than
+add process-local authority.

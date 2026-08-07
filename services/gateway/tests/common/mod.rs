@@ -3,7 +3,7 @@ use atf_policy::PolicyBundle;
 use atf_risk::RiskConfig;
 use atf_store::Store;
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Request, StatusCode};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Executor, PgConnection, PgPool,
@@ -89,6 +89,44 @@ pub async fn body_json(
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+pub async fn error_json(
+    response: axum::response::Response,
+    expected_status: StatusCode,
+    expected_code: &str,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    assert_eq!(response.status(), expected_status);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .expect("errors are JSON")
+            .to_str()?,
+        "application/json"
+    );
+    let header_request_id = response
+        .headers()
+        .get("x-atf-request-id")
+        .expect("every Gateway response has a request ID")
+        .to_str()?
+        .to_owned();
+    let body = body_json(response).await?;
+    let object = body.as_object().expect("the error body is a JSON object");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+
+    assert_eq!(keys, ["code", "details", "message", "request_id"]);
+    assert_eq!(body["code"], expected_code);
+    assert!(body["message"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty()));
+    assert_eq!(body["request_id"], header_request_id);
+    assert_eq!(header_request_id.len(), 26);
+    assert!(header_request_id.bytes().all(|byte| byte.is_ascii_digit()
+        || matches!(byte, b'A'..=b'H' | b'J'..=b'K' | b'M'..=b'N' | b'P'..=b'T' | b'V'..=b'Z')));
+    assert!(body["details"].is_array());
+    Ok(body)
+}
+
 pub struct TestDatabase {
     admin: PgConnection,
     pool: PgPool,
@@ -135,6 +173,20 @@ impl TestDatabase {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn business_record_counts(&self) -> Result<(i64, i64, i64, i64), sqlx::Error> {
+        sqlx::query_as(
+            r#"
+            SELECT
+                (SELECT count(*) FROM intents),
+                (SELECT count(*) FROM evaluations),
+                (SELECT count(*) FROM decisions),
+                (SELECT count(*) FROM audit_events)
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
     }
 
     pub async fn destroy(self) -> Result<(), Box<dyn Error>> {

@@ -6,7 +6,9 @@ use axum::http::{Request, StatusCode};
 use std::error::Error;
 use tower::ServiceExt;
 
-use common::{body_json, get_decision_request, post_intent_request, test_state, TestDatabase};
+use common::{
+    body_json, error_json, get_decision_request, post_intent_request, test_state, TestDatabase,
+};
 
 #[tokio::test]
 async fn second_gateway_state_reads_the_first_states_committed_decision(
@@ -75,11 +77,17 @@ async fn requests_fail_closed_without_exposing_database_details() -> Result<(), 
         .oneshot(post_intent_request("01J0000000000000000000V100", "12.50"))
         .await?;
 
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(
-        body_json(response).await?["error"],
-        "durable state is unavailable"
-    );
+    let error = error_json(
+        response,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "DURABLE_STATE_UNAVAILABLE",
+    )
+    .await?;
+    assert_eq!(error["message"], "Durable state is unavailable.");
+    let serialized = serde_json::to_string(&error)?;
+    assert!(!serialized.contains("PostgreSQL"));
+    assert!(!serialized.contains("postgres"));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0));
 
     database.destroy().await?;
     Ok(())

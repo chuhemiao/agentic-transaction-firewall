@@ -102,6 +102,11 @@ Only the following crates are implemented so far:
   `IdentityVerificationSkipped` and stores `IDENTITY_UNVERIFIED`; that branch
   is Shadow-only and conveys no execution authority. Identity and organization
   authorization are still missing.
+  Business-route, Router and durable-store failures now share the stable
+  `{code,message,request_id,details}` JSON contract documented in
+  `docs/api.md`. Every response receives a fresh server-generated
+  `X-ATF-Request-ID`; raw Schema, SQL, policy and key/internal error text is
+  not returned. Full trace/Audit propagation remains later observability work.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -121,7 +126,10 @@ hash changes intentionally. `DS-010` adds the protocol-neutral
 `atf.agent-commerce.payment` v1.0 profile used by the example, migrates its
 network/asset/destination identifiers to CAIP form, and locks the resulting
 new hash. x402 proof/delivery semantics remain a later Adapter concern.
-`DS-011`, stable Gateway API errors and validation ordering, is next.
+`DS-011` centralizes safe Gateway errors, adds server-owned request IDs, and
+proves Schema/common/Profile rejection leaves all durable business tables
+empty before Policy/Risk. `DS-012`, atomic durable idempotency reservation, is
+next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -196,6 +204,12 @@ semantics (evaluate only, never execute).
     typed resource, CAIP-2 network, same-chain CAIP-19 asset and CAIP-10 payee
     relationships are enforced, fields belonging to contract/trading profiles
     are forbidden, and every other action pair fails closed before admission.
+11. ~~Stable Gateway error and validation-order contract.~~ Done in DS-011:
+    every business/Router failure returns fixed
+    `{code,message,request_id,details}` JSON, every response carries a fresh
+    server-owned request ID, internal diagnostics stay out of responses, and
+    PostgreSQL tests prove all validation layers finish before any Intent,
+    Evaluation, Decision, Audit, Policy or Risk result can become authoritative.
 
 ### Remaining before Phase 2 can close out
 
@@ -229,6 +243,10 @@ semantics (evaluate only, never execute).
   supported Agent-Commerce Payment profile in DS-010; all other action pairs
   now fail closed. Protocol-specific x402, Safe, Hyperliquid and additional
   financial profiles remain Phase 3 work.
+- ~~Stable safe API errors and validation-before-evaluation ordering.~~ Done
+  in DS-011 with an exact documented JSON contract, server-generated request
+  IDs, fixed status/code mappings, Router fallbacks, and durable zero-write
+  evidence for structural/common/Profile rejection.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay
   protection.
 - Domain-separated `atf-identity` Gateway wiring before Policy/Risk,
