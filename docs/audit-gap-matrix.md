@@ -49,20 +49,22 @@ matching canonical Evaluation and foreign-key-bound verified Audit evidence.
 DS-005 cut the Gateway over on 2026-08-08. PostgreSQL is now the only
 Decision/Audit path; real integration and socket tests prove restart and
 second-instance reads, durable Risk history, tenant-keyed lookup, and 503
-readiness/request behavior when storage is unavailable. Lifecycle state,
-fenced idempotency completion, authenticated tenant binding, and typed
-Policy/Risk Audit payloads remain open.
+readiness/request behavior when storage is unavailable. DS-006 added the
+21-state fail-closed lifecycle contract, typed/versioned payloads for all 27
+canonical Audit events, a closed JSON Schema, and typed current store
+producers. Transactional lifecycle state, fenced idempotency completion,
+authenticated tenant binding, and emission of Policy/Risk events remain open.
 
 ## Module inventory
 
 | Module | State | Evidence |
 |---|---|---|
-| `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256; used throughout the workspace. |
+| `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 21-state lifecycle transition contract; used throughout the workspace. |
 | `atf-intent` | `PARTIALLY_IMPLEMENTED` | Schema parsing and canonical hash are wired; semantic/cross-field validation and action profiles are missing. |
 | `atf-identity` | `IMPLEMENTED_BUT_UNWIRED` | In-memory Agent records and raw-hash Ed25519 verification exist; Gateway never calls them. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope and in-memory verifier; the Gateway persists/verifies `IntentReceived` and bound `DecisionRecorded` through `atf-store`, while typed lifecycle payloads, queries, and checkpoints remain. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 27 canonical typed/versioned payloads, intent-scope validation, event effects, and a strict Schema verified against real output. The Gateway persists/verifies typed `IntentReceived` and bound `DecisionRecorded` through `atf-store`; intermediate event emission, queries, and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, atomic admission/finalization, evidence-gated reads, and live readiness are wired into the Gateway; lifecycle, leases/fencing, idempotent result state, and recovery remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, and `policy test` exist; most PRD §21 commands are missing. |
@@ -71,7 +73,7 @@ Policy/Risk Audit payloads remain open.
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
 | Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
-| SDKs and most target documentation | `MISSING` | No implementation; `intent-spec.md`, `policy-model.md`, `audit-model.md`, quickstart, SDKs, and adapter manifest Schema are absent. |
+| SDKs and most target documentation | `MISSING` | No implementation; `intent-spec.md`, `policy-model.md`, quickstart, SDKs, and adapter manifest Schema are absent. `audit-model.md` now defines the DS-006 lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
 ## Gap matrix
@@ -308,11 +310,11 @@ Policy/Risk Audit payloads remain open.
 
 - **module:** `atf-audit`, Gateway
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** append-only domain API, hash chain, tamper test, and `DecisionRecorded` exist. Migration 0001 adds per-organization PostgreSQL event/head tables and immutable-row triggers. DS-003 row-locks each organization head, assigns sequence/predecessor/hash server-side, checks the locked tail, and reloads/verifies the full chain under one repeatable snapshot. DS-004 appends `IntentReceived` and a Decision/Evaluation-foreign-key-bound `DecisionRecorded` inside their paired repository transactions; injected append failures roll back all paired rows. DS-005 makes that path authoritative for the Gateway and durable Risk history. Real PostgreSQL tests cover no-fork concurrency, organization isolation, restart, deletion, mutation, reordering, corrupt-tail refusal, transaction rollback, and second-instance Decision reads. Typed lifecycle payloads, checkpoints, query/retention, and independent verification remain missing.
-- **security_impact:** database/operator compromise or missing external checkpoints can still destroy evidence; untyped lifecycle evidence can be misinterpreted across versions.
+- **evidence:** append-only domain API, hash chain, tamper test, and `DecisionRecorded` exist. Migration 0001 adds per-organization PostgreSQL event/head tables and immutable-row triggers. DS-003 row-locks each organization head, assigns sequence/predecessor/hash server-side, checks the locked tail, and reloads/verifies the full chain under one repeatable snapshot. DS-004 appends `IntentReceived` and a Decision/Evaluation-foreign-key-bound `DecisionRecorded` inside their paired repository transactions; injected append failures roll back all paired rows. DS-005 makes that path authoritative for the Gateway and durable Risk history. DS-006 defines all canonical event payloads as versioned Rust types, rejects event/payload confusion and unknown fields, maps them to the exhaustive lifecycle contract, and moves current durable producers to typed construction. Real tests cover all 441 state pairs, every terminal successor, all typed payload/Schema pairs, no-fork concurrency, organization isolation, restart, deletion, mutation, reordering, corrupt-tail refusal, transaction rollback, and second-instance Decision reads. Transactional state enforcement, checkpoints, query/retention, and independent verification remain missing.
+- **security_impact:** typed lifecycle evidence now has unambiguous versioned semantics; database/operator compromise or missing external checkpoints can still destroy evidence, and DS-007 must prevent state/event races.
 - **financial_impact:** transaction authorization history may be incomplete or unverifiable.
 - **severity:** `HIGH`
-- **recommended_change:** per-organization transactional chains, typed lifecycle payloads, query indexes, verification jobs, and external Merkle checkpoints.
+- **recommended_change:** atomically enforce the defined lifecycle with each event, then add query indexes, verification jobs, and external Merkle checkpoints.
 - **required_tests:** concurrent append, organization chain isolation, restart verification, tamper/delete/reorder, checkpoint recovery.
 - **dependencies:** PostgreSQL persistence and lifecycle model; the chain scope and lock-order prerequisite is complete in ADR-0002.
 - **target_release:** Durable Shadow Mode P0.1-P0.3, checkpoints later.
@@ -326,9 +328,9 @@ Policy/Risk Audit payloads remain open.
 - **security_impact:** accepted final Decisions now survive restart and instances converge, but incomplete admission recovery and replay/idempotency guarantees remain unsafe under failures and concurrency.
 - **financial_impact:** final Decisions no longer disappear on restart; stranded evaluations and retry conflicts can still cause unavailable or ambiguous outcomes.
 - **severity:** `CRITICAL`
-- **recommended_change:** add typed lifecycle state/transitions, then fenced idempotency reservations and recovery without weakening the durable-only boundary.
+- **recommended_change:** persist and transactionally enforce the defined lifecycle transitions, then add fenced idempotency reservations and recovery without weakening the durable-only boundary.
 - **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency, database-unavailable fail-closed behavior.
-- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, DS-004 repositories, and DS-005 Gateway cutover are complete; DS-006/DS-007 lifecycle and DS-012/DS-013 idempotency/recovery remain.
+- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, DS-004 repositories, DS-005 Gateway cutover, and DS-006 lifecycle contract are complete; DS-007 enforcement and DS-012/DS-013 idempotency/recovery remain.
 - **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
 
@@ -409,7 +411,7 @@ Policy/Risk Audit payloads remain open.
 
 ## Next vertical feature
 
-`DS-006` is next: define explicit lifecycle states and typed, schema-validated
-Audit payloads. DS-007 will then enforce those transitions transactionally;
+`DS-007` is next: persist lifecycle state/version and enforce each transition
+with its matching typed Audit event in one transaction;
 identity, idempotency, replay, and budget work must continue to build on the
 durable-only boundary rather than add process-local authority.

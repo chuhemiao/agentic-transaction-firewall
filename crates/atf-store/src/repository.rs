@@ -5,7 +5,9 @@ use crate::models::{
     AdmissionInput, AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation,
 };
 use crate::{Store, StoreError};
-use atf_audit::{EventType, NewAuditEvent};
+use atf_audit::{
+    AuditPayload, DecisionRecordedPayload, EventType, IntentReceivedPayload, NewAuditEvent,
+};
 use atf_core::{sort_json_keys, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
@@ -97,19 +99,18 @@ impl Store {
         .await
         .map_err(|error| map_admission_insert_error(error, &intent))?;
 
-        let event = NewAuditEvent::new(
-            EventType::IntentReceived,
+        let event = NewAuditEvent::from_payload(
             received_at,
             Some(intent.intent_id.clone()),
-            serde_json::json!({
-                "agent_id": &intent.principal.agent_id,
-                "amount": intent.transaction.amount.to_string(),
-                "idempotency_key": &intent.idempotency_key,
-                "intent_hash": &intent_hash,
-                "organization_id": &organization_id,
-                "resource_id": &intent.resource.resource_id,
+            AuditPayload::IntentReceived(IntentReceivedPayload {
+                organization_id: organization_id.clone(),
+                agent_id: intent.principal.agent_id.clone(),
+                idempotency_key: intent.idempotency_key.clone(),
+                intent_hash: intent_hash.clone(),
+                amount: intent.transaction.amount,
+                resource_id: intent.resource.resource_id.clone(),
             }),
-        );
+        )?;
         let audit_event = append_in_transaction(
             &mut transaction,
             &organization_id,
@@ -283,26 +284,24 @@ impl Store {
         .await
         .map_err(|error| map_finalization_insert_error(error, &input))?;
 
-        let decision_name = decision_kind_name(&input.decision)?;
-        let event = NewAuditEvent::new(
-            EventType::DecisionRecorded,
+        let event = NewAuditEvent::from_payload(
             decided_at,
             Some(input.intent_id.clone()),
-            serde_json::json!({
-                "action_category": &verified_intent.intent.action.category,
-                "agent_id": &verified_intent.intent.principal.agent_id,
-                "amount": verified_intent.intent.transaction.amount.to_string(),
-                "decision": decision_name,
-                "decision_hash": &decision_hash,
-                "decision_id": &input.decision.decision_id,
-                "destination": &verified_intent.intent.transaction.destination,
-                "evaluation_hash": &evaluation_hash,
-                "evaluation_id": &evaluation.evaluation_id,
-                "intent_hash": &verified_intent.intent_hash,
-                "organization_id": &input.organization_id,
-                "resource_id": &verified_intent.intent.resource.resource_id,
+            AuditPayload::DecisionRecorded(DecisionRecordedPayload {
+                organization_id: input.organization_id.clone(),
+                agent_id: verified_intent.intent.principal.agent_id.clone(),
+                intent_hash: verified_intent.intent_hash.clone(),
+                evaluation_id: evaluation.evaluation_id.clone(),
+                evaluation_hash: evaluation_hash.clone(),
+                decision_id: input.decision.decision_id.clone(),
+                decision_hash: decision_hash.clone(),
+                decision: input.decision.decision,
+                action_category: verified_intent.intent.action.category.clone(),
+                resource_id: verified_intent.intent.resource.resource_id.clone(),
+                amount: verified_intent.intent.transaction.amount,
+                destination: verified_intent.intent.transaction.destination.clone(),
             }),
-        );
+        )?;
         let audit_event = append_in_transaction(
             &mut transaction,
             &input.organization_id,

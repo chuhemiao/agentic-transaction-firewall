@@ -1,6 +1,8 @@
 use atf_core::{new_ulid, Timestamp};
 use serde::{Deserialize, Serialize};
 
+use crate::{AuditPayload, AuditPayloadError};
+
 /// The fixed set of audit event types (PRD §16.2 plus lifecycle events
 /// adopted by the security audit). Unit variants serialize as their exact
 /// PascalCase Rust name by default, which is also what
@@ -10,22 +12,43 @@ use serde::{Deserialize, Serialize};
 pub enum EventType {
     IntentReceived,
     IdentityVerified,
+    IdentityRejected,
+    ContextEnriched,
     PolicyEvaluated,
     RiskEvaluated,
     DecisionRecorded,
     SimulationCompleted,
     ApprovalRequested,
+    ApprovalApproved,
     ApprovalGranted,
     ApprovalRejected,
+    ExecutionGrantIssued,
     ExecutionRequested,
     ExecutionSubmitted,
     ExecutionConfirmed,
+    ExecutionFailed,
     SettlementVerified,
     ServiceDelivered,
     ReconciliationFailed,
+    BudgetReserved,
+    BudgetCommitted,
+    BudgetReleased,
     KillSwitchTriggered,
+    KillSwitchEnabled,
+    KillSwitchDisabled,
     PolicyChanged,
     AgentPaused,
+    IntentExpired,
+    IntentCancelled,
+}
+
+impl EventType {
+    pub const fn has_typed_payload(self) -> bool {
+        !matches!(
+            self,
+            Self::ApprovalGranted | Self::ExecutionRequested | Self::KillSwitchTriggered
+        )
+    }
 }
 
 /// Caller-owned facts for a new Audit event. Chain position and predecessor
@@ -41,6 +64,24 @@ pub struct NewAuditEvent {
 }
 
 impl NewAuditEvent {
+    pub fn from_payload(
+        occurred_at: Timestamp,
+        intent_id: Option<String>,
+        payload: AuditPayload,
+    ) -> Result<Self, AuditPayloadError> {
+        payload.validate()?;
+        payload.validate_intent_scope(intent_id.as_deref())?;
+        Ok(Self::new(
+            payload.event_type(),
+            occurred_at,
+            intent_id,
+            payload.to_data(),
+        ))
+    }
+
+    /// Construct a legacy/untyped event. New lifecycle producers should use
+    /// [`Self::from_payload`] so event type, schema version, scope, and fields
+    /// cannot drift apart.
     pub fn new(
         event_type: EventType,
         occurred_at: Timestamp,
@@ -100,6 +141,12 @@ pub struct AuditEvent {
 }
 
 impl AuditEvent {
+    pub fn typed_payload(&self) -> Result<AuditPayload, AuditPayloadError> {
+        let payload = AuditPayload::from_data(self.event_type, &self.data)?;
+        payload.validate_intent_scope(self.intent_id.as_deref())?;
+        Ok(payload)
+    }
+
     pub fn canonical_value(&self) -> serde_json::Value {
         atf_core::sort_json_keys(
             serde_json::to_value(self).expect("AuditEvent always serializes to JSON"),

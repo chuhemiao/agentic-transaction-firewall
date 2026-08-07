@@ -1,0 +1,846 @@
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use thiserror::Error;
+
+use atf_core::{
+    validate_lifecycle_transition, Amount, DecisionKind, IntentLifecycleState, Timestamp,
+};
+
+use crate::EventType;
+
+pub const AUDIT_PAYLOAD_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum RequiredModuleOutcome<T> {
+    Succeeded { result: T },
+    Error { error_code: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum OptionalModuleOutcome<T> {
+    Succeeded { result: T },
+    Error { error_code: String },
+    NotRun { reason_code: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PolicyOutcome {
+    Permit,
+    Forbid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RiskSeverity {
+    Info,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SimulationOutcome {
+    Safe,
+    Review,
+    Unsafe,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IntentReceivedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub idempotency_key: String,
+    pub intent_hash: String,
+    pub amount: Amount,
+    pub resource_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityVerifiedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub key_id: String,
+    pub envelope_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityRejectedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextEnrichedPayload {
+    pub context_hash: String,
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyEvaluatedPayload {
+    pub outcome: RequiredModuleOutcome<PolicyOutcome>,
+    pub policy_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RiskFindingEvidence {
+    pub code: String,
+    pub severity: RiskSeverity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RiskEvaluatedPayload {
+    pub outcome: OptionalModuleOutcome<Vec<RiskFindingEvidence>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SimulationCompletedPayload {
+    pub outcome: OptionalModuleOutcome<SimulationOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionRecordedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub intent_hash: String,
+    pub evaluation_id: String,
+    pub evaluation_hash: String,
+    pub decision_id: String,
+    pub decision_hash: String,
+    pub decision: DecisionKind,
+    pub action_category: String,
+    pub resource_id: String,
+    pub amount: Amount,
+    pub destination: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalRequestedPayload {
+    pub approval_id: String,
+    pub decision_id: String,
+    pub required_roles: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalResolvedPayload {
+    pub approval_id: String,
+    pub approver_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalRejectedPayload {
+    pub approval_id: String,
+    pub approver_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionGrantPayload {
+    pub grant_id: String,
+    pub decision_id: String,
+    pub execution_hash: String,
+    pub expires_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionSubmittedPayload {
+    pub execution_id: String,
+    pub grant_id: String,
+    pub adapter_id: String,
+    pub request_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionConfirmedPayload {
+    pub execution_id: String,
+    pub result_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionFailedPayload {
+    pub execution_id: String,
+    pub error_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettlementVerifiedPayload {
+    pub execution_id: String,
+    pub settlement_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceDeliveredPayload {
+    pub execution_id: String,
+    pub delivery_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationFailedPayload {
+    pub execution_id: String,
+    pub error_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BudgetPayload {
+    pub budget_id: String,
+    pub reservation_id: String,
+    pub amount: Amount,
+    pub asset: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyChangedPayload {
+    pub policy_bundle_id: String,
+    pub policy_bundle_hash: String,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPausedPayload {
+    pub organization_id: String,
+    pub agent_id: String,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KillSwitchPayload {
+    pub scope: String,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IntentExpiredPayload {
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IntentCancelledPayload {
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+/// Every canonical PRD §16 event payload. The envelope stores this as a JSON
+/// object so canonical hashing remains stable across the durable boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuditPayload {
+    IntentReceived(IntentReceivedPayload),
+    IdentityVerified(IdentityVerifiedPayload),
+    IdentityRejected(IdentityRejectedPayload),
+    ContextEnriched(ContextEnrichedPayload),
+    PolicyEvaluated(PolicyEvaluatedPayload),
+    RiskEvaluated(RiskEvaluatedPayload),
+    SimulationCompleted(SimulationCompletedPayload),
+    DecisionRecorded(DecisionRecordedPayload),
+    ApprovalRequested(ApprovalRequestedPayload),
+    ApprovalApproved(ApprovalResolvedPayload),
+    ApprovalRejected(ApprovalRejectedPayload),
+    ExecutionGrantIssued(ExecutionGrantPayload),
+    ExecutionSubmitted(ExecutionSubmittedPayload),
+    ExecutionConfirmed(ExecutionConfirmedPayload),
+    ExecutionFailed(ExecutionFailedPayload),
+    SettlementVerified(SettlementVerifiedPayload),
+    ServiceDelivered(ServiceDeliveredPayload),
+    ReconciliationFailed(ReconciliationFailedPayload),
+    BudgetReserved(BudgetPayload),
+    BudgetCommitted(BudgetPayload),
+    BudgetReleased(BudgetPayload),
+    PolicyChanged(PolicyChangedPayload),
+    AgentPaused(AgentPausedPayload),
+    KillSwitchEnabled(KillSwitchPayload),
+    KillSwitchDisabled(KillSwitchPayload),
+    IntentExpired(IntentExpiredPayload),
+    IntentCancelled(IntentCancelledPayload),
+}
+
+impl AuditPayload {
+    pub const fn event_type(&self) -> EventType {
+        match self {
+            Self::IntentReceived(_) => EventType::IntentReceived,
+            Self::IdentityVerified(_) => EventType::IdentityVerified,
+            Self::IdentityRejected(_) => EventType::IdentityRejected,
+            Self::ContextEnriched(_) => EventType::ContextEnriched,
+            Self::PolicyEvaluated(_) => EventType::PolicyEvaluated,
+            Self::RiskEvaluated(_) => EventType::RiskEvaluated,
+            Self::SimulationCompleted(_) => EventType::SimulationCompleted,
+            Self::DecisionRecorded(_) => EventType::DecisionRecorded,
+            Self::ApprovalRequested(_) => EventType::ApprovalRequested,
+            Self::ApprovalApproved(_) => EventType::ApprovalApproved,
+            Self::ApprovalRejected(_) => EventType::ApprovalRejected,
+            Self::ExecutionGrantIssued(_) => EventType::ExecutionGrantIssued,
+            Self::ExecutionSubmitted(_) => EventType::ExecutionSubmitted,
+            Self::ExecutionConfirmed(_) => EventType::ExecutionConfirmed,
+            Self::ExecutionFailed(_) => EventType::ExecutionFailed,
+            Self::SettlementVerified(_) => EventType::SettlementVerified,
+            Self::ServiceDelivered(_) => EventType::ServiceDelivered,
+            Self::ReconciliationFailed(_) => EventType::ReconciliationFailed,
+            Self::BudgetReserved(_) => EventType::BudgetReserved,
+            Self::BudgetCommitted(_) => EventType::BudgetCommitted,
+            Self::BudgetReleased(_) => EventType::BudgetReleased,
+            Self::PolicyChanged(_) => EventType::PolicyChanged,
+            Self::AgentPaused(_) => EventType::AgentPaused,
+            Self::KillSwitchEnabled(_) => EventType::KillSwitchEnabled,
+            Self::KillSwitchDisabled(_) => EventType::KillSwitchDisabled,
+            Self::IntentExpired(_) => EventType::IntentExpired,
+            Self::IntentCancelled(_) => EventType::IntentCancelled,
+        }
+    }
+
+    pub fn to_data(&self) -> Value {
+        let fields = match self {
+            Self::IntentReceived(value) => encode(value),
+            Self::IdentityVerified(value) => encode(value),
+            Self::IdentityRejected(value) => encode(value),
+            Self::ContextEnriched(value) => encode(value),
+            Self::PolicyEvaluated(value) => encode(value),
+            Self::RiskEvaluated(value) => encode(value),
+            Self::SimulationCompleted(value) => encode(value),
+            Self::DecisionRecorded(value) => encode(value),
+            Self::ApprovalRequested(value) => encode(value),
+            Self::ApprovalApproved(value) => encode(value),
+            Self::ApprovalRejected(value) => encode(value),
+            Self::ExecutionGrantIssued(value) => encode(value),
+            Self::ExecutionSubmitted(value) => encode(value),
+            Self::ExecutionConfirmed(value) => encode(value),
+            Self::ExecutionFailed(value) => encode(value),
+            Self::SettlementVerified(value) => encode(value),
+            Self::ServiceDelivered(value) => encode(value),
+            Self::ReconciliationFailed(value) => encode(value),
+            Self::BudgetReserved(value)
+            | Self::BudgetCommitted(value)
+            | Self::BudgetReleased(value) => encode(value),
+            Self::PolicyChanged(value) => encode(value),
+            Self::AgentPaused(value) => encode(value),
+            Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => encode(value),
+            Self::IntentExpired(value) => encode(value),
+            Self::IntentCancelled(value) => encode(value),
+        };
+        with_schema_version(fields)
+    }
+
+    pub fn from_data(event_type: EventType, data: &Value) -> Result<Self, AuditPayloadError> {
+        let fields = without_schema_version(event_type, data)?;
+        let payload = match event_type {
+            EventType::IntentReceived => Self::IntentReceived(decode(event_type, fields)?),
+            EventType::IdentityVerified => Self::IdentityVerified(decode(event_type, fields)?),
+            EventType::IdentityRejected => Self::IdentityRejected(decode(event_type, fields)?),
+            EventType::ContextEnriched => Self::ContextEnriched(decode(event_type, fields)?),
+            EventType::PolicyEvaluated => Self::PolicyEvaluated(decode(event_type, fields)?),
+            EventType::RiskEvaluated => Self::RiskEvaluated(decode(event_type, fields)?),
+            EventType::SimulationCompleted => {
+                Self::SimulationCompleted(decode(event_type, fields)?)
+            }
+            EventType::DecisionRecorded => Self::DecisionRecorded(decode(event_type, fields)?),
+            EventType::ApprovalRequested => Self::ApprovalRequested(decode(event_type, fields)?),
+            EventType::ApprovalApproved => Self::ApprovalApproved(decode(event_type, fields)?),
+            EventType::ApprovalRejected => Self::ApprovalRejected(decode(event_type, fields)?),
+            EventType::ExecutionGrantIssued => {
+                Self::ExecutionGrantIssued(decode(event_type, fields)?)
+            }
+            EventType::ExecutionSubmitted => Self::ExecutionSubmitted(decode(event_type, fields)?),
+            EventType::ExecutionConfirmed => Self::ExecutionConfirmed(decode(event_type, fields)?),
+            EventType::ExecutionFailed => Self::ExecutionFailed(decode(event_type, fields)?),
+            EventType::SettlementVerified => Self::SettlementVerified(decode(event_type, fields)?),
+            EventType::ServiceDelivered => Self::ServiceDelivered(decode(event_type, fields)?),
+            EventType::ReconciliationFailed => {
+                Self::ReconciliationFailed(decode(event_type, fields)?)
+            }
+            EventType::BudgetReserved => Self::BudgetReserved(decode(event_type, fields)?),
+            EventType::BudgetCommitted => Self::BudgetCommitted(decode(event_type, fields)?),
+            EventType::BudgetReleased => Self::BudgetReleased(decode(event_type, fields)?),
+            EventType::PolicyChanged => Self::PolicyChanged(decode(event_type, fields)?),
+            EventType::AgentPaused => Self::AgentPaused(decode(event_type, fields)?),
+            EventType::KillSwitchEnabled => Self::KillSwitchEnabled(decode(event_type, fields)?),
+            EventType::KillSwitchDisabled => Self::KillSwitchDisabled(decode(event_type, fields)?),
+            EventType::IntentExpired => Self::IntentExpired(decode(event_type, fields)?),
+            EventType::IntentCancelled => Self::IntentCancelled(decode(event_type, fields)?),
+            EventType::ApprovalGranted
+            | EventType::ExecutionRequested
+            | EventType::KillSwitchTriggered => {
+                return Err(AuditPayloadError::UnsupportedLegacyEvent { event_type });
+            }
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    pub fn validate(&self) -> Result<(), AuditPayloadError> {
+        let event_type = self.event_type();
+        match self {
+            Self::IntentReceived(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("idempotency_key", &value.idempotency_key),
+                        ("resource_id", &value.resource_id),
+                    ],
+                )?;
+                sha256(event_type, "intent_hash", &value.intent_hash)?;
+                nonnegative_amount(event_type, "amount", value.amount)?;
+            }
+            Self::IdentityVerified(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("key_id", &value.key_id),
+                    ],
+                )?;
+                sha256(event_type, "envelope_hash", &value.envelope_hash)?;
+            }
+            Self::IdentityRejected(value) => strings(
+                event_type,
+                &[
+                    ("organization_id", &value.organization_id),
+                    ("agent_id", &value.agent_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
+            Self::ContextEnriched(value) => {
+                sha256(event_type, "context_hash", &value.context_hash)?;
+                string_list(event_type, "source_ids", &value.source_ids, true)?;
+            }
+            Self::PolicyEvaluated(value) => {
+                validate_required_outcome(event_type, &value.outcome)?;
+                string_list(event_type, "policy_ids", &value.policy_ids, false)?;
+            }
+            Self::RiskEvaluated(value) => {
+                validate_optional_outcome(event_type, &value.outcome)?;
+                if let OptionalModuleOutcome::Succeeded { result } = &value.outcome {
+                    for finding in result {
+                        nonempty(event_type, "finding.code", &finding.code)?;
+                    }
+                }
+            }
+            Self::SimulationCompleted(value) => {
+                validate_optional_outcome(event_type, &value.outcome)?;
+            }
+            Self::DecisionRecorded(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("agent_id", &value.agent_id),
+                        ("evaluation_id", &value.evaluation_id),
+                        ("decision_id", &value.decision_id),
+                        ("action_category", &value.action_category),
+                        ("resource_id", &value.resource_id),
+                    ],
+                )?;
+                sha256(event_type, "intent_hash", &value.intent_hash)?;
+                sha256(event_type, "evaluation_hash", &value.evaluation_hash)?;
+                sha256(event_type, "decision_hash", &value.decision_hash)?;
+                nonnegative_amount(event_type, "amount", value.amount)?;
+                if let Some(destination) = &value.destination {
+                    nonempty(event_type, "destination", destination)?;
+                }
+            }
+            Self::ApprovalRequested(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("approval_id", &value.approval_id),
+                        ("decision_id", &value.decision_id),
+                    ],
+                )?;
+                string_list(event_type, "required_roles", &value.required_roles, true)?;
+            }
+            Self::ApprovalApproved(value) => strings(
+                event_type,
+                &[
+                    ("approval_id", &value.approval_id),
+                    ("approver_id", &value.approver_id),
+                ],
+            )?,
+            Self::ApprovalRejected(value) => strings(
+                event_type,
+                &[
+                    ("approval_id", &value.approval_id),
+                    ("approver_id", &value.approver_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
+            Self::ExecutionGrantIssued(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("grant_id", &value.grant_id),
+                        ("decision_id", &value.decision_id),
+                    ],
+                )?;
+                sha256(event_type, "execution_hash", &value.execution_hash)?;
+            }
+            Self::ExecutionSubmitted(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("execution_id", &value.execution_id),
+                        ("grant_id", &value.grant_id),
+                        ("adapter_id", &value.adapter_id),
+                    ],
+                )?;
+                sha256(event_type, "request_hash", &value.request_hash)?;
+            }
+            Self::ExecutionConfirmed(value) => {
+                nonempty(event_type, "execution_id", &value.execution_id)?;
+                sha256(event_type, "result_hash", &value.result_hash)?;
+            }
+            Self::ExecutionFailed(value) => strings(
+                event_type,
+                &[
+                    ("execution_id", &value.execution_id),
+                    ("error_code", &value.error_code),
+                ],
+            )?,
+            Self::SettlementVerified(value) => {
+                nonempty(event_type, "execution_id", &value.execution_id)?;
+                sha256(event_type, "settlement_hash", &value.settlement_hash)?;
+            }
+            Self::ServiceDelivered(value) => {
+                nonempty(event_type, "execution_id", &value.execution_id)?;
+                sha256(event_type, "delivery_hash", &value.delivery_hash)?;
+            }
+            Self::ReconciliationFailed(value) => strings(
+                event_type,
+                &[
+                    ("execution_id", &value.execution_id),
+                    ("error_code", &value.error_code),
+                ],
+            )?,
+            Self::BudgetReserved(value)
+            | Self::BudgetCommitted(value)
+            | Self::BudgetReleased(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("budget_id", &value.budget_id),
+                        ("reservation_id", &value.reservation_id),
+                        ("asset", &value.asset),
+                    ],
+                )?;
+                nonnegative_amount(event_type, "amount", value.amount)?;
+            }
+            Self::PolicyChanged(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("policy_bundle_id", &value.policy_bundle_id),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                sha256(event_type, "policy_bundle_hash", &value.policy_bundle_hash)?;
+            }
+            Self::AgentPaused(value) => strings(
+                event_type,
+                &[
+                    ("organization_id", &value.organization_id),
+                    ("agent_id", &value.agent_id),
+                    ("actor_id", &value.actor_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
+            Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => strings(
+                event_type,
+                &[
+                    ("scope", &value.scope),
+                    ("actor_id", &value.actor_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
+            Self::IntentExpired(value) => {
+                nonempty(event_type, "reason_code", &value.reason_code)?;
+            }
+            Self::IntentCancelled(value) => strings(
+                event_type,
+                &[
+                    ("actor_id", &value.actor_id),
+                    ("reason_code", &value.reason_code),
+                ],
+            )?,
+        }
+        Ok(())
+    }
+
+    pub const fn requires_intent_id(&self) -> bool {
+        !matches!(
+            self,
+            Self::PolicyChanged(_)
+                | Self::AgentPaused(_)
+                | Self::KillSwitchEnabled(_)
+                | Self::KillSwitchDisabled(_)
+        )
+    }
+
+    pub fn validate_intent_scope(&self, intent_id: Option<&str>) -> Result<(), AuditPayloadError> {
+        let event_type = self.event_type();
+        match (self.requires_intent_id(), intent_id) {
+            (true, Some(value)) => nonempty(event_type, "intent_id", value),
+            (true, None) => Err(invalid(event_type, "intent_id is required")),
+            (false, None) => Ok(()),
+            (false, Some(_)) => Err(invalid(
+                event_type,
+                "intent_id is forbidden for organization/operator events",
+            )),
+        }
+    }
+
+    /// Apply this event's declared lifecycle effect without persistence.
+    /// DS-007 will call the same function inside its state transaction.
+    pub fn next_state(
+        &self,
+        current: Option<IntentLifecycleState>,
+    ) -> Result<Option<IntentLifecycleState>, AuditPayloadError> {
+        use IntentLifecycleState as State;
+
+        let event_type = self.event_type();
+        let target = match self {
+            Self::IntentReceived(_) => {
+                return if current.is_none() {
+                    Ok(Some(State::Received))
+                } else {
+                    Err(invalid(
+                        event_type,
+                        "IntentReceived cannot initialize an existing lifecycle",
+                    ))
+                };
+            }
+            Self::IdentityVerified(_) => State::IdentityVerified,
+            Self::IdentityRejected(_) => State::IdentityRejected,
+            Self::PolicyEvaluated(_) => State::PolicyEvaluated,
+            Self::RiskEvaluated(_) => State::RiskEvaluated,
+            Self::SimulationCompleted(_) => State::SimulationCompleted,
+            Self::DecisionRecorded(value) => match value.decision {
+                DecisionKind::Permit => State::DecidedPermit,
+                DecisionKind::Review => State::DecidedReview,
+                DecisionKind::Deny => State::DecidedDeny,
+                DecisionKind::Error => State::DecidedError,
+            },
+            Self::ApprovalRequested(_) => State::ApprovalPending,
+            Self::ApprovalApproved(_) => State::Approved,
+            Self::ApprovalRejected(_) => State::Rejected,
+            Self::ExecutionGrantIssued(_) => State::ExecutionAuthorized,
+            Self::ExecutionSubmitted(_) => State::ExecutionSubmitted,
+            Self::ExecutionConfirmed(_) => State::ExecutionConfirmed,
+            Self::ExecutionFailed(_) => State::ExecutionFailed,
+            Self::SettlementVerified(_) => State::SettlementVerified,
+            Self::ReconciliationFailed(_) => State::ReconciliationFailed,
+            Self::IntentExpired(_) => State::Expired,
+            Self::IntentCancelled(_) => State::Cancelled,
+            Self::ContextEnriched(_)
+            | Self::ServiceDelivered(_)
+            | Self::BudgetReserved(_)
+            | Self::BudgetCommitted(_)
+            | Self::BudgetReleased(_)
+            | Self::PolicyChanged(_)
+            | Self::AgentPaused(_)
+            | Self::KillSwitchEnabled(_)
+            | Self::KillSwitchDisabled(_) => return Ok(current),
+        };
+
+        let from = current.ok_or_else(|| invalid(event_type, "lifecycle is not initialized"))?;
+        validate_lifecycle_transition(from, target)
+            .map_err(|error| invalid(event_type, error.to_string()))?;
+        Ok(Some(target))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum AuditPayloadError {
+    #[error("legacy Audit event {event_type:?} has no typed payload contract")]
+    UnsupportedLegacyEvent { event_type: EventType },
+
+    #[error("invalid {event_type:?} Audit payload: {reason}")]
+    Invalid {
+        event_type: EventType,
+        reason: String,
+    },
+}
+
+fn encode<T: Serialize>(value: &T) -> Value {
+    serde_json::to_value(value).expect("typed Audit payload always serializes")
+}
+
+fn with_schema_version(value: Value) -> Value {
+    let mut object = value
+        .as_object()
+        .cloned()
+        .expect("typed Audit payloads serialize as objects");
+    object.insert(
+        "schema_version".into(),
+        Value::from(AUDIT_PAYLOAD_SCHEMA_VERSION),
+    );
+    Value::Object(object)
+}
+
+fn without_schema_version(
+    event_type: EventType,
+    value: &Value,
+) -> Result<Value, AuditPayloadError> {
+    let mut object: Map<String, Value> = value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| invalid(event_type, "data must be an object"))?;
+    let version = object
+        .remove("schema_version")
+        .and_then(|value| value.as_u64())
+        .ok_or_else(|| invalid(event_type, "schema_version must be an integer"))?;
+    if version != u64::from(AUDIT_PAYLOAD_SCHEMA_VERSION) {
+        return Err(invalid(
+            event_type,
+            format!("unsupported schema_version {version}"),
+        ));
+    }
+    Ok(Value::Object(object))
+}
+
+fn decode<T: DeserializeOwned>(
+    event_type: EventType,
+    value: Value,
+) -> Result<T, AuditPayloadError> {
+    serde_json::from_value(value).map_err(|error| invalid(event_type, error.to_string()))
+}
+
+fn validate_required_outcome<T>(
+    event_type: EventType,
+    outcome: &RequiredModuleOutcome<T>,
+) -> Result<(), AuditPayloadError> {
+    if let RequiredModuleOutcome::Error { error_code } = outcome {
+        nonempty(event_type, "outcome.error_code", error_code)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_outcome<T>(
+    event_type: EventType,
+    outcome: &OptionalModuleOutcome<T>,
+) -> Result<(), AuditPayloadError> {
+    match outcome {
+        OptionalModuleOutcome::Succeeded { .. } => Ok(()),
+        OptionalModuleOutcome::Error { error_code } => {
+            nonempty(event_type, "outcome.error_code", error_code)
+        }
+        OptionalModuleOutcome::NotRun { reason_code } => {
+            nonempty(event_type, "outcome.reason_code", reason_code)
+        }
+    }
+}
+
+fn strings(
+    event_type: EventType,
+    values: &[(&'static str, &str)],
+) -> Result<(), AuditPayloadError> {
+    for (field, value) in values {
+        nonempty(event_type, field, value)?;
+    }
+    Ok(())
+}
+
+fn string_list(
+    event_type: EventType,
+    field: &'static str,
+    values: &[String],
+    require_item: bool,
+) -> Result<(), AuditPayloadError> {
+    if require_item && values.is_empty() {
+        return Err(invalid(event_type, format!("{field} must not be empty")));
+    }
+    for value in values {
+        nonempty(event_type, field, value)?;
+    }
+    Ok(())
+}
+
+fn nonempty(
+    event_type: EventType,
+    field: &'static str,
+    value: &str,
+) -> Result<(), AuditPayloadError> {
+    if value.is_empty() || value.trim() != value || value.len() > 512 {
+        Err(invalid(
+            event_type,
+            format!("{field} must be 1..512 trimmed bytes"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn sha256(
+    event_type: EventType,
+    field: &'static str,
+    value: &str,
+) -> Result<(), AuditPayloadError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(invalid(
+            event_type,
+            format!("{field} must be 64 lowercase SHA-256 hex characters"),
+        ))
+    }
+}
+
+fn nonnegative_amount(
+    event_type: EventType,
+    field: &'static str,
+    value: Amount,
+) -> Result<(), AuditPayloadError> {
+    if value.is_negative() {
+        Err(invalid(event_type, format!("{field} must not be negative")))
+    } else {
+        Ok(())
+    }
+}
+
+fn invalid(event_type: EventType, reason: impl Into<String>) -> AuditPayloadError {
+    AuditPayloadError::Invalid {
+        event_type,
+        reason: reason.into(),
+    }
+}

@@ -2,14 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// PRD §10.2. `Review` is produced when the Risk Engine returns a `High`
 /// finding; the future Simulator branch can also produce it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum DecisionKind {
-    Permit,
-    Deny,
-    Review,
-    Error,
-}
+pub use atf_core::DecisionKind;
 
 /// A single contributing reason for a Decision (PRD §10 `reasons`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

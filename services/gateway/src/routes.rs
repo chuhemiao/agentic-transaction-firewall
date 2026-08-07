@@ -196,7 +196,8 @@ fn store_error_response(operation: &'static str, error: StoreError) -> Response 
             StatusCode::CONFLICT,
             "the request conflicts with existing durable state",
         ),
-        StoreError::InvalidRepositoryInput { .. }
+        StoreError::AuditPayload(_)
+        | StoreError::InvalidRepositoryInput { .. }
         | StoreError::DecisionBindingMismatch { .. }
         | StoreError::Json(_) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,

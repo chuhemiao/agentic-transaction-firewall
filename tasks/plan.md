@@ -57,7 +57,8 @@ transactions, canonical record verification, evidence-gated reads, and
 injected Audit-failure rollback tests. DS-005 was completed on 2026-08-08 by
 making those repositories the Gateway's only Decision/Audit path, adding live
 storage readiness, and proving restart/second-instance reads plus durable Risk
-history on real PostgreSQL. The next task is DS-006.
+history on real PostgreSQL. DS-006 completed the lifecycle and typed Audit
+domain contract; the next task is DS-007.
 
 ### Present but incomplete or unwired
 
@@ -66,8 +67,9 @@ history on real PostgreSQL. The next task is DS-006.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
-- Gateway Policy/Risk evidence is canonical but not yet represented by typed
-  lifecycle Audit payloads or explicit persisted transitions.
+- Gateway Policy/Risk evidence is canonical and has typed payload contracts,
+  but the intermediate events and explicit persisted transitions are not yet
+  emitted.
 - `atf-store` is wired for admission/finalization, but has no lifecycle,
   evaluator lease/fencing, exact idempotent result, or admitted-work recovery.
 - GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
@@ -293,7 +295,7 @@ recovery remain DS-012/DS-013 work.
 
 ### DS-006 — Define lifecycle states and typed Audit payloads `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Add stable lifecycle states, terminal states and a pure
 transition validator covering the complete PRD lifecycle while allowing
@@ -310,7 +312,18 @@ decision-relevant free-form Audit payloads with typed, schema-validated data.
   3. Each lifecycle event has a typed payload and maps to a transition or explicit non-state event.
 - **Verification:** transition-table unit/property tests; full DoD.
 
+**Delivered boundary:** `atf-core` owns 21 stable states and the only pure
+transition table; exhaustive tests evaluate all 441 state pairs and every
+terminal successor. `atf-audit` owns 27 canonical version-1 payload variants,
+tagged required/optional module outcomes, intent-scope validation, and explicit
+event effects. Real typed Rust output is checked against a closed JSON Schema,
+and the store's current admission/finalization producers no longer assemble
+free-form Audit JSON. Persistence of lifecycle state/version and atomic
+state-plus-event enforcement remain DS-007.
+
 ### DS-007 — Enforce lifecycle transitions transactionally `[M]`
+
+**Status:** Next.
 
 **Description:** Store lifecycle state/version with each Intent and advance it
 with the matching Audit event in one transaction. Record explicit evaluation

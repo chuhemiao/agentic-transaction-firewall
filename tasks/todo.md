@@ -39,8 +39,9 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   canonical/evidence verification, immutable conflict rejection, and injected
   transaction-rollback tests on PostgreSQL.
 - [x] **DS-005:** moved Gateway Decision/Audit state to PostgreSQL, removed the in-memory fallback, and proved readiness plus restart/second-instance reads.
-- [ ] **NEXT — DS-006:** define lifecycle states and typed Audit payloads. Depends: DS-001.
-- [ ] **DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.
+- [x] **DS-006:** defined the complete lifecycle transition contract and
+  versioned typed Audit payloads; current durable producers use it.
+- [ ] **NEXT — DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.
 - [ ] **Checkpoint C1:** DS-001..DS-007 complete; restart, second-instance,
   concurrent Audit append, and invalid-transition/race tests pass.
 

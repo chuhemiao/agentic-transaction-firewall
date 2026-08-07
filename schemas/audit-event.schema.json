@@ -2,51 +2,579 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atf.dev/schemas/audit-event.schema.json",
   "title": "ATF Audit Event",
-  "description": "One entry in the append-only Audit Ledger hash chain (docs/PRD.md §16). atf-audit produces this shape, atf-store persists it, and services/gateway still records it in memory on the live Shadow Mode request path.",
+  "description": "One versioned, typed entry in the append-only Audit Ledger hash chain (docs/PRD.md §16 and docs/audit-model.md).",
   "type": "object",
-  "additionalProperties": true,
-  "required": ["event_id", "event_type", "occurred_at", "prev_event_hash"],
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "intent_id",
+    "prev_event_hash",
+    "data"
+  ],
   "properties": {
-    "event_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Unique id for this event, e.g. a ULID."
-    },
+    "event_id": { "$ref": "#/$defs/nonEmpty" },
     "event_type": {
       "type": "string",
       "enum": [
         "IntentReceived",
         "IdentityVerified",
+        "IdentityRejected",
+        "ContextEnriched",
         "PolicyEvaluated",
         "RiskEvaluated",
         "DecisionRecorded",
         "SimulationCompleted",
         "ApprovalRequested",
+        "ApprovalApproved",
         "ApprovalGranted",
         "ApprovalRejected",
+        "ExecutionGrantIssued",
         "ExecutionRequested",
         "ExecutionSubmitted",
         "ExecutionConfirmed",
+        "ExecutionFailed",
         "SettlementVerified",
         "ServiceDelivered",
         "ReconciliationFailed",
+        "BudgetReserved",
+        "BudgetCommitted",
+        "BudgetReleased",
         "KillSwitchTriggered",
+        "KillSwitchEnabled",
+        "KillSwitchDisabled",
         "PolicyChanged",
-        "AgentPaused"
+        "AgentPaused",
+        "IntentExpired",
+        "IntentCancelled"
       ]
     },
     "occurred_at": { "type": "string", "format": "date-time" },
-    "intent_id": {
-      "type": ["string", "null"],
-      "description": "Null for events not tied to one Intent, e.g. PolicyChanged, AgentPaused, KillSwitchTriggered."
-    },
+    "intent_id": { "type": ["string", "null"] },
     "prev_event_hash": {
-      "type": ["string", "null"],
-      "description": "Hex-encoded hash of the previous event in the chain (PRD §16.3). Null only for the first event in that declared chain scope."
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "type": "null" }
+      ]
     },
-    "data": {
+    "data": { "type": "object" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/intentReceivedEvent" },
+    { "$ref": "#/$defs/identityVerifiedEvent" },
+    { "$ref": "#/$defs/identityRejectedEvent" },
+    { "$ref": "#/$defs/contextEnrichedEvent" },
+    { "$ref": "#/$defs/policyEvaluatedEvent" },
+    { "$ref": "#/$defs/riskEvaluatedEvent" },
+    { "$ref": "#/$defs/simulationCompletedEvent" },
+    { "$ref": "#/$defs/decisionRecordedEvent" },
+    { "$ref": "#/$defs/approvalRequestedEvent" },
+    { "$ref": "#/$defs/approvalApprovedEvent" },
+    { "$ref": "#/$defs/approvalRejectedEvent" },
+    { "$ref": "#/$defs/executionGrantIssuedEvent" },
+    { "$ref": "#/$defs/executionSubmittedEvent" },
+    { "$ref": "#/$defs/executionConfirmedEvent" },
+    { "$ref": "#/$defs/executionFailedEvent" },
+    { "$ref": "#/$defs/settlementVerifiedEvent" },
+    { "$ref": "#/$defs/serviceDeliveredEvent" },
+    { "$ref": "#/$defs/reconciliationFailedEvent" },
+    { "$ref": "#/$defs/budgetReservedEvent" },
+    { "$ref": "#/$defs/budgetCommittedEvent" },
+    { "$ref": "#/$defs/budgetReleasedEvent" },
+    { "$ref": "#/$defs/policyChangedEvent" },
+    { "$ref": "#/$defs/agentPausedEvent" },
+    { "$ref": "#/$defs/killSwitchEnabledEvent" },
+    { "$ref": "#/$defs/killSwitchDisabledEvent" },
+    { "$ref": "#/$defs/intentExpiredEvent" },
+    { "$ref": "#/$defs/intentCancelledEvent" },
+    { "$ref": "#/$defs/legacyEvent" }
+  ],
+  "$defs": {
+    "nonEmpty": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?:\\S|\\S[\\s\\S]*\\S)$"
+    },
+    "nonEmptyList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmpty" }
+    },
+    "stringList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmpty" }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
+    },
+    "intentScope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "operatorScope": { "type": "null" },
+    "policyOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "result"],
+          "properties": {
+            "status": { "const": "SUCCEEDED" },
+            "result": { "enum": ["PERMIT", "FORBID"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "error_code"],
+          "properties": {
+            "status": { "const": "ERROR" },
+            "error_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "riskFinding": {
       "type": "object",
-      "description": "Event-type-specific payload — PRD §16.2 lists the event types but not a fixed per-type field set, so this is intentionally open."
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonEmpty" },
+        "severity": { "enum": ["INFO", "MEDIUM", "HIGH", "CRITICAL"] }
+      }
+    },
+    "riskOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "result"],
+          "properties": {
+            "status": { "const": "SUCCEEDED" },
+            "result": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/riskFinding" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "error_code"],
+          "properties": {
+            "status": { "const": "ERROR" },
+            "error_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "NOT_RUN" },
+            "reason_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "simulationOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "result"],
+          "properties": {
+            "status": { "const": "SUCCEEDED" },
+            "result": { "enum": ["SAFE", "REVIEW", "UNSAFE"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "error_code"],
+          "properties": {
+            "status": { "const": "ERROR" },
+            "error_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "NOT_RUN" },
+            "reason_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "intentReceived": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "idempotency_key", "intent_hash", "amount", "resource_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "idempotency_key": { "$ref": "#/$defs/nonEmpty" },
+        "intent_hash": { "$ref": "#/$defs/sha256" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "resource_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "identityVerified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "key_id", "envelope_hash"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "key_id": { "$ref": "#/$defs/nonEmpty" },
+        "envelope_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "identityRejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "contextEnriched": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "context_hash", "source_ids"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "context_hash": { "$ref": "#/$defs/sha256" },
+        "source_ids": { "$ref": "#/$defs/nonEmptyList" }
+      }
+    },
+    "policyEvaluated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "outcome", "policy_ids"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "outcome": { "$ref": "#/$defs/policyOutcome" },
+        "policy_ids": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "riskEvaluated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "outcome"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "outcome": { "$ref": "#/$defs/riskOutcome" }
+      }
+    },
+    "simulationCompleted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "outcome"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "outcome": { "$ref": "#/$defs/simulationOutcome" }
+      }
+    },
+    "decisionRecorded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "intent_hash", "evaluation_id", "evaluation_hash", "decision_id", "decision_hash", "decision", "action_category", "resource_id", "amount", "destination"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "intent_hash": { "$ref": "#/$defs/sha256" },
+        "evaluation_id": { "$ref": "#/$defs/nonEmpty" },
+        "evaluation_hash": { "$ref": "#/$defs/sha256" },
+        "decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "decision_hash": { "$ref": "#/$defs/sha256" },
+        "decision": { "enum": ["PERMIT", "DENY", "REVIEW", "ERROR"] },
+        "action_category": { "$ref": "#/$defs/nonEmpty" },
+        "resource_id": { "$ref": "#/$defs/nonEmpty" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "destination": {
+          "oneOf": [
+            { "$ref": "#/$defs/nonEmpty" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "approvalRequested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "approval_id", "decision_id", "required_roles"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "approval_id": { "$ref": "#/$defs/nonEmpty" },
+        "decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "required_roles": { "$ref": "#/$defs/nonEmptyList" }
+      }
+    },
+    "approvalApproved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "approval_id", "approver_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "approval_id": { "$ref": "#/$defs/nonEmpty" },
+        "approver_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "approvalRejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "approval_id", "approver_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "approval_id": { "$ref": "#/$defs/nonEmpty" },
+        "approver_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "executionGrantIssued": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "grant_id", "decision_id", "execution_hash", "expires_at"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "grant_id": { "$ref": "#/$defs/nonEmpty" },
+        "decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "execution_hash": { "$ref": "#/$defs/sha256" },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "executionSubmitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "grant_id", "adapter_id", "request_hash"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "grant_id": { "$ref": "#/$defs/nonEmpty" },
+        "adapter_id": { "$ref": "#/$defs/nonEmpty" },
+        "request_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "executionConfirmed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "result_hash"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "result_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "executionFailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "error_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "error_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "settlementVerified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "settlement_hash"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "settlement_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "serviceDelivered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "delivery_hash"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "delivery_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "reconciliationFailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "execution_id", "error_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "execution_id": { "$ref": "#/$defs/nonEmpty" },
+        "error_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "budget_id", "reservation_id", "amount", "asset"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "budget_id": { "$ref": "#/$defs/nonEmpty" },
+        "reservation_id": { "$ref": "#/$defs/nonEmpty" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "asset": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "policyChanged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "policy_bundle_id", "policy_bundle_hash", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "policy_bundle_id": { "$ref": "#/$defs/nonEmpty" },
+        "policy_bundle_hash": { "$ref": "#/$defs/sha256" },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "agentPaused": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "agent_id", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "killSwitch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "scope", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "scope": { "$ref": "#/$defs/nonEmpty" },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "intentExpired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "intentCancelled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "intentReceivedEvent": { "$ref": "#/$defs/intentReceivedCase" },
+    "intentReceivedCase": {
+      "properties": { "event_type": { "const": "IntentReceived" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/intentReceived" } }
+    },
+    "identityVerifiedEvent": {
+      "properties": { "event_type": { "const": "IdentityVerified" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityVerified" } }
+    },
+    "identityRejectedEvent": {
+      "properties": { "event_type": { "const": "IdentityRejected" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/identityRejected" } }
+    },
+    "contextEnrichedEvent": {
+      "properties": { "event_type": { "const": "ContextEnriched" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/contextEnriched" } }
+    },
+    "policyEvaluatedEvent": {
+      "properties": { "event_type": { "const": "PolicyEvaluated" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/policyEvaluated" } }
+    },
+    "riskEvaluatedEvent": {
+      "properties": { "event_type": { "const": "RiskEvaluated" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/riskEvaluated" } }
+    },
+    "simulationCompletedEvent": {
+      "properties": { "event_type": { "const": "SimulationCompleted" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/simulationCompleted" } }
+    },
+    "decisionRecordedEvent": {
+      "properties": { "event_type": { "const": "DecisionRecorded" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/decisionRecorded" } }
+    },
+    "approvalRequestedEvent": {
+      "properties": { "event_type": { "const": "ApprovalRequested" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/approvalRequested" } }
+    },
+    "approvalApprovedEvent": {
+      "properties": { "event_type": { "const": "ApprovalApproved" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/approvalApproved" } }
+    },
+    "approvalRejectedEvent": {
+      "properties": { "event_type": { "const": "ApprovalRejected" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/approvalRejected" } }
+    },
+    "executionGrantIssuedEvent": {
+      "properties": { "event_type": { "const": "ExecutionGrantIssued" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/executionGrantIssued" } }
+    },
+    "executionSubmittedEvent": {
+      "properties": { "event_type": { "const": "ExecutionSubmitted" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/executionSubmitted" } }
+    },
+    "executionConfirmedEvent": {
+      "properties": { "event_type": { "const": "ExecutionConfirmed" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/executionConfirmed" } }
+    },
+    "executionFailedEvent": {
+      "properties": { "event_type": { "const": "ExecutionFailed" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/executionFailed" } }
+    },
+    "settlementVerifiedEvent": {
+      "properties": { "event_type": { "const": "SettlementVerified" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/settlementVerified" } }
+    },
+    "serviceDeliveredEvent": {
+      "properties": { "event_type": { "const": "ServiceDelivered" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/serviceDelivered" } }
+    },
+    "reconciliationFailedEvent": {
+      "properties": { "event_type": { "const": "ReconciliationFailed" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/reconciliationFailed" } }
+    },
+    "budgetReservedEvent": {
+      "properties": { "event_type": { "const": "BudgetReserved" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/budget" } }
+    },
+    "budgetCommittedEvent": {
+      "properties": { "event_type": { "const": "BudgetCommitted" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/budget" } }
+    },
+    "budgetReleasedEvent": {
+      "properties": { "event_type": { "const": "BudgetReleased" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/budget" } }
+    },
+    "policyChangedEvent": {
+      "properties": { "event_type": { "const": "PolicyChanged" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/policyChanged" } }
+    },
+    "agentPausedEvent": {
+      "properties": { "event_type": { "const": "AgentPaused" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/agentPaused" } }
+    },
+    "killSwitchEnabledEvent": {
+      "properties": { "event_type": { "const": "KillSwitchEnabled" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/killSwitch" } }
+    },
+    "killSwitchDisabledEvent": {
+      "properties": { "event_type": { "const": "KillSwitchDisabled" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/killSwitch" } }
+    },
+    "intentExpiredEvent": {
+      "properties": { "event_type": { "const": "IntentExpired" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/intentExpired" } }
+    },
+    "intentCancelledEvent": {
+      "properties": { "event_type": { "const": "IntentCancelled" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/intentCancelled" } }
+    },
+    "legacyEvent": {
+      "properties": {
+        "event_type": { "enum": ["ApprovalGranted", "ExecutionRequested", "KillSwitchTriggered"] },
+        "intent_id": { "type": ["string", "null"] },
+        "data": { "type": "object" }
+      }
     }
   }
 }

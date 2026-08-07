@@ -41,7 +41,8 @@ Gateway identity, deterministic replay, context provenance, versioned bundles,
 and observability before any real execution work begins (PRD §31–32).
 Only the following crates are implemented so far:
 
-- `crates/atf-core` — shared domain primitives and error types.
+- `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
+  and the fail-closed pure transition validator.
 - `crates/atf-intent` — canonical Transaction Intent type, JSON Schema
   validation, canonical serialization and hashing.
 - `crates/atf-identity` — Agent registration records and Ed25519
@@ -57,9 +58,11 @@ Only the following crates are implemented so far:
   `DecisionRecorded(PERMIT)` events — a received or denied request is not
   treated as a purchase.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
-  append-only, with tamper detection (`verify_chain`), including the
-  `DecisionRecorded` lifecycle event. Its standalone `AuditLedger` remains an
-  in-memory domain utility; the Gateway uses `atf-store` as the persistent
+  append-only tamper detection (`verify_chain`), and version-1 typed payloads
+  for all canonical PRD lifecycle/administrative events. Event-to-state
+  effects reuse `atf-core`'s transition table; malformed, mismatched, unknown,
+  or post-terminal evidence fails closed. Its standalone `AuditLedger` remains
+  an in-memory domain utility; the Gateway uses `atf-store` as the persistent
   writer/verifier and has no in-memory Audit fallback.
 - `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
   algorithm (Policy + Risk; no Simulator branch yet).
@@ -91,9 +94,10 @@ single authority, Audit chains are serialized per organization, and admission
 and finalization use separate atomic transactions with fenced evaluator
 recovery. `DS-002` provides the store/migration/schema foundation; the
 `DS-003` concurrent append/verifier, `DS-004` admission/finalization
-repositories, and `DS-005` Gateway cutover are complete. Lifecycle,
-leases/fencing, typed Policy/Risk events, and completed idempotency responses
-land in their later tasks; `DS-006` is next.
+repositories, `DS-005` Gateway cutover, and `DS-006` lifecycle/typed Audit
+domain contract are complete. Durable lifecycle state and atomic transition
+enforcement, leases/fencing, Policy/Risk event emission, and completed
+idempotency responses land in later tasks; `DS-007` is next.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
@@ -150,9 +154,11 @@ semantics (evaluate only, never execute).
    Decision merge, atomically persists `IntentReceived`, Evaluation, Decision,
    and bound `DecisionRecorded`, and reads the verified Decision back for
    `GET /v1/intents/{id}/decision`. Policy/Risk results are currently stored
-   inside canonical Evaluation evidence; typed lifecycle Audit events are
-   DS-006/DS-007 work. Verified across two real Gateway processes sharing one
-   PostgreSQL database, not just in-process tests. **Not** wired in:
+   inside canonical Evaluation evidence. Its two current durable Audit events
+   now use typed version-1 payload constructors; emitting the intermediate
+   typed Policy/Risk/Simulation transitions is DS-007 work. Verified across two
+   real Gateway processes sharing one PostgreSQL database, not just in-process
+   tests. **Not** wired in:
    `atf-identity` (no endpoint to register an Agent's key yet — that's an
    Admin API concern, PRD §17.3), Simulation, Approval.
 
@@ -166,6 +172,11 @@ semantics (evaluate only, never execute).
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
   fallback. Transactional lifecycle state, evaluator leases/fencing, exact
   idempotent retry, and recovery of admitted-but-unfinalized work remain.
+- ~~Stable lifecycle and typed Audit domain contract.~~ Done in DS-006: 21
+  states, an exhaustively tested transition table, explicit `NOT_RUN` module
+  outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
+  PostgreSQL state/version columns and atomic transition enforcement remain
+  DS-007.
 - Rust semantic validation and versioned Intent Profiles for cross-field and
   action-specific invariants.
 - Concurrent, durable idempotency plus signed-envelope Nonce replay

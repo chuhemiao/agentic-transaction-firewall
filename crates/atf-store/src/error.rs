@@ -3,6 +3,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("typed Audit payload is invalid: {0}")]
+    AuditPayload(#[from] atf_audit::AuditPayloadError),
+
     #[error("PostgreSQL operation failed: {0}")]
     Database(#[from] sqlx::Error),
 

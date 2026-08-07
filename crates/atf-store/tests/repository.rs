@@ -41,6 +41,10 @@ async fn admission_is_atomic_and_never_overwrites_canonical_intent() -> Result<(
         admitted.audit_event.event.intent_id.as_deref(),
         Some("intent-a")
     );
+    assert!(matches!(
+        admitted.audit_event.event.typed_payload()?,
+        atf_audit::AuditPayload::IntentReceived(_)
+    ));
 
     let mut conflicting = intent.clone();
     conflicting.transaction.amount = Amount::from_str("99.00")?;
@@ -193,6 +197,10 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
     );
     assert_eq!(chain[1].evaluation_id.as_deref(), Some("evaluation-a"));
     assert_eq!(chain[1].decision_id.as_deref(), Some("decision-a"));
+    assert!(matches!(
+        chain[1].event.typed_payload()?,
+        atf_audit::AuditPayload::DecisionRecorded(_)
+    ));
 
     store.close().await;
     database.destroy().await?;

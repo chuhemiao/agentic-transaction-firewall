@@ -8,7 +8,7 @@ use crate::event::{AuditEvent, EventType, NewAuditEvent};
 /// This is domain logic, not a storage layer: PRD §16.3's MVP design calls
 /// for a PostgreSQL append-only table, which this crate does not implement.
 /// `atf-store` wraps the same canonical event/hash logic with a row-locked,
-/// per-organization durable chain; the Gateway cutover is still pending.
+/// per-organization durable chain; the Gateway now uses that durable path.
 #[derive(Debug, Default)]
 pub struct AuditLedger {
     events: Vec<AuditEvent>,

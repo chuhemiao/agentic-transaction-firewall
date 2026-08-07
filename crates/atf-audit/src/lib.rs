@@ -1,12 +1,24 @@
 //! The Audit Ledger: hash-chained events (PRD §16). This is the domain
 //! logic — event shape, chaining, integrity verification — wrapped by
-//! `atf-store` for durable PostgreSQL append. `services/gateway` still uses
-//! the process-local ledger on its current Shadow Mode path.
+//! `atf-store` for durable PostgreSQL append. `services/gateway` uses that
+//! durable store as its only Decision/Audit authority.
 
 mod error;
 mod event;
 mod ledger;
+mod payload;
 
 pub use error::ChainVerificationError;
 pub use event::{AuditEvent, EventType, NewAuditEvent};
 pub use ledger::AuditLedger;
+pub use payload::{
+    AgentPausedPayload, ApprovalRejectedPayload, ApprovalRequestedPayload, ApprovalResolvedPayload,
+    AuditPayload, AuditPayloadError, BudgetPayload, ContextEnrichedPayload,
+    DecisionRecordedPayload, ExecutionConfirmedPayload, ExecutionFailedPayload,
+    ExecutionGrantPayload, ExecutionSubmittedPayload, IdentityRejectedPayload,
+    IdentityVerifiedPayload, IntentCancelledPayload, IntentExpiredPayload, IntentReceivedPayload,
+    KillSwitchPayload, OptionalModuleOutcome, PolicyChangedPayload, PolicyEvaluatedPayload,
+    PolicyOutcome, ReconciliationFailedPayload, RequiredModuleOutcome, RiskEvaluatedPayload,
+    RiskFindingEvidence, RiskSeverity, ServiceDeliveredPayload, SettlementVerifiedPayload,
+    SimulationCompletedPayload, SimulationOutcome, AUDIT_PAYLOAD_SCHEMA_VERSION,
+};

@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：Admission 原子提交 Intent + `IntentReceived`，Finalization 原子提交 Evaluation + Decision + 绑定的 `DecisionRecorded`；重启或第二实例可读取原始 Decision，重复购买读取同组织的已验证持久化 Audit 链。
-3. Policy/Risk 结果当前保存在 Canonical Evaluation Evidence 中，尚未成为类型化 Lifecycle Audit Payload；Identity、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
+3. DS-006 已定义 21 个稳定 Lifecycle State、完整单向转换表、27 类版本化 Audit Payload 和严格 JSON Schema；当前持久化的 `IntentReceived`/`DecisionRecorded` 已改用类型化构造。Policy/Risk/Simulation 的中间事件仍未由 Gateway 发出，Lifecycle State 也尚未在 PostgreSQL 中事务性执行；Identity、真实幂等与未完成工作恢复、确定性 Replay、Context Provenance、Policy Bundle Versioning、认证授权和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1011,7 +1011,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。当前请求路径持久化 `IntentReceived` 与绑定的 `DecisionRecorded`；类型化 Policy/Risk Lifecycle Event、Query API、Checkpoint、完整 Lifecycle 与恢复仍未实现。
+当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006 已实现 21 状态的纯转换契约、27 类 `schema_version: 1` 类型化 Payload、Intent Scope 校验和严格 JSON Schema；当前请求路径持久化的 `IntentReceived` 与绑定的 `DecisionRecorded` 均通过类型化构造器产生。Policy/Risk/Simulation 中间事件、PostgreSQL 原子状态转换、Query API、Checkpoint 与恢复仍未实现。
 
 ### 16.1 目标
 
@@ -1044,6 +1044,8 @@ x402 Adapter：
 23. AgentPaused
 24. KillSwitchEnabled
 25. KillSwitchDisabled
+26. IntentExpired
+27. IntentCancelled
 
 `DecisionRecorded` 必须包含 Canonical Intent Hash、Decision Kind、Decision ID/Hash、组织与 Agent 作用域，以及 Policy/Risk/Context/Simulation 版本引用。事件 Payload 在进入持久化前必须经过对应的版本化 Schema 校验。
 
@@ -1057,16 +1059,21 @@ RECEIVED
   └─> IDENTITY_VERIFIED
         -> POLICY_EVALUATED
         -> RISK_EVALUATED
-        -> SIMULATED / NOT_RUN
-        -> DECIDED_PERMIT | DECIDED_REVIEW | DECIDED_DENY
-        -> APPROVAL_PENDING | APPROVED | REJECTED
-        -> EXECUTION_AUTHORIZED
-        -> EXECUTION_SUBMITTED
-        -> EXECUTION_CONFIRMED | EXECUTION_FAILED
-        -> SETTLEMENT_VERIFIED | RECONCILIATION_FAILED
+        -> SIMULATION_COMPLETED
+        -> DECIDED_PERMIT | DECIDED_REVIEW | DECIDED_DENY | DECIDED_ERROR
+
+DECIDED_PERMIT -> APPROVAL_PENDING | EXECUTION_AUTHORIZED
+DECIDED_REVIEW -> APPROVAL_PENDING
+APPROVAL_PENDING -> APPROVED | REJECTED
+APPROVED -> EXECUTION_AUTHORIZED
+EXECUTION_AUTHORIZED -> EXECUTION_SUBMITTED
+EXECUTION_SUBMITTED -> EXECUTION_CONFIRMED | EXECUTION_FAILED
+EXECUTION_CONFIRMED -> SETTLEMENT_VERIFIED | RECONCILIATION_FAILED
 ```
 
-`EXPIRED` 和 `CANCELLED` 是受约束的终止状态。未实现的阶段可以被显式标记为 `NOT_RUN`，但不得跳过安全必需阶段后仍产生可执行授权。
+`IDENTITY_REJECTED`、`DECIDED_DENY`、`DECIDED_ERROR`、`REJECTED`、`EXECUTION_FAILED`、`SETTLEMENT_VERIFIED`、`RECONCILIATION_FAILED`、`EXPIRED` 和 `CANCELLED` 是终止状态。`EXPIRED`/`CANCELLED` 只允许在 `EXECUTION_SUBMITTED` 之前由转换表列明的状态进入。
+
+`NOT_RUN` 是 Risk/Simulation 等模块的带原因 Outcome，不是 Lifecycle State。未实现或因前序拒绝而未运行的模块必须显式记录 `NOT_RUN`，仍通过唯一的阶段事件进入下一状态；它不代表成功，不得绕过安全必需阶段产生执行授权。权威事件映射、Payload 字段和全部转换见 `docs/audit-model.md`。当前 DS-006 只完成纯领域契约；DS-007 才负责 PostgreSQL State/Version 与匹配 Audit Event 的原子提交和并发冲突控制。
 
 历史风险规则必须声明统计边界：`REQUESTED`、`PERMITTED`、`EXECUTED` 或 `SETTLED`。例如重复购买在当前 Shadow Mode 统计同组织的 `DecisionRecorded(PERMIT)`；未来可按业务配置升级为 `ExecutionConfirmed` 或 `SettlementVerified`，但不得继续以 `IntentReceived` 代替购买事实。
 
@@ -1705,7 +1712,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 按以下顺序一次交付一个可验证的垂直功能：
 
 1. **P0.1 PostgreSQL Persistence（基础能力已完成）**：持久化 Intent、Evaluation、Decision、Audit，已证明 Final Decision 的 Restart/Second-instance Recovery 与并发 Append；未完成 Evaluation 的恢复属于后续 Lifecycle/Idempotency 工作。
-2. **P0.2 Lifecycle State Machine**：定义并事务性执行合法状态转换。
+2. **P0.2 Lifecycle State Machine（领域契约已完成）**：DS-006 已定义并穷举验证合法状态转换与类型化事件；DS-007 负责事务性持久化和并发执行。
 3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
 4. **P0.4 Idempotency & Replay Protection**：同 Key 同 Hash 返回原 Decision；不同 Hash 返回 409；并发只有一个 Evaluator。
 5. **P0.5 Identity Gateway Wiring**：Domain-separated Envelope、Key Lifecycle、Nonce 和组织绑定先于 Policy/Risk。
