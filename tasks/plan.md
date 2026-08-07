@@ -1,6 +1,6 @@
 # ATF Delivery Plan
 
-Updated: 2026-08-05
+Updated: 2026-08-08
 Planning baseline: `main` at `d112e7e`
 
 ## 1. Purpose and source of truth
@@ -52,7 +52,9 @@ embedded migration runner, constrained base Schema, append-only triggers, and
 real PostgreSQL migration CI. DS-003 was completed on 2026-08-08 with
 row-locked per-organization append, consistent-snapshot reload/verification,
 explicit event occurrence time, and real concurrent/corruption PostgreSQL
-tests. The next task is DS-004.
+tests. DS-004 was completed on 2026-08-08 with two coarse-grained repository
+transactions, canonical record verification, evidence-gated reads, and
+injected Audit-failure rollback tests. The next task is DS-005.
 
 ### Present but incomplete or unwired
 
@@ -62,13 +64,15 @@ tests. The next task is DS-004.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
 - Audit and Decision state use process-local `Mutex`/`HashMap` storage.
-- `atf-store` has the base Schema and migration runner but no repository
-  operations or Gateway caller.
+- `atf-store` has the base Schema, migration/Audit machinery, and atomic
+  admission/finalization repositories, but no Gateway caller. Full lifecycle,
+  leased idempotency/fencing, and versioned Evaluation Context remain later
+  tasks.
 
 ### Missing release controls
 
-- PostgreSQL repository/cutover, lifecycle transactions, durable idempotency
-  and nonce replay protection.
+- PostgreSQL Gateway cutover, lifecycle transactions, durable idempotency and
+  nonce replay protection.
 - Rust semantic validation and supported action profiles.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, recovery tests and security CI gates.
@@ -239,6 +243,8 @@ the database using deterministic event hashes and explicit occurrence time.
 - **Verification:** concurrent PostgreSQL integration test plus chain tamper test; full DoD.
 
 ### DS-004 — Add admission and finalization repository transactions `[M]`
+
+**Status:** Complete (2026-08-08).
 
 **Description:** Implement the ADR's short transactions: admission persists the
 Intent and `IntentReceived`; finalization persists Evaluation, Decision,

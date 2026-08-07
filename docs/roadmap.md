@@ -34,11 +34,15 @@ order. The executable order is:
 - [x] DS-003 Serialize each organization's Audit appends with a locked head;
   verify persisted canonical bytes/hash/order/head after restart and reject
   corruption before extending a bad tail.
+- [x] DS-004 Commit canonical Intent + `IntentReceived` and Evaluation +
+  Decision + bound `DecisionRecorded` in separate short transactions; gate
+  reads on canonical/hash/Audit verification and prove rollback at injected
+  Audit failures.
 
 - [~] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The base schema and concurrent Audit writer/verifier
-  are real; admission/finalization repositories, Gateway cutover, and complete
-  request-path restart proof remain.
+  plus admission/finalization repositories are real; Gateway cutover and
+  complete request-path restart proof remain.
 - [~] P0.2 Intent lifecycle state machine. `IntentReceived`,
   `PolicyEvaluated`, `RiskEvaluated`, and `DecisionRecorded` exist; identity,
   simulation, approval, execution, settlement, expiry, and cancellation
@@ -59,8 +63,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-004` — add atomic admission and finalization
-repository transactions around the durable Audit writer.
+**Immediate next task:** `DS-005` — move the Gateway to the atomic PostgreSQL
+repository path and prove restart/second-instance reads.
 
 ## Later releases
 

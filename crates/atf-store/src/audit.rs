@@ -7,6 +7,12 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 const AUDIT_EVENT_SCHEMA_VERSION: i32 = 1;
 
+#[derive(Debug, Default)]
+pub(crate) struct AuditReferences {
+    pub evaluation_id: Option<String>,
+    pub decision_id: Option<String>,
+}
+
 /// A durable Audit event together with its store-owned chain position and
 /// hash. Callers provide neither of those values when appending.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +57,13 @@ impl Store {
             .execute(&mut *transaction)
             .await?;
 
-        let stored = append_in_transaction(&mut transaction, organization_id, event).await?;
+        let stored = append_in_transaction(
+            &mut transaction,
+            organization_id,
+            event,
+            AuditReferences::default(),
+        )
+        .await?;
         transaction.commit().await?;
         Ok(stored)
     }
@@ -71,54 +83,7 @@ impl Store {
             .execute(&mut *transaction)
             .await?;
 
-        let organization_exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM organizations WHERE organization_id = $1)",
-        )
-        .bind(organization_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-        if !organization_exists {
-            return Err(StoreError::OrganizationNotFound {
-                organization_id: organization_id.to_owned(),
-            });
-        }
-
-        let head: Option<(i64, Option<String>)> = sqlx::query_as(
-            r#"
-            SELECT last_sequence, last_event_hash::text
-            FROM audit_chain_heads
-            WHERE organization_id = $1
-            "#,
-        )
-        .bind(organization_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
-
-        let rows: Vec<AuditEventRow> = sqlx::query_as(
-            r#"
-            SELECT
-                sequence,
-                event_id,
-                event_type,
-                schema_version,
-                occurred_at,
-                intent_id,
-                evaluation_id,
-                decision_id,
-                previous_event_hash::text AS previous_event_hash,
-                event_hash::text AS event_hash,
-                canonical_event,
-                canonical_event_bytes
-            FROM audit_events
-            WHERE organization_id = $1
-            ORDER BY sequence
-            "#,
-        )
-        .bind(organization_id)
-        .fetch_all(&mut *transaction)
-        .await?;
-
-        let verified = verify_rows(organization_id, head, rows)?;
+        let verified = load_verified_in_transaction(&mut transaction, organization_id).await?;
         transaction.commit().await?;
         Ok(verified)
     }
@@ -128,9 +93,11 @@ pub(crate) async fn append_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     organization_id: &str,
     event: NewAuditEvent,
+    references: AuditReferences,
 ) -> Result<StoredAuditEvent, StoreError> {
     let event = event.normalized();
     validate_new_event(&event)?;
+    validate_references(&event, &references)?;
 
     sqlx::query(
         r#"
@@ -186,11 +153,13 @@ pub(crate) async fn append_in_transaction(
             schema_version,
             occurred_at,
             intent_id,
+            evaluation_id,
+            decision_id,
             previous_event_hash,
             event_hash,
             canonical_event,
             canonical_event_bytes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(organization_id)
@@ -200,6 +169,8 @@ pub(crate) async fn append_in_transaction(
     .bind(AUDIT_EVENT_SCHEMA_VERSION)
     .bind(event.occurred_at.as_datetime())
     .bind(&event.intent_id)
+    .bind(&references.evaluation_id)
+    .bind(&references.decision_id)
     .bind(&event.prev_event_hash)
     .bind(&event_hash)
     .bind(&canonical_event)
@@ -233,9 +204,63 @@ pub(crate) async fn append_in_transaction(
         sequence,
         event_hash,
         event,
-        evaluation_id: None,
-        decision_id: None,
+        evaluation_id: references.evaluation_id,
+        decision_id: references.decision_id,
     })
+}
+
+pub(crate) async fn load_verified_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    organization_id: &str,
+) -> Result<Vec<StoredAuditEvent>, StoreError> {
+    let organization_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM organizations WHERE organization_id = $1)",
+    )
+    .bind(organization_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !organization_exists {
+        return Err(StoreError::OrganizationNotFound {
+            organization_id: organization_id.to_owned(),
+        });
+    }
+
+    let head: Option<(i64, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT last_sequence, last_event_hash::text
+        FROM audit_chain_heads
+        WHERE organization_id = $1
+        "#,
+    )
+    .bind(organization_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+
+    let rows: Vec<AuditEventRow> = sqlx::query_as(
+        r#"
+        SELECT
+            sequence,
+            event_id,
+            event_type,
+            schema_version,
+            occurred_at,
+            intent_id,
+            evaluation_id,
+            decision_id,
+            previous_event_hash::text AS previous_event_hash,
+            event_hash::text AS event_hash,
+            canonical_event,
+            canonical_event_bytes
+        FROM audit_events
+        WHERE organization_id = $1
+        ORDER BY sequence
+        "#,
+    )
+    .bind(organization_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+
+    verify_rows(organization_id, head, rows)
 }
 
 async fn verify_locked_head(
@@ -406,6 +431,23 @@ fn validate_new_event(event: &NewAuditEvent) -> Result<(), StoreError> {
     if !event.data.is_object() {
         return Err(StoreError::InvalidAuditEvent {
             reason: "data must be a JSON object",
+        });
+    }
+    Ok(())
+}
+
+fn validate_references(
+    event: &NewAuditEvent,
+    references: &AuditReferences,
+) -> Result<(), StoreError> {
+    if references.evaluation_id.is_some() && event.intent_id.is_none() {
+        return Err(StoreError::InvalidAuditEvent {
+            reason: "evaluation_id requires intent_id",
+        });
+    }
+    if references.decision_id.is_some() && references.evaluation_id.is_none() {
+        return Err(StoreError::InvalidAuditEvent {
+            reason: "decision_id requires evaluation_id and intent_id",
         });
     }
     Ok(())

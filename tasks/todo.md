@@ -35,8 +35,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-003:** implemented concurrent per-organization Audit append,
   consistent-snapshot reload/verification, and corruption/no-fork tests on
   PostgreSQL 17.10.
-- [ ] **NEXT — DS-004:** add atomic admission and finalization repository transactions. Depends: DS-003.
-- [ ] **DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.
+- [x] **DS-004:** added atomic admission/finalization repositories,
+  canonical/evidence verification, immutable conflict rejection, and injected
+  transaction-rollback tests on PostgreSQL.
+- [ ] **NEXT — DS-005:** move Gateway Decision/Audit state to PostgreSQL and prove restart. Depends: DS-004.
 - [ ] **DS-006:** define lifecycle states and typed Audit payloads. Depends: DS-001.
 - [ ] **DS-007:** enforce lifecycle state + Audit transitions transactionally. Depends: DS-004, DS-005, DS-006.
 - [ ] **Checkpoint C1:** restart, second-instance read and concurrent Audit append pass.

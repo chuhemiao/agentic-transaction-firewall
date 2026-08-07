@@ -23,7 +23,7 @@ pub struct Reason {
 /// binding fields (`intent_hash`, policy/risk/context/simulation hashes,
 /// expiry, constraints, `decision_hash`) and Approval output are omitted
 /// until their versioned inputs exist; see `docs/audit-gap-matrix.md`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decision {
     pub decision_id: String,
     pub intent_id: String,

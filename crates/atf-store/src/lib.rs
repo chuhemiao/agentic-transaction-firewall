@@ -1,20 +1,24 @@
 //! The single PostgreSQL boundary for durable ATF state.
 //!
-//! Cross-table admission and finalization operations will live here rather
-//! than in the Gateway. Schema migration/compatibility and durable Audit append
-//! are implemented; admission/finalization transactions are added by DS-004.
+//! Cross-table admission and finalization operations live here rather than in
+//! the Gateway. Schema migration/compatibility, durable Audit append, and the
+//! DS-004 short repository transactions are implemented; Gateway cutover and
+//! later lifecycle/idempotency state remain separate milestones.
 
 mod audit;
+mod error;
+mod models;
+mod repository;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    migrate::{MigrateError, Migrator},
-    postgres::PgPoolOptions,
-    PgPool,
-};
-use thiserror::Error;
+use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
 
 pub use audit::StoredAuditEvent;
+pub use error::StoreError;
+pub use models::{
+    AdmissionInput, AdmittedIntent, EvaluationInput, FinalizationInput, FinalizedDecision,
+    StoredEvaluation,
+};
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
@@ -26,43 +30,6 @@ pub struct SchemaMetadata {
     pub schema_version: i32,
     pub minimum_reader_version: i32,
     pub minimum_writer_version: i32,
-}
-
-#[derive(Debug, Error)]
-pub enum StoreError {
-    #[error("PostgreSQL operation failed: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("PostgreSQL migration failed: {0}")]
-    Migration(#[from] MigrateError),
-
-    #[error("ATF durable-state schema metadata is missing")]
-    MissingSchemaMetadata,
-
-    #[error(
-        "incompatible ATF durable-state schema: binary={binary_version}, database={database_version}, minimum_reader={minimum_reader_version}, minimum_writer={minimum_writer_version}"
-    )]
-    IncompatibleSchema {
-        binary_version: i32,
-        database_version: i32,
-        minimum_reader_version: i32,
-        minimum_writer_version: i32,
-    },
-
-    #[error("invalid Audit event: {reason}")]
-    InvalidAuditEvent { reason: &'static str },
-
-    #[error("organization `{organization_id}` does not exist")]
-    OrganizationNotFound { organization_id: String },
-
-    #[error("Audit chain for organization `{organization_id}` is corrupt: {reason}")]
-    AuditChainCorrupt {
-        organization_id: String,
-        reason: String,
-    },
-
-    #[error("Audit event JSON is invalid: {0}")]
-    AuditEventJson(#[from] serde_json::Error),
 }
 
 /// A verified connection pool. Construction fails closed when migrations have

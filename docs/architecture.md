@@ -63,8 +63,12 @@ Agent Intent
   SHA-256 hashes, composite tenant foreign keys, and append-only Audit
   triggers. It now serializes concurrent appends with a per-organization
   chain-head row lock and reloads/verifies the complete persisted chain under
-  one consistent snapshot. *Implemented through DS-003; admission/finalization
-  repository APIs and Gateway wiring do not exist yet.*
+  one consistent snapshot. DS-004 adds separate short admission and
+  finalization repository transactions: immutable Intent + `IntentReceived`,
+  then canonical Evaluation + Decision + foreign-key-bound
+  `DecisionRecorded`. Read APIs expose only records whose canonical
+  bytes/hashes and matching verified Audit evidence agree. *Implemented but
+  unwired; Gateway cutover is DS-005.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`. *Implemented.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -91,9 +95,10 @@ Agent Intent
   [`ADR-0002`](decisions/0002-durable-state-contract.md) now fixes the
   PostgreSQL ownership boundary, per-organization Audit serialization, short
   admission/finalization transactions, and evaluator fencing/recovery rules.
-  `atf-store`, the base migration, and the durable Audit writer/verifier now
-  exist; admission/finalization repository transactions and Gateway wiring
-  remain unimplemented.
+  `atf-store`, the base migration, durable Audit writer/verifier, and the
+  DS-004 admission/finalization transaction subset now exist. Gateway wiring,
+  lifecycle/idempotency result state, leases/fencing, and typed Policy/Risk
+  finalization events remain unimplemented.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
@@ -115,7 +120,13 @@ single organization head, so no operation reverses the order or spans tenants.
 The DS-003 implementation also validates the locked tail before extending it
 and reloads a chain under a read-only repeatable snapshot, rejecting canonical
 JSON/byte/hash disagreement, gaps, wrong predecessors, head mismatch, deletion,
-mutation, or sequence reordering. Gateway traffic does not use this path yet.
+mutation, or sequence reordering.
+DS-004 reuses that writer as the last lock in both repository transactions. A
+failed `IntentReceived` insert rolls back the new Intent; a failed
+`DecisionRecorded` insert rolls back both Evaluation and Decision. Final reads
+reverify the immutable Intent, Evaluation and Decision documents plus the
+complete chain in one repeatable-read snapshot. Gateway traffic still does not
+use this path.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -225,7 +236,7 @@ complete Decision Engine:
   production deployment target. ADR-0002 and migration 0001 resolve the
   target transaction and constrained table design, and DS-003 implements the
   Audit append guarantee, but the Gateway does not receive durable guarantees
-  until DS-004..DS-005 land.
+  until DS-005 lands.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
   `atf-audit`'s canonical hashing; any future crate that needs a
   deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3
