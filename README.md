@@ -128,7 +128,10 @@ Only the following crates are implemented so far:
   durable Agent/Key, and consumes the Nonce before Policy/Risk. Rejections and
   conflicting replay produce typed durable evidence without admitting an
   Intent. Operator authentication and organization authorization are still
-  missing.
+  missing. Proposed
+  [`ADR-0003`](docs/decisions/0003-operator-authentication.md) defines the
+  intended OAuth/JWT plus durable-role trust boundary, but it requires
+  maintainer approval and DS-018 implementation before changing that status.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -170,7 +173,8 @@ expired admissions. `DS-014` replaces raw-hash signatures with the canonical,
 domain-separated Identity Envelope and exact-key verification. `DS-015` adds
 durable Agent/key lifecycle, atomic operator Audit evidence and offline
 provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
-complete; `DS-017`, the operator authentication trust-boundary ADR, is next.
+complete. `DS-017` now has a Proposed operator authentication trust-boundary
+ADR; maintainer approval is the next gate before DS-018 implementation.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -232,9 +236,10 @@ semantics (evaluate only, never execute).
    `GET /v1/intents/{id}/decision`. Policy/Risk/Simulation outcomes are typed
    in canonical Evaluation evidence and the durable Audit chain. Verified across two
    real Gateway processes sharing one PostgreSQL database, not just in-process
-   tests. **Not** wired in:
-   `atf-identity` (no endpoint to register an Agent's key yet — that's an
-   Admin API concern, PRD §17.3), Simulation, Approval.
+   tests. **Not** wired in: operator/auditor authentication and RBAC,
+   Simulation, Approval, or an Admin HTTP API. Agent identity is wired on POST;
+   lifecycle provisioning intentionally remains an offline CLI until the Admin
+   boundary is implemented.
 9. ~~Common Transaction Intent semantic validation.~~ Done in DS-009:
    financial/time/ULID/text invariants produce stable ordered codes, CLI
    failures exit non-zero, and Gateway integration proves invalid input leaves
@@ -282,6 +287,13 @@ semantics (evaluate only, never execute).
     before Policy/Risk. Exact retries add no evidence; conflicting concurrent
     reuse has one winner; restart, tenant isolation and privileged-tamper tests
     fail closed without storing raw Nonces, Envelopes or signatures.
+17. **Operator authentication trust boundary.** Proposed in
+    [`ADR-0003`](docs/decisions/0003-operator-authentication.md): the Gateway
+    validates short-lived RFC 9068 access tokens, while PostgreSQL binds the
+    external subject to current organization roles. Agent and operator
+    principals are disjoint; selectors and proxy Headers grant no authority.
+    This item remains open pending explicit maintainer approval, then DS-018
+    implementation and tests.
 
 ### Remaining before Phase 2 can close out
 

@@ -84,6 +84,11 @@ order. The executable order is:
   Agent/Key/Intent/idempotency tuple and persist typed verified, rejected and
   replay evidence. Exact retry, concurrent conflict, restart, tenant isolation
   and tamper tests are green.
+- [~] DS-017 Proposed ADR-0003 selects Gateway-validated short-lived RFC 9068
+  access tokens plus per-request PostgreSQL subject/organization-role
+  authorization. Agent/operator principals are disjoint and no selector,
+  proxy Header, anonymous path, or shared account grants authority. Explicit
+  maintainer approval remains open before DS-018.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -116,9 +121,12 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-017` — decide and document the operator/auditor
-authentication trust boundary before protecting Decision reads and future
-Audit queries with organization-scoped RBAC in DS-018.
+**Immediate next gate:** approve or revise Proposed
+[`ADR-0003`](decisions/0003-operator-authentication.md) for `DS-017`. It selects
+Gateway-validated short-lived JWT access tokens and PostgreSQL-authoritative
+organization roles. DS-018 must not start until that trust boundary is
+explicitly accepted; Decision reads and future Audit queries remain
+unauthenticated in the current runtime.
 
 ## Later releases
 

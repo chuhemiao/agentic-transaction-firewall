@@ -17,6 +17,13 @@ The organization header used by the Decision read route is only a temporary
 tenant selector. It is not authentication or authorization; business routes
 must not be exposed to a shared or untrusted network before DS-017/DS-018.
 
+Proposed [`ADR-0003`](decisions/0003-operator-authentication.md) defines the
+replacement trust boundary but is not implemented: Decision reads will require
+one RFC 9068 `Authorization: Bearer` access token that the Gateway validates,
+then an active PostgreSQL `auditor` or `org_admin` binding for the selected
+organization. Agent Envelopes and operator tokens remain different principal
+types. `X-ATF-Organization-ID` remains a selector and never becomes authority.
+
 `POST /v1/intents` requires the detached Agent identity Headers defined in
 [`gateway-identity.md`](gateway-identity.md): lowercase-hex canonical Envelope
 bytes plus one exact Ed25519 signature. Trusted audience/environment come from
@@ -99,6 +106,25 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 Future operator authentication/authorization and dependency features add codes
 to this one envelope. Changing or removing an existing code
 or field is a compatibility decision and requires an explicit migration.
+
+## Proposed DS-018 operator error mapping
+
+These values are a prerequisite contract from Proposed ADR-0003, not current
+runtime behavior:
+
+| HTTP | Code | Meaning |
+|---:|---|---|
+| 401 | `AUTHENTICATION_REQUIRED` | A protected operator route has no single Bearer credential |
+| 401 | `AUTHENTICATION_INVALID` | Token type, issuer, audience, algorithm, signature, time, subject, or configured key validation failed |
+| 403 | `AUTHORIZATION_DENIED` | An authenticated principal lacks a capability for a non-resource operation |
+| 404 | `DECISION_NOT_FOUND` | Decision absent, cross-organization, or not readable by the principal; the cases are indistinguishable |
+| 503 | `AUTHENTICATION_UNAVAILABLE` | No fresh usable configured issuer key set is available |
+
+401 responses include only a fixed safe `WWW-Authenticate: Bearer` challenge.
+No response distinguishes expired versus revoked subjects, unknown versus
+disabled accounts, signing-key details, role membership, or another tenant's
+resource existence. Raw tokens and provider diagnostics never enter the error
+envelope.
 
 ## Admission ordering
 

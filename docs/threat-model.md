@@ -31,7 +31,7 @@ real network request path, but no execution path or production secret.
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
-| 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
+| 11 | Admin privilege abuse | Proposed ADR-0003 separates Agent/operator principals and makes PostgreSQL roles authoritative; it remains unaccepted/unimplemented and no Admin API exists yet |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, and DS-016 binds Nonce rows to verified Audit/lifecycle evidence. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
@@ -105,6 +105,32 @@ secret. The realistic attack surface today includes:
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   warning-free, all-feature/all-target `cargo deny` in CI; the broader controls
   listed above remain open.
+
+## DS-017 operator boundary threat review
+
+Proposed [`ADR-0003`](decisions/0003-operator-authentication.md) was reviewed
+against the current Gateway routes and STRIDE/confused-deputy cases. The review
+does not close GAP-API-001; it supplies the security contract DS-018 must prove.
+
+| Abuse case | Required fail-closed result |
+|---|---|
+| Forge `X-ATF-Organization-ID`, path/body organization, or proxy identity Header | Selector grants no authority; Gateway-validated token plus matching durable organization role is required |
+| Reuse an Agent signature as an operator credential, or use an operator token to submit as an Agent | Typed Agent and Operator principals are mutually exclusive at the route boundary |
+| Present an ID token or JWT from the wrong issuer/audience | Explicit `at+jwt`, exact issuer, and configured audience checks reject before route logic |
+| Use `alg=none`, algorithm confusion, embedded keys, `jku`, or `x5u` | Fixed asymmetric allowlist and configured JWKS only; no token-directed network lookup |
+| Keep using a removed role with a still-valid token | Token role/group claims grant nothing; PostgreSQL subject/role status is checked on every request |
+| Multi-organization operator selects another tenant's resource | Principal binding, selector, durable resource organization, and Audit organization must all agree |
+| Probe whether another tenant's Decision exists | Missing, cross-tenant, and wrong-read-role cases return the same 404 contract |
+| Share a service credential to erase attribution | One external subject and internal operator ID per human/service principal; no shared or anonymous fallback |
+| Replay a stolen access token or leak it through logs | TLS, exact audience, short lifetime, fixed redaction; sender-constrained tokens are reconsidered before Enforce |
+| Force unbounded JWKS refresh with unknown `kid` values | At most one bounded configured-origin refresh; stale/unavailable keys fail authentication/readiness closed |
+
+Residual risk remains explicit: disabling an external identity does not revoke
+an already issued self-contained access token instantly. The proposed
+reference limits that window to a short token lifetime and requires immediate
+local subject disable for incidents. TLS/proxy hardening and resource limits
+remain DS-034; production high-risk or Enforce authority requires another
+sender-constraint review.
 
 ## Secret management (PRD §18.3)
 

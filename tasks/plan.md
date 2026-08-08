@@ -77,7 +77,8 @@ Envelope and exact-key verifier. DS-015 added restart-safe Agent/Key lifecycle,
 atomic operator Audit evidence and offline provisioning. DS-016 added strict
 Gateway identity Headers/configuration, current durable exact-Key verification,
 atomic hashed-Nonce admission and typed rejection/replay evidence; the next
-task is DS-017.
+task is DS-017. A Proposed ADR now exists; explicit maintainer approval is the
+remaining DS-017 gate before DS-018 begins.
 
 ### Present but incomplete or unwired
 
@@ -88,8 +89,8 @@ task is DS-017.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
-  intermediate events; Identity is explicitly recorded as skipped until the
-  verifier is wired.
+  intermediate events. Current admissions emit `IdentityVerified`; the old
+  `IdentityVerificationSkipped` branch is compatibility-only.
 - `atf-store` is wired for admission/finalization, contract-v1 lifecycle
   replay, and atomic idempotency lease/result fencing. Gateway now returns
   exact completed results and recovers expired admissions on retry; there is
@@ -99,9 +100,10 @@ task is DS-017.
 
 ### Missing release controls
 
-- Authenticated Nonce replay protection and deterministic Context-based
-  recovery; the Identity Envelope, durable Agent/Key authority, exact result
-  return and restrictive request-driven recovery are complete.
+- Operator/auditor authentication and deterministic Context-based recovery;
+  the Agent Identity Envelope, durable Agent/Key authority, authenticated
+  Nonce replay protection, exact result return and restrictive request-driven
+  recovery are complete.
 - Supported action profiles; common Rust semantic validation is complete.
 - Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
 - Audit query, metrics, request limits, background recovery operations and
@@ -691,14 +693,23 @@ parsing and real signed HTTP verification cover the boundary.
 verified (for example local hashed service credentials or OIDC/JWT), how roles
 map to organizations, and where TLS termination/credential rotation live.
 
+- **Status:** `[~]` Proposed on 2026-08-08; threat review complete, explicit
+  maintainer approval pending.
+- **Proposed decision:** the Gateway verifies short-lived RFC 9068 JWT access
+  tokens from one configured issuer and audience. PostgreSQL maps the external
+  subject fingerprint to an internal operator and current organization roles
+  on every request. Agent/operator principals are disjoint; organization and
+  proxy Headers never grant authority.
 - **Dependencies:** DS-015.
-- **Likely files:** `docs/decisions/0003-operator-authentication.md`,
-  `docs/architecture.md`, `docs/threat-model.md`, `docs/api.md`.
+- **Drafted files:** `docs/decisions/0003-operator-authentication.md`,
+  `docs/architecture.md`, `docs/threat-model.md`, `docs/api.md`, plus PRD and
+  roadmap/gap synchronization.
 - **Acceptance criteria:**
   1. Agent identity and operator/auditor identity are explicitly separate.
   2. Credential validation, rotation, revocation and tenant binding are specified.
   3. The reference mechanism has no anonymous/shared-account fallback.
-- **Verification:** threat-model review for cross-tenant/confused-deputy cases; human approval.
+- **Verification:** cross-tenant/confused-deputy threat review is documented in
+  ADR-0003; human approval remains mandatory.
 
 ### DS-018 — Enforce organization-scoped operator RBAC `[M]`
 
@@ -707,9 +718,11 @@ map to organizations, and where TLS termination/credential rotation live.
 organization scope and least-privilege roles; health endpoints remain public.
 
 - **Dependencies:** DS-017.
-- **Likely files:** `services/gateway/src/auth.rs`,
-  `services/gateway/src/routes.rs`, `services/gateway/src/state.rs`,
-  `services/gateway/tests/authorization.rs`, `docs/api.md`.
+- **Likely files:** a new PostgreSQL migration,
+  `crates/atf-store/src/operator.rs`, offline provisioning in `cli/atf-cli`,
+  `services/gateway/src/auth.rs`, `services/gateway/src/routes.rs`,
+  `services/gateway/src/state.rs`, `services/gateway/tests/authorization.rs`,
+  `docs/api.md`.
 - **Acceptance criteria:**
   1. Every non-health route has an Agent or operator principal.
   2. Cross-organization and wrong-role reads return a non-enumerating denial.
@@ -1358,7 +1371,7 @@ exists.
 | Idempotency retry versus one-time nonce | Verify signature first; atomically bind nonce to the one idempotency/Intent tuple; exact retry returns original | DS-016 |
 | Unknown Intent fields | Reject unknown core fields; only hash-bound `context`/`metadata` extensions | DS-008 |
 | Currently advertised but semantically unsupported actions | Reject until a versioned profile is implemented | DS-010 |
-| Operator identity provider | Pluggable verifier with one secure reference mechanism; no anonymous fallback | DS-017 |
+| Operator identity provider | Proposed: Gateway-validated RFC 9068 JWT access token from one configured issuer/audience; PostgreSQL grants current ATF organization roles; no anonymous/shared/proxy-Header fallback | DS-017 approval |
 | Policy signing-key custody | Gateway stores trusted public keys only; signing private key remains external | DS-020 |
 | Agent-provided vendor median | Never trusted for Permit; require provenance or return configured insufficient-data result | DS-022/DS-024 |
 | Audit external checkpoint/retention | Not required for C1 persistence; specify later without weakening append-only database evidence | C4 review |

@@ -166,8 +166,20 @@ verification and typed rejection/replay evidence.
   `X-ATF-Organization-ID` and the store keys reads by organization + Intent,
   but any caller can forge that tenant selector because no identity or RBAC
   binds it to the request principal.
-- **security_impact:** decision data can be enumerated or submitted under arbitrary tenant identifiers.
-- **financial_impact:** attackers can pollute risk history and expose transaction decisions.
+- **design evidence:** Proposed
+  [`ADR-0003`](decisions/0003-operator-authentication.md) selects direct Gateway
+  validation of short-lived RFC 9068 access tokens plus per-request
+  PostgreSQL-authoritative operator/organization roles. It separates Agent and
+  Operator principals, rejects proxy/selector authority, specifies rotation,
+  revocation, TLS, non-enumerating reads, and confused-deputy tests. It is not
+  accepted or implemented, so the gap remains `MISSING`/`CRITICAL`.
+- **security_impact:** an unauthenticated caller that learns or guesses an
+  organization/Intent pair can read its Decision, and no operator identity is
+  attributable to that access. Authenticated POST admission is no longer part
+  of this open gap.
+- **financial_impact:** disclosed Decisions can reveal transaction intent,
+  Policy/Risk outcomes, and organization behavior; this GET path does not
+  mutate purchase history.
 - **severity:** `CRITICAL`
 - **recommended_change:** separate Agent auth from Admin/auditor auth, enforce organization isolation and least-privilege RBAC.
 - **required_tests:** cross-tenant denial, role matrix, invalid/expired credential, confused-deputy tests.
@@ -451,7 +463,8 @@ verification and typed rejection/replay evidence.
 
 ## Next vertical feature
 
-`DS-017` is next: fix the operator/auditor trust boundary before DS-018
-organization-scoped RBAC. DS-016 has closed Agent authentication and signed
-Nonce replay protection before Policy/Risk; Agent and operator identities
+`DS-017` is at its explicit decision gate: approve or revise Proposed
+ADR-0003 before DS-018 organization-scoped RBAC starts. DS-016 has closed Agent
+authentication and signed Nonce replay protection before Policy/Risk; the
+current runtime still has no operator principal, and Agent/operator identities
 remain deliberately separate.

@@ -81,8 +81,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   nonce/idempotency semantics before Policy/Risk, including typed rejection
   and replay evidence, restart/concurrency/tenant/tamper coverage. Depends:
   DS-012..DS-015.
-- [ ] **NEXT — DS-017:** decide operator authentication and tenant trust
-  boundary. Depends: DS-015.
+- [~] **NEXT — DS-017:** Proposed ADR-0003 selects Gateway-validated RFC 9068
+  access tokens plus PostgreSQL-authoritative organization roles, with
+  disjoint Agent/operator principals and no proxy/shared-account fallback.
+  Awaiting explicit maintainer approval. Depends: DS-015.
 - [ ] **DS-018:** protect all non-health routes with Agent/operator auth and org RBAC. Depends: DS-017.
 - [ ] **Checkpoint C2:** invalid, unauthenticated, cross-tenant, duplicate and replay requests cannot reach evaluation incorrectly.
 

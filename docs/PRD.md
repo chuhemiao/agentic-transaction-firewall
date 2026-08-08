@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016 将类型化 Audit Payload 扩展到 33 类（含 Agent/Key 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、确定性 Replay、Context Provenance、Policy Bundle Versioning、操作者认证授权和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016 将类型化 Audit Payload 扩展到 33 类（含 Agent/Key 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、确定性 Replay、Context Provenance、Policy Bundle Versioning、操作者认证授权和 Metrics 仍未完成；操作者边界已有 Proposed ADR-0003，但尚未批准或实现。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -1209,6 +1209,27 @@ Canonical Envelope 与签名，在同一短事务中重验当前 Agent/Key、消
 3. 高风险 Admin 操作（发布生产 Policy、调整 Kill Switch、提升 Agent 权限）需要与 14.1 类似的多人审批，不允许单一 `org_admin` 账号直接生效。
 4. 所有 Admin API 调用生成审计事件（对应 16.2 的 `PolicyChanged`、`AgentPaused` 等），且记录操作者角色与身份，不允许匿名或共享账号操作。
 
+DS-017 的 Proposed ADR-0003 进一步收敛参考实现：Gateway 作为 OAuth Resource
+Server，只接受一个由固定 HTTPS Issuer 签发、面向固定 ATF Audience、符合 RFC
+9068 的短期非对称签名 JWT Access Token，并由 Gateway 自行验证；ID Token、Cookie、
+静态 API Key、密码、Query Credential 与反向代理注入的身份 Header 均不构成操作者
+认证。JWT 只证明外部 `(issuer, sub)`，PostgreSQL 必须在每次请求中把该 Subject 的
+Fingerprint 映射到唯一内部 Operator，并重新加载当前 Organization/Role 绑定；Token
+中的 Email、Group、Scope、Organization 或 Role Claim 均不能单独授予 ATF 权限。
+
+Agent Principal 与 Operator Principal 为互斥类型：Agent Envelope 只能提交绑定的
+Intent，Operator Token 只能进入明确的 Admin/Read Role Matrix，两者不得互相回退。
+Organization Header/Path/Body 只是 Selector，必须同时匹配 Principal 的持久化 Role
+Binding 与资源所属 Organization。跨组织、资源不存在、无读取角色的 Decision 查询
+返回相同的非枚举 404。操作者停用或 Role 移除在下一次请求立即生效；外部 IdP 撤销
+已签发自包含 Token 的窗口由短期 TTL 限制，事故处置必须同时支持 ATF 本地停用。
+
+共享部署要求可信 HTTPS Ingress，Ingress 到 Gateway 的链路同样必须防窃听、注入和
+重放；Gateway 不把 TLS 终止或代理 Header 当作身份委托。ADR-0003 当前状态为
+**Proposed**，需 Maintainer 明确批准后才能进入 DS-018 实现；在完成前上述内容是目标
+契约，不是当前运行时保证。生产 Policy、Kill Switch、Approval 或 Enforce 权限开放前，
+还必须重新评估 mTLS/DPoP Sender-Constrained Token 与多人审批边界。
+
 ---
 
 ## 18. 安全架构
@@ -1332,12 +1353,11 @@ Rust 主要组件：
 
 PRD v1.3 不再把目标目录结构等同于完成状态。当前模块分类如下：
 
-1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语；Policy Conformance Harness。
-2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway。
-3. `IMPLEMENTED_BUT_UNWIRED`：`atf-identity` 的 Envelope/验证器，以及
-   `atf-store` 的 Agent/Key 生命周期和离线预配；Gateway 尚未调用。
-4. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
-5. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放、原子 Idempotency Reservation/Result、Evaluator Lease/Renew/Reclaim、Generation Fencing、Agent/Key Lifecycle 和 Gateway 请求路径接入已落地；Gateway 已返回完成态同 Hash 的原 Decision、在 Policy/Risk 阶段边界续租，并对请求命中的过期工作执行 Fail-Closed Recovery。Agent/Key 当前只由离线 CLI 管理，尚未接入请求身份验证；后台 Recovery Scanner、持久化 Evaluation Context 与确定性重算尚未实现。
+1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语、Policy Conformance Harness，以及 DS-014..DS-016 的 Agent Identity Admission 子集；Gateway 在 Policy/Risk 前使用当前持久化精确 Key 验证 Envelope 并原子消费 hashed Nonce。
+2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway；各自的已实现/缺失边界见 `docs/architecture.md`。
+3. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放、原子 Idempotency Reservation/Result、Evaluator Lease/Renew/Reclaim、Generation Fencing、Agent/Key Lifecycle 与 Gateway 请求路径接入已落地；Agent/Key 生命周期仍由离线 CLI 预配，但 Gateway 已在每次新 Admission 中重验。后台 Recovery Scanner、持久化 Evaluation Context 与确定性重算尚未实现。
+4. `PROPOSED_ONLY`：ADR-0003 已定义 Operator JWT、持久化 Organization Role、TLS/Rotation/Revocation 与非枚举读取边界；尚未获得 Maintainer 批准，当前 Gateway 不存在 Operator Principal 或 RBAC。
+5. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
 6. `MISSING`：Admin API、SDK、Metrics、Replay、Context Provenance 和除已落地 `intent-spec.md`/`identity-envelope.md`/`api.md` 外的大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
@@ -1487,6 +1507,15 @@ MVP 必须实现：
 Organization。GET Decision 必须携带 `X-ATF-Organization-ID` 才能按复合租户键
 查询，但该 Header 只是 DS-005 的过渡 Tenant Selector，不构成身份或授权；在
 DS-017/DS-018 完成前，业务接口不得暴露到共享或不可信网络。
+
+Proposed ADR-0003 规定 DS-018 的 API 前置契约：除 `/healthz`、`/readyz` 外，每个
+请求必须恰好形成 Agent Principal 或 Operator Principal。当前 Decision GET 将要求
+`Authorization: Bearer <RFC 9068 access token>`，并在 PostgreSQL 中具备所选
+Organization 的 `auditor` 或 `org_admin` Role；`X-ATF-Organization-ID` 仍只负责选择
+租户。缺失或无效 Credential 返回安全统一的 401；已认证但无非资源操作权限返回
+403；资源不存在、跨租户或无读取角色统一返回 `404 DECISION_NOT_FOUND`。原始 Token、
+IdP Diagnostic、外部 PII 与 Role Membership 不得进入 Error、Log、Metric、Trace 或
+Audit Payload。该契约尚未在当前 Gateway 实现。
 
 DS-011 当前错误契约：业务 Handler、未知路由、Method Not Allowed 和 Store
 失败统一返回顶层 `{code,message,request_id,details}` JSON；`details` 永远是
