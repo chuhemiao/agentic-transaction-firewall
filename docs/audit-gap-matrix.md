@@ -222,16 +222,17 @@ principals and non-enumerating Decision-read RBAC.
   monotonic active pointers, atomic rollback and typed `PolicyChanged`. JWT
   Admin routes and the Store both recheck current Policy roles; Gateway reloads
   and verifies the active artifact per request. Multi-Bundle resolution and
-  persistent Decision/Evaluation input binding remain open.
+  persistent Decision binding remain open. DS-023 pins the resolved Bundle in
+  immutable Evaluation Context and final Evaluation input.
 - **security_impact:** the selected Bundle is now provenance-checked and
   rollback-safe, but future multi-Bundle composition could still omit or mix a
   required scope until resolver/binding work is complete.
 - **financial_impact:** a current evaluation uses one exact authorized Bundle;
   the canonical Decision still does not persistently name every decisive input.
 - **severity:** `HIGH`
-- **recommended_change:** retain DS-019/DS-020 invariants; DS-023..DS-025 must
-  pin the resolved Bundle identity into immutable Evaluation Context,
-  Evaluation, Decision and Audit, followed by replay verification.
+- **recommended_change:** retain DS-019/DS-020/DS-023 invariants; DS-025 must
+  pin the resolved Bundle identity into canonical Decision/Audit, followed by
+  replay verification.
 - **required_tests:** implemented for bad signature/schema/scope/version/
   expiry, duplicate/conflict, concurrent activation, restart, rollback,
   privileged tamper, authenticated RBAC API and real CLI.
@@ -273,20 +274,22 @@ principals and non-enumerating Decision-read RBAC.
   exact-scope `ATF_ENRICHED` median. Agent overrides, cross-Intent context
   reuse, stale/tampered/unsigned/ambiguous or wrongly scoped evidence produce
   explicit restrictive findings. Real Gateway and PostgreSQL coverage proves
-  Agent median cannot preserve Permit.
+  Agent median cannot preserve Permit. DS-023 persists the exact verified
+  envelopes, trust-policy identity, Agent-context hash, evaluation time and
+  Audit-history prefix in one immutable canonical Evaluation Context before
+  Policy/Risk, with typed Audit, fencing, restart and tamper verification.
 - **security_impact:** the requester no longer controls the current vendor
-  comparison input. Evidence trust policy and snapshot persistence are not yet
-  durable deployment authority, and future consumers must use the same typed
-  boundary.
+  comparison input, and persisted snapshots cannot be silently substituted.
+  Production enrichers are absent and DS-024 must ensure every evaluator uses
+  only the typed snapshot boundary.
 - **financial_impact:** current price-context manipulation becomes REVIEW;
   balance/position/spend/reputation/simulation rules remain unimplemented.
 - **severity:** `HIGH`
-- **recommended_change:** persist the verified Evidence and trust-policy
-  identity in DS-023 Evaluation Context snapshots, then make every evaluator
-  context-only in DS-024; production enrichers must never reconstruct
-  authority from Agent fields.
+- **recommended_change:** make every evaluator context-only in DS-024;
+  production enrichers must never reconstruct authority from Agent fields.
 - **required_tests:** source allowlist, stale/missing evidence, hash/signature mismatch, Agent override rejection.
-- **dependencies:** EvaluationContext and persistent context snapshots.
+- **dependencies:** DS-024 context-only evaluator cutover and production
+  enrichment.
 - **target_release:** Durable Shadow Mode P0.8.
 - **acceptance_criteria:** every decision-affecting external value has recorded provenance/freshness and untrusted sources cannot overwrite it.
 
@@ -294,7 +297,10 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** Core evaluation pipeline and replay conformance
 - **current_state:** `MISSING`
-- **evidence:** Risk and history rules call `Timestamp::now()`; policy/risk versions and context snapshots are not recorded; replay conformance is a README only.
+- **evidence:** DS-023 now records the exact Policy/Risk identities, evaluation
+  time, verified Evidence and history snapshot before evaluation. Legacy
+  Policy/Risk convenience APIs still sample `Timestamp::now()` or accept
+  separately supplied inputs; replay conformance remains a README only.
 - **security_impact:** original decisions cannot be independently reproduced or investigated.
 - **financial_impact:** disputes and regressions cannot prove which inputs caused an authorization.
 - **severity:** `HIGH`
@@ -509,6 +515,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-023` is next: persist the exact evaluation time, signed Policy identity,
-versioned Risk identity and DS-022 verified Evidence into one immutable
-hash-checked Evaluation Context snapshot before evaluation.
+`DS-024` is next: make Policy and Risk consume only the persisted Evaluation
+Context, remove ambient time and separately supplied privileged inputs, and
+prove repeated evaluation of one snapshot produces byte-equivalent outputs.

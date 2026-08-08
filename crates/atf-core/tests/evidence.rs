@@ -147,6 +147,10 @@ fn exact_source_and_kind_allowlists_are_authority_not_self_declared_source_names
     )
     .unwrap()])
     .unwrap();
+    assert_eq!(
+        policy.policy_hash().unwrap(),
+        "ed9b12bd5b0411c29672b0e88630628962f8c68a34f81422b3423e525f5279e5"
+    );
     let at = timestamp("2026-08-08T12:00:00Z");
     assert!(policy.verify(&price_evidence(price_value()), at).is_ok());
 

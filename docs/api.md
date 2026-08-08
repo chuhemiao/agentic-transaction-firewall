@@ -59,8 +59,10 @@ no production enricher, so the reference Rule Set returns a restrictive
 vendor-price insufficient-data finding rather than using
 `context.historical_vendor_median`. Trusted integrations construct the closed
 `evidence.schema.json` envelope, apply an exact local trust policy, and pass
-only `VerifiedEvidence` through `RiskContext`; DS-023 will persist that
-snapshot. See [`context-provenance.md`](context-provenance.md).
+only `VerifiedEvidence` through `RiskContext`. DS-023 persists the exact
+verified Evidence/trust selection,
+Agent-context hash and evaluation time in the immutable Evaluation Context
+before Policy/Risk. See [`context-provenance.md`](context-provenance.md).
 
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
@@ -188,11 +190,16 @@ envelope.
    - an active evaluator/recovery lease returns
      `409 IDEMPOTENCY_IN_PROGRESS`;
    - an expired lease is conditionally reclaimed with a higher fencing
-     generation and, until immutable Evaluation Context exists, finalized once
-     as `Decision(ERROR)` with `RECOVERY_CONTEXT_UNAVAILABLE` evidence.
-8. For a new admission, evaluate Policy; renew the lease in an independent
-   short transaction; evaluate Risk only when Policy permits; renew again.
-9. Atomically finalize Evaluation, Decision, lifecycle, Audit evidence and the
+     generation, reuses an existing context or persists one with explicit
+     unavailable inputs, and finalizes once as `Decision(ERROR)` with
+     `RECOVERY_REPLAY_NOT_IMPLEMENTED` evidence.
+8. For a new admission, resolve Policy/Risk artifacts, capture one evaluation
+   time and verified history prefix, then atomically persist the immutable
+   Evaluation Context plus `ContextEnriched` before module output.
+9. Evaluate the pinned Policy; renew the lease in an independent short
+   transaction; evaluate Risk only when Policy permits using the same context
+   time/history; renew again.
+10. Atomically finalize Evaluation, Decision, lifecycle, Audit evidence and the
    idempotency result.
 
 Steps 1–4 cannot create an Intent, Evaluation, Decision, or Audit event.

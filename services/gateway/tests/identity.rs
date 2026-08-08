@@ -46,7 +46,7 @@ async fn unsigned_intent_is_rejected_and_audited_before_evaluation() -> Result<(
         "IDENTITY_HEADERS_REQUIRED"
     );
     assert!(rejected.event.intent_id.is_none());
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 1));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 1));
 
     store.close().await;
     database.destroy().await?;
@@ -98,7 +98,7 @@ async fn invalid_signature_and_trusted_context_mismatches_are_audited_without_ad
     )
     .await?;
 
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 3));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 3));
     let chain = store.load_verified_audit_chain("alpha-lab").await?;
     let rejection_codes: Vec<&str> = chain
         .iter()
@@ -152,7 +152,7 @@ async fn consumed_nonce_replay_is_rejected_after_restart_without_exposing_secret
     )
     .await?;
 
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 7));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 8));
     let chain = restarted_store
         .load_verified_audit_chain("alpha-lab")
         .await?;
@@ -193,7 +193,10 @@ async fn identical_agent_nonce_is_isolated_by_organization_scope() -> Result<(),
     let beta = signed_post_intent_request(beta_intent, nonce, AUDIENCE, ENVIRONMENT);
     assert_eq!(app.oneshot(beta).await?.status(), StatusCode::OK);
 
-    assert_eq!(database.business_record_counts().await?, (2, 2, 2, 2, 12));
+    assert_eq!(
+        database.business_record_counts().await?,
+        (2, 2, 2, 2, 2, 14)
+    );
     for organization_id in ["alpha-lab", "beta-lab"] {
         let chain = store.load_verified_audit_chain(organization_id).await?;
         assert!(chain
@@ -236,7 +239,7 @@ async fn current_durable_agent_status_is_rechecked_before_policy_risk() -> Resul
     )
     .await?;
 
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 1));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 1));
     let chain = store.load_verified_audit_chain("alpha-lab").await?;
     assert_eq!(
         chain.last().expect("rejection is durable").event.event_type,

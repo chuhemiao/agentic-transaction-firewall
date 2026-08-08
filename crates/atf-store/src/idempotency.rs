@@ -280,19 +280,42 @@ pub(crate) async fn verify_lease_for_finalization(
     transaction: &mut Transaction<'_, Postgres>,
     input: &FinalizationInput,
 ) -> Result<(), StoreError> {
-    if input.expected_intent_hash != input.evaluator_lease.intent_hash {
-        return Err(StoreError::IntentHashMismatch {
+    verify_active_lease(
+        transaction,
+        &input.organization_id,
+        &input.intent_id,
+        &input.expected_intent_hash,
+        &input.evaluator_lease,
+    )
+    .await?;
+    if input.evaluator_lease.generation > 1 && input.decision.decision != DecisionKind::Error {
+        return Err(StoreError::RecoveredWorkMustFailClosed {
             organization_id: input.organization_id.clone(),
             intent_id: input.intent_id.clone(),
-            expected: input.expected_intent_hash.clone(),
-            stored: input.evaluator_lease.intent_hash.clone(),
         });
     }
-    let row = load_by_intent(transaction, &input.organization_id, &input.intent_id, true)
+    Ok(())
+}
+
+pub(crate) async fn verify_active_lease(
+    transaction: &mut Transaction<'_, Postgres>,
+    organization_id: &str,
+    intent_id: &str,
+    expected_intent_hash: &str,
+    lease: &EvaluatorLease,
+) -> Result<(), StoreError> {
+    if expected_intent_hash != lease.intent_hash {
+        return Err(StoreError::IntentHashMismatch {
+            organization_id: organization_id.to_owned(),
+            intent_id: intent_id.to_owned(),
+            expected: expected_intent_hash.to_owned(),
+            stored: lease.intent_hash.clone(),
+        });
+    }
+    let row = load_by_intent(transaction, organization_id, intent_id, true)
         .await?
-        .ok_or_else(|| lease_lost(input))?;
-    let reservation = reservation_from_row(&row, &input.organization_id, &row.idempotency_key)?;
-    let lease = &input.evaluator_lease;
+        .ok_or_else(|| lease_lost_from_token(lease))?;
+    let reservation = reservation_from_row(&row, organization_id, &row.idempotency_key)?;
     let active: bool = sqlx::query_scalar("SELECT $1::timestamptz > clock_timestamp()")
         .bind(row.lease_expires_at)
         .fetch_one(&mut **transaction)
@@ -302,18 +325,14 @@ pub(crate) async fn verify_lease_for_finalization(
         && reservation.idempotency_key == lease.idempotency_key
         && reservation.intent_id == lease.intent_id
         && reservation.intent_hash == lease.intent_hash
-        && reservation.intent_hash == input.expected_intent_hash
+        && reservation.organization_id == organization_id
+        && reservation.intent_id == intent_id
+        && reservation.intent_hash == expected_intent_hash
         && row.lease_owner == lease.owner
         && row.lease_generation == lease.generation
         && active;
     if !matches {
-        return Err(lease_lost(input));
-    }
-    if lease.generation > 1 && input.decision.decision != DecisionKind::Error {
-        return Err(StoreError::RecoveredWorkMustFailClosed {
-            organization_id: input.organization_id.clone(),
-            intent_id: input.intent_id.clone(),
-        });
+        return Err(lease_lost_from_token(lease));
     }
     Ok(())
 }
@@ -371,7 +390,7 @@ pub(crate) async fn complete_in_transaction(
     .bind(decision_hash)
     .fetch_optional(&mut **transaction)
     .await?;
-    let row = row.ok_or_else(|| lease_lost(input))?;
+    let row = row.ok_or_else(|| lease_lost_from_token(&input.evaluator_lease))?;
     let reservation = reservation_from_row(
         &row,
         &input.organization_id,
@@ -679,10 +698,6 @@ async fn set_write_timeouts(transaction: &mut Transaction<'_, Postgres>) -> Resu
         .execute(&mut **transaction)
         .await?;
     Ok(())
-}
-
-fn lease_lost(input: &FinalizationInput) -> StoreError {
-    lease_lost_from_token(&input.evaluator_lease)
 }
 
 fn lease_lost_from_token(lease: &EvaluatorLease) -> StoreError {

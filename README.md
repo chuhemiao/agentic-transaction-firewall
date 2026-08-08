@@ -42,10 +42,14 @@ and observability before any real execution work begins (PRD §31–32).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
-  the fail-closed pure transition validator, and DS-022 provenance-bearing
-  Evidence envelopes. Evidence uses closed typed source/kind enums, bounded
+  the fail-closed pure transition validator, DS-022 provenance-bearing
+  Evidence envelopes, and the DS-023 immutable `EvaluationContext`. Evidence uses closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
-  allowlists and optional strict Ed25519 verification.
+  allowlists and optional strict Ed25519 verification. Evaluation Context binds
+  the exact Intent/Profile, one evaluation time, Policy/Risk artifacts,
+  verified Evidence/trust identity, Audit-history boundary, external snapshot
+  availability and Simulation `NOT_RUN` into one domain-separated canonical
+  hash.
 - `crates/atf-intent` — canonical Transaction Intent type, closed JSON Schema
   and matching fail-closed Serde shape, supported `spec_version` set (`1.0`),
   canonical serialization and hashing, plus deterministic common semantic
@@ -115,7 +119,8 @@ Only the following crates are implemented so far:
   Intent and `IntentReceived` atomically; finalization verifies the active
   lease and completes the reservation with the Decision transaction. Expired
   leases can be conditionally reclaimed, but generation >1 can only finalize
-  a fail-closed `ERROR` until Evaluation Context snapshots exist. Contract-v1 reads
+  a fail-closed `ERROR`; DS-023 now persists or reuses an immutable recovery
+  context before that terminal result. Contract-v1 reads
   replay typed events and reject any materialized-state mismatch; concurrent
   finalizers cannot both advance the same Intent. The Gateway uses this
   boundary for all accepted Intents, Evaluations, Decisions, Audit writes, and
@@ -134,6 +139,10 @@ Only the following crates are implemented so far:
   publisher public keys, plus monotonic organization/environment/Bundle active
   pointers retaining the immediately prior signed version for rollback. Every
   install, activation and rollback is atomically bound to `PolicyChanged`.
+  Migration 0008 adds immutable, one-per-Intent Evaluation Context snapshots;
+  exact canonical bytes/hash and redundant columns are bound to the admitted
+  Intent, selected Profile/artifacts, verified Audit-history prefix and one
+  `ContextEnriched` event. Final Evaluations foreign-key the snapshot hash.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   offline `atf identity` provision/register/status/revoke commands, and
@@ -177,8 +186,11 @@ Only the following crates are implemented so far:
   `IDEMPOTENCY_CONFLICT`. DS-013 now returns the verified original Decision for
   completed same-hash retries without re-evaluation, renews leases between
   Policy/Risk stages, and conditionally reclaims expired admissions after a
-  retry. Until immutable Evaluation Context exists, recovered work records one
-  fail-closed `Decision(ERROR)` instead of re-evaluating under current inputs.
+  retry. DS-023 persists the exact context before Policy/Risk, pins and reuses
+  its evaluation time, Policy/Risk identities and Audit history, and records
+  `ContextEnriched` before module output. Recovered work reuses an existing
+  context or creates an explicit unavailable recovery context, then records
+  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` until DS-026 replay.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -222,6 +234,11 @@ accounting-boundary semantics, and Rule Set identity in durable Risk evidence.
 `DS-022` adds the closed Evidence contract, canonical hash/freshness/signature
 verification and the Risk privileged-context firewall; the Gateway no longer
 uses Agent-provided vendor median as trusted financial data.
+`DS-023` adds the closed Evaluation Context schema/type, migration 0008
+immutable snapshot store and typed Audit evidence. Gateway pins the resolved
+Policy, Risk Rule Set, evaluation time, Agent-context hash, verified Evidence
+set/trust identity, market/Simulation availability and exact Audit-history
+prefix before evaluation; final Evaluation rows bind that context hash.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -230,6 +247,7 @@ Rust profile validator),
 `policy-bundle-signature.schema.json` (the detached Ed25519 proof contract),
 `risk-rule-set.schema.json` (the closed DS-021 Risk artifact contract),
 `evidence.schema.json` (the closed DS-022 provenance envelope contract),
+`evaluation-context.schema.json` (the closed DS-023 input snapshot contract),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -320,8 +338,9 @@ semantics (evaluate only, never execute).
     completed same-hash POSTs return the verified original Decision without
     Policy/Risk or new Audit events; active work returns bounded 409; normal
     evaluation renews its lease between stages; and an expired admission is
-    conditionally reclaimed after restart and terminated once as
-    `RECOVERY_CONTEXT_UNAVAILABLE` until Evaluation Context snapshots exist.
+    conditionally reclaimed after restart, given an immutable explicit-
+    unavailable recovery context, and terminated once as
+    `RECOVERY_REPLAY_NOT_IMPLEMENTED` until Original Replay exists.
 14. ~~Domain-separated Agent Identity Envelope.~~ Done in DS-014:
     `ATF_INTENT_V1` sorted canonical bytes bind organization, Agent, exact
     Key ID, Intent hash, a closed five-minute lifetime, nonce, audience and
@@ -378,9 +397,16 @@ semantics (evaluate only, never execute).
     optional strict Ed25519 proof and explicit freshness produce only
     `VerifiedEvidence`. Risk rejects Agent privileged context, stale/tampered/
     unsigned/wrong-scope evidence and ambiguous matching values fail closed.
-23. **NEXT — Immutable Evaluation Context:** persist the exact evaluation
-    time, Policy/Risk identities and provenance-bearing evidence snapshot
-    before any evaluation runs.
+23. ~~Immutable Evaluation Context.~~ Done in DS-023: migration 0008 persists
+    one canonical, hash-verified, immutable snapshot before Policy/Risk and
+    atomically appends matching `ContextEnriched` evidence. Gateway pins one
+    time, Profile, signed Policy identity, Risk identity, Agent-context hash,
+    verified Evidence/trust selection, Audit-history prefix and explicit
+    unavailable/`NOT_RUN` inputs; restart readers and finalization reverify all
+    bindings and reject stale leases, conflicts and tampering.
+24. **NEXT — Context-only Policy/Risk:** remove evaluator wall-clock and
+    privileged ambient reads and prove repeated evaluation of one persisted
+    context produces byte-equivalent module output.
 
 ### Remaining before Phase 2 can close out
 
@@ -439,8 +465,8 @@ semantics (evaluate only, never execute).
 - ~~Organization-scoped operator authentication/RBAC following accepted
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
-- Versioned `EvaluationContext` that durably pins the completed Policy/Risk
-  identities and DS-022 Evidence snapshot, plus Original/Counterfactual Replay.
+- Make Policy/Risk consume only the persisted `EvaluationContext`, strongly
+  bind canonical Decisions to it, then add Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
@@ -457,8 +483,9 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  immutable Evaluation Context persistence, deterministic replay, stateful
-  Risk, Audit query/metrics, operational hardening, and security re-audit.
+  context-only deterministic evaluation/replay, strongly bound Decisions,
+  stateful Risk, Audit query/metrics, operational hardening, and security
+  re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

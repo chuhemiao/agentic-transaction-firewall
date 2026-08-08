@@ -3,7 +3,7 @@ use atf_audit::{
     IdentityVerifiedPayload, PolicyEvaluatedPayload, RiskEvaluatedPayload,
     SimulationCompletedPayload,
 };
-use atf_core::{IntentLifecycleState, Timestamp};
+use atf_core::{EvaluationContext, IntentLifecycleState, Timestamp};
 use atf_decision::Decision;
 use atf_identity::IdentityEnvelope;
 use atf_intent::TransactionIntent;
@@ -91,16 +91,33 @@ pub struct IdempotencyReservation {
     pub completed_at: Option<Timestamp>,
 }
 
-/// The module outputs persisted by finalization. This is intentionally a
-/// small storage envelope, not the future provenance-bearing Evaluation
-/// Context contract scheduled for DS-023.
+/// Module outputs persisted by finalization and bound to the immutable input
+/// snapshot through `evaluation_context_hash`.
 #[derive(Debug, Clone)]
 pub struct EvaluationInput {
     pub evaluation_id: String,
+    pub evaluation_context_hash: String,
     pub evaluated_at: Timestamp,
     pub policy: PolicyEvaluatedPayload,
     pub risk: RiskEvaluatedPayload,
     pub simulation: SimulationCompletedPayload,
+}
+
+/// Fenced input for the short pre-evaluation snapshot transaction.
+#[derive(Debug, Clone)]
+pub struct EvaluationContextPersistence {
+    pub organization_id: String,
+    pub expected_intent_hash: String,
+    pub evaluator_lease: EvaluatorLease,
+    pub context: EvaluationContext,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredEvaluationContext {
+    pub organization_id: String,
+    pub context: EvaluationContext,
+    pub recorded_at: Timestamp,
+    pub audit_event: StoredAuditEvent,
 }
 
 /// Input for the second short durable-state transaction. Policy and Risk run
@@ -152,6 +169,8 @@ pub struct StoredEvaluation {
     pub evaluation_id: String,
     pub intent_id: String,
     pub intent_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_context_hash: Option<String>,
     pub evaluated_at: Timestamp,
     pub evidence: Value,
 }
@@ -160,6 +179,7 @@ pub struct StoredEvaluation {
 pub struct FinalizedDecision {
     pub organization_id: String,
     pub intent_hash: String,
+    pub evaluation_context: Option<EvaluationContext>,
     pub evaluation: StoredEvaluation,
     pub evaluation_hash: String,
     pub decision: Decision,

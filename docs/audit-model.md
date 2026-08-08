@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-022 authenticated lifecycle plus typed provenance boundaries
+Status: DS-023 authenticated lifecycle plus durable Evaluation Context evidence
 
-Version: 6
+Version: 7
 
-Authority: `docs/PRD.md` §12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-022
+Authority: `docs/PRD.md` §12.5–12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-023
 
 ## Objective
 
@@ -31,9 +31,10 @@ contract, append typed evidence, and update the materialized state atomically.
   boundary.
 - `migrations/0002_intent_lifecycle.sql`, `migrations/0004_identity.sql`,
   `migrations/0005_nonces.sql`, `migrations/0006_operator_rbac.sql`, and
-  `migrations/0007_policy_bundles.sql`: additive Intent, Agent identity,
+  `migrations/0007_policy_bundles.sql`,
+  `migrations/0008_evaluation_contexts.sql`: additive Intent, Agent identity,
   authenticated Nonce, Operator/Role and signed Policy pointer lifecycle
-  schemas.
+  schemas plus immutable Evaluation Context/Audit binding.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and
@@ -164,7 +165,7 @@ Every row below also carries `schema_version: 1`.
 | Intent received | organization, Agent, idempotency key, Intent hash, amount, resource |
 | Identity verified/rejected/skipped | organization, Agent, key/envelope evidence, stable rejection code, or stable skip code |
 | Replay detected | organization, Agent, exact Key ID, hashed Nonce, attempted/bound Intent IDs and hashes, stable reason code; never raw Nonce/Envelope/signature |
-| Context enriched | context hash and source IDs; DS-022 Evidence is typed and verified in memory, while DS-023 will persist its exact snapshot before producing this event |
+| Context enriched | immutable Evaluation Context hash and sorted source IDs; DS-023 persists the exact canonical snapshot and this event atomically before Policy/Risk output |
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |
@@ -214,15 +215,28 @@ admission. Identity rejection creates only organization-scoped
 `IdentityRejected`; conflicting reuse creates `ReplayDetected` without
 advancing the accepted Intent.
 
+### Evaluation Context transaction
+
+After admission, Gateway resolves the exact Policy/Risk artifacts, captures
+one time and verifies the Audit history it will supply to Risk. A separate
+short transaction verifies the same active fenced evaluator lease and the
+immutable Intent/Profile/Agent-context binding, then inserts one canonical
+Evaluation Context and its `ContextEnriched` event atomically. This event is
+decision evidence but does not advance the Intent lifecycle version. Exact
+retries return the original context/event; conflicting contexts and stale
+generations fail closed.
+
 ### Evaluation finalization transaction
 
-Policy and Risk may run outside a database transaction. Finalization is a
+Policy and Risk run outside a database transaction only after Context capture.
+Finalization is a
 single repository transaction which:
 
 1. locks the Intent and checks the caller's expected lifecycle version;
 2. reloads and verifies the admission's `IdentityVerified`/Nonce evidence,
-   then validates Policy, Risk, Simulation, and Decision outcomes and their
-   cross-field consistency;
+   immutable Evaluation Context and its `ContextEnriched` evidence, then
+   validates Policy, Risk, Simulation, and Decision outcomes and their
+   context/cross-field consistency;
 3. appends each remaining typed event in canonical phase order and advances the same
    Rust lifecycle state after each event;
 4. inserts the immutable Evaluation and Decision rows;

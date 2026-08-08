@@ -8,6 +8,7 @@
 
 mod audit;
 mod error;
+mod evaluation;
 mod idempotency;
 mod identity;
 mod lifecycle;
@@ -24,9 +25,10 @@ pub use audit::StoredAuditEvent;
 pub use error::StoreError;
 pub use identity::{IdentitySnapshot, StoredAgent, StoredIdentityKey};
 pub use models::{
-    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationInput, EvaluatorLease,
-    FinalizationInput, FinalizedDecision, IdempotencyReservation, IdempotencyResult,
-    IdempotencyState, StoredEvaluation, StoredLifecycle,
+    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationContextPersistence,
+    EvaluationInput, EvaluatorLease, FinalizationInput, FinalizedDecision, IdempotencyReservation,
+    IdempotencyResult, IdempotencyState, StoredEvaluation, StoredEvaluationContext,
+    StoredLifecycle,
 };
 pub use operator::{
     operator_subject_fingerprint, OperatorKind, OperatorPrincipal, OperatorRegistration,
@@ -36,7 +38,7 @@ pub use policy::{ActivePolicyBundle, StoredPolicyBundle};
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 7;
+pub const CURRENT_SCHEMA_VERSION: i32 = 8;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ed25519_dalek::{Signature, VerifyingKey};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::{sha256_hex, sort_json_keys, Timestamp};
@@ -9,6 +9,7 @@ use crate::{sha256_hex, sort_json_keys, Timestamp};
 const EVIDENCE_VERSION: &str = "1";
 const HASH_DOMAIN: &[u8] = b"ATF_EVIDENCE_V1\0";
 const SIGNATURE_DOMAIN: &[u8] = b"ATF_EVIDENCE_SIGNATURE_V1\0";
+const TRUST_POLICY_HASH_DOMAIN: &[u8] = b"ATF_EVIDENCE_TRUST_POLICY_V1\0";
 const MAX_EVIDENCE_BYTES: usize = 64 * 1024;
 const MAX_IDENTIFIER_BYTES: usize = 256;
 const MAX_CONFIDENCE_BPS: u16 = 10_000;
@@ -95,6 +96,8 @@ pub struct EvidenceTrustPolicy {
 pub struct VerifiedEvidence {
     envelope: EvidenceEnvelope,
     freshness_status: EvidenceFreshness,
+    #[serde(skip_serializing)]
+    trust_policy_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +135,26 @@ struct EvidenceHashPayload<'a> {
     value: &'a Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     confidence_bps: Option<u16>,
+}
+
+#[derive(Serialize)]
+struct EvidenceTrustPolicyHashPayload<'a> {
+    sources: Vec<TrustedEvidenceSourceHashPayload<'a>>,
+}
+
+#[derive(Serialize)]
+struct TrustedEvidenceSourceHashPayload<'a> {
+    source: EvidenceSource,
+    source_id: &'a str,
+    allowed_kinds: Vec<EvidenceKind>,
+    require_signature: bool,
+    ed25519_keys: Vec<TrustedEvidenceKeyHashPayload<'a>>,
+}
+
+#[derive(Serialize)]
+struct TrustedEvidenceKeyHashPayload<'a> {
+    key_id: &'a str,
+    public_key: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -223,6 +246,10 @@ impl EvidenceEnvelope {
             return invalid("document exceeds 65536 bytes");
         }
         let value: Value = serde_json::from_str(raw)?;
+        Self::from_value(value)
+    }
+
+    fn from_value(value: Value) -> Result<Self, EvidenceError> {
         let object = value
             .as_object()
             .ok_or_else(|| EvidenceError::Invalid("evidence must be an object".into()))?;
@@ -459,6 +486,37 @@ impl EvidenceTrustPolicy {
         Ok(Self { sources: result })
     }
 
+    /// Domain-separated identity of every exact source/kind/signature
+    /// authorization in this policy.
+    pub fn policy_hash(&self) -> Result<String, EvidenceError> {
+        let sources = self
+            .sources
+            .values()
+            .map(|source| TrustedEvidenceSourceHashPayload {
+                source: source.source,
+                source_id: &source.source_id,
+                allowed_kinds: source.allowed_kinds.iter().copied().collect(),
+                require_signature: source.require_signature,
+                ed25519_keys: source
+                    .ed25519_keys
+                    .iter()
+                    .map(|(key_id, public_key)| TrustedEvidenceKeyHashPayload {
+                        key_id,
+                        public_key: hex::encode(public_key),
+                    })
+                    .collect(),
+            })
+            .collect();
+        let canonical = sort_json_keys(serde_json::to_value(EvidenceTrustPolicyHashPayload {
+            sources,
+        })?);
+        let canonical_bytes = serde_json::to_vec(&canonical)?;
+        let mut input = Vec::with_capacity(TRUST_POLICY_HASH_DOMAIN.len() + canonical_bytes.len());
+        input.extend_from_slice(TRUST_POLICY_HASH_DOMAIN);
+        input.extend_from_slice(&canonical_bytes);
+        Ok(sha256_hex(&input))
+    }
+
     pub fn verify(
         &self,
         evidence: &EvidenceEnvelope,
@@ -499,11 +557,16 @@ impl EvidenceTrustPolicy {
         Ok(VerifiedEvidence {
             envelope: evidence.clone(),
             freshness_status,
+            trust_policy_hash: self.policy_hash()?,
         })
     }
 }
 
 impl VerifiedEvidence {
+    pub fn envelope(&self) -> &EvidenceEnvelope {
+        &self.envelope
+    }
+
     pub fn kind(&self) -> EvidenceKind {
         self.envelope.kind()
     }
@@ -538,6 +601,20 @@ impl VerifiedEvidence {
 
     pub fn freshness_status(&self) -> EvidenceFreshness {
         self.freshness_status
+    }
+
+    pub fn trust_policy_hash(&self) -> &str {
+        &self.trust_policy_hash
+    }
+}
+
+impl<'de> Deserialize<'de> for EvidenceEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Self::from_value(value).map_err(D::Error::custom)
     }
 }
 

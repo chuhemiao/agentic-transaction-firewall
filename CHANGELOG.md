@@ -7,6 +7,12 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-023 immutable Evaluation Context: a closed canonical Schema/type binds
+  Intent/Profile, one evaluation time, Policy/Risk artifacts, Agent-context
+  hash, exact verified Evidence/trust-policy hash, Audit-history prefix and
+  explicit market/Simulation availability. Migration 0008 atomically stores
+  one snapshot plus `ContextEnriched` before Policy/Risk; final Evaluation
+  rows bind its hash, and restart/tamper/fencing checks fail closed.
 - Migration 0004 and `atf-store` Agent/identity-key repositories. Canonical
   organization-scoped records carry exact bytes/hashes, monotonic lifecycle
   versions and typed Audit event pointers; registration, status changes and
@@ -28,8 +34,9 @@ This project has not yet made a tagged release.
   A completed same-hash POST returns the fully verified original Decision
   without rerunning Policy/Risk or adding Audit evidence; active work remains
   a bounded conflict; and expired admissions are conditionally reclaimed after
-  restart with a higher fencing generation and terminated once as
-  `RECOVERY_CONTEXT_UNAVAILABLE` while Evaluation Context snapshots are absent.
+  restart with a higher fencing generation. DS-023 now persists or reuses an
+  immutable context and terminates once as `RECOVERY_REPLAY_NOT_IMPLEMENTED`
+  until deterministic replay is available.
 - Stage-boundary evaluator lease renewal plus real PostgreSQL HTTP tests for
   changed-Policy restart retry, barrier-synchronized concurrent convergence,
   expired-lease restart recovery, immutable record counts, and exact retry of
@@ -132,14 +139,14 @@ This project has not yet made a tagged release.
   under changed Policy/Risk inputs. A crashed evaluator cannot strand work
   indefinitely once the same request is retried: database-conditional reclaim
   fences the prior owner and records a restrictive, evidence-complete ERROR
-  instead of substituting current context. Signed nonce replay protection is
-  still intentionally deferred to Identity wiring.
+  instead of substituting current context. DS-016 additionally provides
+  signed hashed-Nonce replay protection.
 - Concurrent requests can no longer acquire two durable evaluators for the
   same organization/idempotency key, a key cannot be rebound to another
   Intent hash, and a stale evaluator cannot finalize after lease reclaim.
   Completed result mutation/deletion/truncation is rejected by PostgreSQL;
-  recovered work is restricted to a fail-closed `Decision(ERROR)` until its
-  immutable Evaluation Context can be reproduced.
+  recovered work is restricted to a fail-closed `Decision(ERROR)` and must
+  bind an immutable Evaluation Context.
 - Raw request values, JSON Schema diagnostics, SQL/database information,
   policy text, key material and internal errors are no longer serialized by
   Gateway business errors; fail-closed Policy `Decision(ERROR)` reasons are

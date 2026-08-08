@@ -31,6 +31,28 @@ enum PolicySource {
     },
 }
 
+pub(crate) enum ResolvedPolicyBundle {
+    Static(Arc<PolicyBundle>),
+    Durable(Arc<PolicyBundle>),
+}
+
+impl ResolvedPolicyBundle {
+    pub(crate) fn bundle(&self) -> &PolicyBundle {
+        match self {
+            Self::Static(bundle) => bundle,
+            Self::Durable(bundle) => bundle,
+        }
+    }
+
+    pub(crate) fn evaluate_at(
+        &self,
+        intent: &TransactionIntent,
+        evaluated_at: Timestamp,
+    ) -> Result<PolicyOutcome, PolicyError> {
+        self.bundle().evaluate_at(intent, evaluated_at)
+    }
+}
+
 impl AppState {
     pub fn new(
         policy_bundle: PolicyBundle,
@@ -70,13 +92,13 @@ impl AppState {
         }
     }
 
-    pub(crate) async fn evaluate_policy(
+    pub(crate) async fn resolve_policy(
         &self,
         intent: &TransactionIntent,
         evaluated_at: Timestamp,
-    ) -> Result<PolicyOutcome, PolicyError> {
+    ) -> Result<ResolvedPolicyBundle, PolicyError> {
         match &self.policy_source {
-            PolicySource::Static(bundle) => bundle.evaluate_at(intent, evaluated_at),
+            PolicySource::Static(bundle) => Ok(ResolvedPolicyBundle::Static(bundle.clone())),
             PolicySource::Durable {
                 organization_id,
                 environment,
@@ -98,7 +120,7 @@ impl AppState {
                     )
                     .await
                     .map_err(|_| PolicyError::Unavailable)?;
-                active.bundle.evaluate_at(intent, evaluated_at)
+                Ok(ResolvedPolicyBundle::Durable(Arc::new(active.bundle)))
             }
         }
     }

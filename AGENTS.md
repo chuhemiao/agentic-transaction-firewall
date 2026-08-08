@@ -50,12 +50,13 @@ If you're asked to "continue" or "keep going through the TODO list":
   `atf-audit`, `atf-decision`, `atf-store` and `cli/atf-cli`,
   `services/gateway`: real, tested Rust code. `atf-store` currently owns
   migration/schema compatibility, durable per-organization Audit append, and
-  atomic admission/finalization repository operations; Gateway cutover is
+  atomic admission/context/finalization repository operations; Gateway cutover is
   complete. `atf-core`/`atf-audit` define the DS-006 lifecycle and typed Audit
   domain contract; database transition enforcement begins at DS-007. DS-022
   adds the closed Evidence/verification contract in `atf-core` and the
-  privileged Agent-context firewall in `atf-risk`; durable snapshots begin in
-  DS-023.
+  privileged Agent-context firewall in `atf-risk`; DS-023 persists immutable
+  Evaluation Context snapshots before Policy/Risk and binds final Evaluations
+  to them.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

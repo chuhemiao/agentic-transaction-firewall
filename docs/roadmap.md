@@ -122,14 +122,15 @@ order. The executable order is:
   rules, severities, thresholds, deny lists, missing-data behavior, history
   windows and lifecycle accounting boundaries into a canonical hash returned
   by every Risk result and recorded by current Gateway evidence.
-- [ ] P0.6 Versioned `EvaluationContext`; remove direct wall-clock and
-  untrusted context reads from decision-making rules.
+- [~] P0.6 Versioned `EvaluationContext`; DS-023 persists the exact immutable
+  input snapshot before evaluation. DS-024 still must remove direct wall-clock
+  and separately supplied privileged inputs from evaluator APIs.
 - [ ] P0.7 Original and counterfactual deterministic replay.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
-  privileged-context firewall. Durable snapshots and production enrichers
-  remain DS-023+ work.
+  privileged-context firewall; DS-023 durably binds verified Evidence and its
+  trust-policy identity. Production enrichers remain future work.
 - [x] P0.9 Versioned, hashed, scoped, signed Policy Bundles. DS-019 provides
   deterministic identity/Cedar Schema validation; DS-020 adds immutable
   archives, strict publisher proof, audited active pointers, authenticated
@@ -139,9 +140,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-023` — persist one immutable Evaluation Context
-snapshot that binds the evaluation time, Policy/Risk identities and DS-022
-provenance-bearing Evidence before evaluation.
+**Immediate next task:** `DS-024` — make Policy and Risk consume only the
+persisted Evaluation Context, eliminate ambient time/unrecorded privileged
+inputs and prove repeated module outputs are byte-equivalent.
 
 ## Later releases
 

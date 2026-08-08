@@ -11,7 +11,7 @@ Agent Intent
   -> Identity Verification          (atf-identity)
   -> Common Semantic Validation     (atf-intent, implemented)
   -> Action Profile Validation      (atf-intent, one profile implemented)
-  -> Versioned Evaluation Context   (planned)
+  -> Versioned Evaluation Context   (atf-core/atf-store, implemented)
   -> Policy Evaluation              (atf-policy, Cedar)
   -> Financial Risk Evaluation      (atf-risk)
   -> Simulation                     (atf-simulator)
@@ -30,7 +30,12 @@ Agent Intent
   exhaustive fail-closed transition validator. DS-022 adds the closed
   `EvidenceEnvelope`, typed source/kind/freshness, numeric-free bounded values,
   domain-separated canonical hash, optional strict Ed25519 proof, exact trust
-  allowlists and non-constructible `VerifiedEvidence`. *Implemented.*
+  allowlists and non-constructible `VerifiedEvidence`. DS-023 adds a closed
+  `EvaluationContext` contract with independently domain-separated Agent,
+  context-snapshot and overall hashes. It binds the Intent/Profile, one time,
+  Policy/Risk artifacts, sorted fresh verified Evidence and trust identity,
+  an exact Audit-history prefix, external snapshot availability and explicit
+  Simulation `NOT_RUN`. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -131,6 +136,12 @@ Agent Intent
   Policy Bundle archives, publisher public-key/signature evidence and
   monotonic active pointers whose update always retains the previous installed
   version and references the same transaction's typed `PolicyChanged` event.
+  Migration 0008 adds one immutable Evaluation Context per Intent, retains
+  exact canonical JSON/bytes/hash, binds it to the admitted Intent and one
+  typed `ContextEnriched` event, and requires final Evaluation rows to name
+  the same context hash. Store readers rederive the Profile and Agent-context
+  hash, verify the Audit-history prefix, reject row/Audit tampering and support
+  restart-safe lookup by Intent or Evaluation ID.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
@@ -140,9 +151,11 @@ Agent Intent
   *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
-  durable admission -> Policy -> (if permitted)
+  durable admission -> immutable Evaluation Context -> Policy -> (if permitted)
   Risk (via verified durable Audit history) -> Decision merge. PostgreSQL
-  admission commits Intent + `IntentReceived`; finalization commits Evaluation,
+  admission commits Intent + `IntentReceived`; a short DS-023 transaction pins
+  the selected Policy/Risk identities, evaluation time and verified history
+  before module execution and appends `ContextEnriched`; finalization commits Evaluation,
   typed Identity/Policy/Risk/Simulation events, Decision, lifecycle state, and
   bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
   requires a canonical `X-ATF-Organization-ID`, one validated RFC 9068 Bearer
@@ -160,8 +173,9 @@ Agent Intent
   diagnostics. Completed same-hash POSTs return the verified original Decision
   without re-evaluation; active duplicates return bounded 409; normal
   evaluation renews its lease between Policy/Risk stages; and a request may
-  conditionally reclaim an expired admission and terminate it as one fenced
-  fail-closed `Decision(ERROR)`. Agent/Operator credentials are disjoint and
+  conditionally reclaim an expired admission, persist/reuse an explicit
+  recovery context and terminate it as one fenced
+  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`. Agent/Operator credentials are disjoint and
   Decision absence, cross-tenant selection and insufficient read role share
   one 404. Background recovery, configured general request/rate limits, full
   trace/Audit correlation, and metrics remain absent.*
@@ -190,8 +204,9 @@ Agent Intent
   foundation, DS-013 exact retry/stage-heartbeat/request-driven recovery, and
   DS-014 domain-separated Identity Envelope and DS-015 durable Agent/Key
   lifecycle plus offline provisioning, DS-016 authenticated Gateway/Nonce
-  admission, and DS-018 durable Operator subjects/roles plus Gateway JWT/JWKS
-  Decision-read RBAC now exist. Additional action profiles and Admin/Audit HTTP
+  admission, DS-018 durable Operator subjects/roles plus Gateway JWT/JWKS
+  Decision-read RBAC, and DS-023 immutable Evaluation Context persistence now
+  exist. Additional action profiles and Admin/Audit HTTP
   role matrices remain unimplemented. Accepted
   [`ADR-0003`](decisions/0003-operator-authentication.md) is implemented for
   the current Decision-read surface.
@@ -270,8 +285,8 @@ database clock; renewal preserves its generation, while expired reclaim uses a
 conditional update that increments it. Finalization locks and verifies the
 reservation before the Intent, rejects stale/expired owners, and changes it to
 immutable `COMPLETED` with Evaluation/Decision/hash references in the same
-transaction as Audit and lifecycle state. Before provenance-bearing Context
-snapshots exist, a reclaimed generation may only commit `Decision(ERROR)`.
+transaction as Audit and lifecycle state. A reclaimed generation may only
+commit `Decision(ERROR)`; DS-023 requires an immutable context for that output.
 DS-013 wires that boundary into the HTTP path. Completed same-hash admission
 errors are resolved through `load_finalized_decision`, which re-verifies the
 canonical Intent/Evaluation/Decision, lifecycle replay, Audit chain and
@@ -280,9 +295,10 @@ renew the same owner/generation in independent short transactions after Policy
 and Risk. An `IN_PROGRESS` retry always attempts the database-conditional
 reclaim: an active lease remains a 409, while an expired lease receives the
 next generation, reloads the admitted evidence, renews once, and records
-`RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)` without rerunning current
-Policy/Risk. Recovery is triggered by a retry request; there is no background
-worker yet.
+`RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` without rerunning current
+Policy/Risk. It reuses a pre-crash context when present or first persists a
+context whose artifact/snapshot fields explicitly record unavailability.
+Recovery is triggered by a retry request; there is no background worker yet.
 DS-016 places current durable Agent/exact-Key verification ahead of that
 reservation boundary. A new coarse transaction locks and reverifies the
 identity lifecycle, verifies the canonical signed Envelope, stores only the
@@ -292,12 +308,22 @@ valid assertion can bind a fresh Nonce to the existing idempotent request;
 conflicting reuse commits organization-scoped `ReplayDetected` and fails 409.
 Identity rejection commits only `IdentityRejected`. Nonce reads reverify their
 Audit and historical lifecycle bindings, including after restart.
+DS-023 inserts a third short transaction between admission and evaluation. It
+verifies the active fenced lease, immutable Intent/Profile/Agent-context hash
+and exact Audit-history prefix, then atomically inserts one canonical immutable
+Evaluation Context and its `ContextEnriched` evidence. Exact retries reuse it;
+a second context, stale generation, update/delete/truncate or any canonical,
+redundant-column, history or Audit mismatch fails closed. Finalization and
+Decision reads require the Evaluation ID/time/context hash and Risk/Simulation
+output identity to agree with that snapshot.
 
 The target request path has two critical atomic visibility boundaries:
 
 1. admission commits the canonical Intent, idempotency binding, lifecycle
    state, evaluator reservation, and `IntentReceived` evidence together;
-2. finalization verifies a lease-generation fencing token, then commits the
+2. context capture verifies the same fencing token, then commits one immutable
+   input snapshot and matching `ContextEnriched` evidence together;
+3. finalization verifies a lease-generation fencing token, then commits the
    Evaluation, Decision, typed Audit evidence, and idempotency result together.
 
 Policy, Risk, and later external enrichment run between those transactions
@@ -362,8 +388,11 @@ implementation order are in ADR-0002.
     1-6. After validation, it parses a bounded canonical detached Envelope and
     signature; authenticated admission atomically consumes the hashed Nonce
     and stores canonical Intent, `IntentReceived`, and `IdentityVerified`.
-    Policy runs only after that commit; when permitted, Risk reads the complete
-    verified organization chain through `atf-store`. The Simulator is not
+    Gateway resolves the exact Policy, captures one evaluation time and loads
+    the exact verified Audit prefix. It then persists one immutable
+    `EvaluationContext` plus `ContextEnriched` before Policy runs. When
+    permitted, Risk uses the same pinned time, Rule Set and history snapshot.
+    The Simulator is not
     wired, so the Gateway records a stable reason-coded Simulation `NOT_RUN`.
     Finalization atomically stores typed Policy/Risk/Simulation evidence in an
     Evaluation, all intermediate events, the Decision, lifecycle state, and a
@@ -372,10 +401,11 @@ implementation order are in ADR-0002.
     so restart or a second process observes the original result. DS-013 also
     resolves completed same-hash POSTs through that verified read without
     rerunning Policy/Risk. A crash after admission remains visibly
-    `RECEIVED` until a retry conditionally reclaims the expired lease; before
-    Evaluation Context snapshots exist, that request records exactly one
-    fenced fail-closed `Decision(ERROR)` rather than evaluating with current
-    inputs. Active duplicates continue to receive bounded 409 responses.
+    `RECEIVED` until a retry conditionally reclaims the expired lease. It then
+    reuses an existing context or creates an explicit unavailable recovery
+    context and records one fenced `RECOVERY_REPLAY_NOT_IMPLEMENTED ->
+    Decision(ERROR)` rather than evaluating with current inputs. Active
+    duplicates continue to receive bounded 409 responses.
 11. `services/gateway` generates a fresh ULID at the HTTP boundary and returns
     it as `X-ATF-Request-ID` on every response. Business errors expose only the
     fixed `{code,message,request_id,details}` contract; validation details are
@@ -415,9 +445,10 @@ complete Decision Engine:
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
-  DS-022 removes the current vendor rule's untrusted Agent-context read. That
-  time, verified Evidence and history still need a durable DS-023 snapshot
-  identity.
+  DS-022 removes the current vendor rule's untrusted Agent-context read, and
+  DS-023 now durably pins the evaluation time, verified Evidence/trust
+  selection and history boundary. DS-024 must make evaluator APIs consume only
+  that context rather than separately supplied values.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

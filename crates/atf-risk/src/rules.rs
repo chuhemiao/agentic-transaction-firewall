@@ -26,9 +26,9 @@ pub fn evaluate(intent: &TransactionIntent, rule_set: &RiskRuleSet) -> RiskEvalu
     evaluate_at(intent, rule_set, Timestamp::now())
 }
 
-/// Evaluate stateless rules at one caller-selected time. DS-023 will place
-/// this timestamp inside the immutable Evaluation Context; exposing it now
-/// prevents individual rules from sampling different clocks.
+/// Evaluate stateless rules at one caller-selected time. DS-023 persists this
+/// timestamp inside the immutable Evaluation Context; DS-024 will make that
+/// context the evaluator's sole source of decision-affecting inputs.
 pub fn evaluate_at(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,

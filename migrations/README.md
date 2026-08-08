@@ -26,8 +26,8 @@ Triggers reject binding changes, completed-row updates, deletion and truncate.
 Historical final Decisions are backfilled as completed; unfinished historical
 admissions receive an expired generation-1 lease. DS-013 request-driven
 recovery must increment that generation and records only a fenced fail-closed
-Decision while Evaluation Context snapshots are unavailable. Canonical
-Intent/Decision/Audit bytes are not rewritten.
+Decision; migration 0008 now requires an immutable Evaluation Context for new
+recovery outputs. Canonical Intent/Decision/Audit bytes are not rewritten.
 
 Migration 0004 adds DS-015 organization-scoped Agent and exact Ed25519
 identity-key lifecycle. Canonical records, exact bytes, hashes, monotonic
@@ -57,6 +57,16 @@ Audit evidence are immutable. Pointer updates are monotonic, always retain the
 immediately prior installed version for rollback, and must reference the same
 transaction's `PolicyChanged` event. Only publisher public keys are persisted;
 private signing keys remain external.
+
+Migration 0008 adds DS-023 immutable Evaluation Context snapshots. Each new
+Intent may have exactly one authoritative context, and every row retains exact
+canonical bytes plus redundant organization/Evaluation/Intent/hash/time fields
+for fail-closed verification. Composite foreign keys bind the exact Intent
+hash; a deferred foreign key requires the same transaction's typed
+`ContextEnriched` event. Final Evaluations may bind the context hash while
+legacy schema-v1 Evaluation rows remain readable without one. Update, delete
+and truncate are rejected; canonical Intent/Evaluation/Decision/Audit bytes
+are never rewritten.
 
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate

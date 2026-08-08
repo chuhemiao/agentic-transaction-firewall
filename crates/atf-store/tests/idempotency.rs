@@ -2,13 +2,17 @@ use atf_audit::{
     OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
     RiskEvaluatedPayload, SimulationCompletedPayload,
 };
-use atf_core::{Amount, Timestamp};
+use atf_core::{
+    Amount, EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
+};
 use atf_decision::{Decision, DecisionKind, Reason};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
-    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationInput, FinalizationInput,
-    IdempotencyState, Store, StoreError,
+    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationContextPersistence, EvaluationInput,
+    FinalizationInput, IdempotencyState, Store, StoreError,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use sqlx::{
@@ -313,6 +317,7 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
         )
         .await?;
     assert_eq!(recovered_lease.generation(), 2);
+    let context_hash = persist_recovery_context(&store, &grant, &recovered_lease).await?;
 
     let stale_error = store
         .finalize_decision(finalization_input(
@@ -320,6 +325,7 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
             stale_lease,
             "decision-stale",
             DecisionKind::Permit,
+            &context_hash,
         ))
         .await
         .expect_err("the old generation must be fenced after reclaim");
@@ -331,6 +337,7 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
             recovered_lease.clone(),
             "decision-unsafe-recovery",
             DecisionKind::Permit,
+            &context_hash,
         ))
         .await
         .expect_err("recovery cannot silently evaluate with unpinned current inputs");
@@ -345,6 +352,7 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
             recovered_lease,
             "decision-error",
             DecisionKind::Error,
+            &context_hash,
         ))
         .await?;
     assert_eq!(finalized.decision.decision, DecisionKind::Error);
@@ -446,11 +454,69 @@ async fn reclaimed_leases_are_fenced_and_can_only_complete_with_a_fail_closed_er
     Ok(())
 }
 
+async fn persist_recovery_context(
+    store: &Store,
+    grant: &AdmissionGrant,
+    evaluator_lease: &atf_store::EvaluatorLease,
+) -> Result<String, StoreError> {
+    let chain = store
+        .load_verified_audit_chain(&grant.admitted.organization_id)
+        .await?;
+    let tail = chain
+        .last()
+        .ok_or_else(|| StoreError::IncompleteAdmissionEvidence {
+            organization_id: grant.admitted.organization_id.clone(),
+            intent_id: grant.admitted.intent.intent_id.clone(),
+        })?;
+    let through_sequence =
+        u64::try_from(tail.sequence).map_err(|_| StoreError::InvalidRepositoryInput {
+            reason: "test Audit sequence is out of range".into(),
+        })?;
+    let context = EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: "evaluation-a".into(),
+        intent_id: grant.admitted.intent.intent_id.clone(),
+        intent_hash: grant.admitted.intent_hash.clone(),
+        evaluation_time: timestamp("2026-08-08T01:00:01Z"),
+        environment: TEST_ENVIRONMENT.into(),
+        profile_id: "atf.agent-commerce.payment".into(),
+        profile_version: "1.0".into(),
+        policy: VersionedArtifactReference::unavailable("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+        risk: VersionedArtifactReference::unavailable("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+        context_snapshot_id: "snapshot-evaluation-a".into(),
+        agent_context: grant.admitted.intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )?,
+        history: RepositorySnapshot::new(
+            format!(
+                "audit-chain:{}:{through_sequence}",
+                grant.admitted.organization_id
+            ),
+            through_sequence,
+            tail.event_hash.clone(),
+        )?,
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
+    })?;
+    let hash = context.evaluation_context_hash().to_owned();
+    store
+        .persist_evaluation_context(EvaluationContextPersistence {
+            organization_id: grant.admitted.organization_id.clone(),
+            expected_intent_hash: grant.admitted.intent_hash.clone(),
+            evaluator_lease: evaluator_lease.clone(),
+            context,
+        })
+        .await?;
+    Ok(hash)
+}
+
 fn finalization_input(
     grant: &AdmissionGrant,
     evaluator_lease: atf_store::EvaluatorLease,
     decision_id: &str,
     decision_kind: DecisionKind,
+    evaluation_context_hash: &str,
 ) -> FinalizationInput {
     let is_error = decision_kind == DecisionKind::Error;
     FinalizationInput {
@@ -461,11 +527,12 @@ fn finalization_input(
         evaluator_lease,
         evaluation: EvaluationInput {
             evaluation_id: "evaluation-a".into(),
+            evaluation_context_hash: evaluation_context_hash.into(),
             evaluated_at: timestamp("2026-08-08T01:00:01Z"),
             policy: PolicyEvaluatedPayload {
                 outcome: if is_error {
                     RequiredModuleOutcome::Error {
-                        error_code: "RECOVERY_CONTEXT_UNAVAILABLE".into(),
+                        error_code: "RECOVERY_REPLAY_NOT_IMPLEMENTED".into(),
                     }
                 } else {
                     RequiredModuleOutcome::Succeeded {
@@ -505,7 +572,7 @@ fn finalization_input(
             decision: decision_kind,
             reasons: vec![Reason {
                 code: if is_error {
-                    "RECOVERY_CONTEXT_UNAVAILABLE".into()
+                    "RECOVERY_REPLAY_NOT_IMPLEMENTED".into()
                 } else {
                     "policy-a".into()
                 },

@@ -1,6 +1,6 @@
 # Context Provenance and Trusted Evidence
 
-Status: DS-022 implemented (2026-08-08); durable snapshot persistence is DS-023
+Status: DS-022 and DS-023 implemented (2026-08-08)
 
 Authority: `docs/PRD.md` §4.2.7, §12.3, §12.5 and §12.6
 
@@ -11,9 +11,10 @@ integrity checked, fresh at the evaluation time and authorized by an explicit
 local trust policy. A self-declared source name never grants authority.
 
 DS-022 defines the evidence envelope and the Risk privileged-context firewall.
-DS-023 will persist the resulting immutable Evaluation Context snapshot; DS-024
-will remove the remaining evaluator convenience APIs that sample wall-clock
-time.
+DS-023 persists the exact verified envelopes, trust-policy identity, Agent
+context hash and evaluation time inside the immutable Evaluation Context;
+DS-024 will remove the remaining evaluator convenience APIs that sample
+wall-clock time or accept separately supplied privileged inputs.
 
 ## Evidence contract
 
@@ -51,11 +52,15 @@ Freshness is derived from the one caller-selected evaluation time:
 exact source class and source ID to an allowlist of evidence kinds, optional
 Ed25519 public keys and an explicit signature requirement. Duplicate trust
 entries and any attempt to trust `AGENT_PROVIDED` fail closed.
+The exact ordered source/kind/signature/key authorization set has a
+domain-separated `ATF_EVIDENCE_TRUST_POLICY_V1` canonical hash.
 
 Verification rejects malformed identifiers/timestamps/value shapes, hash
 mismatch, unlisted sources or kinds, missing/unknown/invalid signatures and
 non-fresh evidence. `VerifiedEvidence` cannot be constructed directly by a
-caller; it is returned only by successful verification.
+caller; it is returned only by successful verification and internally retains
+the actual verifier policy hash. Evaluation Context construction rejects a
+claimed trust-policy reference that differs from any retained verifier hash.
 
 `RiskContext` records the canonical hash of the Intent from which it was
 constructed. Reusing that context with any different Intent fails closed, so

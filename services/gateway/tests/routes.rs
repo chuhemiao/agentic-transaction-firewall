@@ -134,6 +134,7 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         vec![
             EventType::IntentReceived,
             EventType::IdentityVerified,
+            EventType::ContextEnriched,
             EventType::PolicyEvaluated,
             EventType::RiskEvaluated,
             EventType::SimulationCompleted,
@@ -151,6 +152,57 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         .load_finalized_decision("alpha-lab", "01J0000000000000000000G100")
         .await?
         .expect("Decision must be durably readable");
+    let context = finalized
+        .evaluation_context
+        .as_ref()
+        .expect("new Evaluations must retain their immutable context");
+    assert_eq!(context.evaluation_id(), finalized.evaluation.evaluation_id);
+    assert_eq!(context.intent_hash(), finalized.intent_hash);
+    assert_eq!(context.evaluation_time(), finalized.evaluation.evaluated_at);
+    assert_eq!(
+        finalized.evaluation.evaluation_context_hash.as_deref(),
+        Some(context.evaluation_context_hash())
+    );
+    assert_eq!(
+        context.policy().available_parts(),
+        Some((
+            "atf-example-payments",
+            "1.0.0",
+            "87276dc9ae9b5cfd09bc664fc12a7a6d1bdc6cec3f847644239b27a368478373",
+        ))
+    );
+    assert_eq!(
+        context.risk().available_parts(),
+        Some((
+            expected_risk.engine_version(),
+            expected_risk.version(),
+            expected_risk.rule_set_hash(),
+        ))
+    );
+    let identity_event = chain
+        .iter()
+        .find(|stored| {
+            stored.event.intent_id.as_deref() == Some("01J0000000000000000000G100")
+                && stored.event.event_type == EventType::IdentityVerified
+        })
+        .expect("Identity evidence precedes context capture");
+    let context_event = chain
+        .iter()
+        .find(|stored| {
+            stored.event.intent_id.as_deref() == Some("01J0000000000000000000G100")
+                && stored.event.event_type == EventType::ContextEnriched
+        })
+        .expect("context capture is audited");
+    assert_eq!(
+        context.history().through_sequence(),
+        u64::try_from(identity_event.sequence)?
+    );
+    assert_eq!(context.history().snapshot_hash(), identity_event.event_hash);
+    assert_eq!(
+        context_event.event.data["context_hash"],
+        context.evaluation_context_hash()
+    );
+    assert!(context_event.sequence > identity_event.sequence);
     assert_eq!(
         finalized.evaluation.evidence["identity"]["key_id"],
         "identity-key-01"
@@ -315,7 +367,7 @@ async fn policy_evaluation_failure_commits_an_explicit_fail_closed_terminal_stat
             .iter()
             .filter(|stored| stored.event.intent_id.is_some())
             .count(),
-        6
+        7
     );
 
     store.close().await;
@@ -343,7 +395,7 @@ async fn posting_malformed_json_returns_bad_request_without_durable_state(
     let error = error_json(response, StatusCode::BAD_REQUEST, "INVALID_JSON").await?;
     assert_eq!(error["message"], "Request body must be valid JSON.");
     assert_eq!(error["details"], serde_json::json!([]));
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -376,7 +428,7 @@ async fn schema_rejection_uses_the_stable_contract_before_any_durable_record(
     );
     assert_eq!(error["details"], serde_json::json!([]));
     assert!(!serde_json::to_string(&error)?.contains("must fail closed"));
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -401,7 +453,7 @@ async fn invalid_utf8_uses_a_safe_error_without_touching_durable_state(
         .await?;
 
     error_json(response, StatusCode::BAD_REQUEST, "INVALID_UTF8").await?;
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -427,7 +479,7 @@ async fn posting_a_semantically_invalid_intent_stops_before_durable_admission(
             "field": "transaction.amount"
         }])
     );
-    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0));
+    assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -973,7 +1025,7 @@ async fn immutable_intent_conflicts_have_a_stable_safe_response() -> Result<(), 
         error["message"],
         "The idempotency key is already bound to different request content."
     );
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 7));
 
     store.close().await;
     database.destroy().await?;
@@ -1005,7 +1057,7 @@ async fn completed_same_hash_retry_returns_the_original_decision_without_new_evi
 
     assert_eq!(retry_response.status(), StatusCode::OK);
     assert_eq!(body_json(retry_response).await?, original);
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 7));
     assert_eq!(
         restarted_store
             .load_verified_audit_chain("alpha-lab")
@@ -1013,7 +1065,7 @@ async fn completed_same_hash_retry_returns_the_original_decision_without_new_evi
             .iter()
             .filter(|stored| stored.event.intent_id.is_some())
             .count(),
-        6
+        7
     );
 
     restarted_store.close().await;
@@ -1071,7 +1123,7 @@ async fn concurrent_same_hash_posts_converge_on_one_decision_and_one_final_audit
     for observed in observed_decisions {
         assert_eq!(observed, durable);
     }
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 7));
     assert_eq!(
         store
             .load_verified_audit_chain("alpha-lab")
@@ -1079,7 +1131,7 @@ async fn concurrent_same_hash_posts_converge_on_one_decision_and_one_final_audit
             .iter()
             .filter(|stored| stored.event.intent_id.is_some())
             .count(),
-        6
+        7
     );
 
     store.close().await;
@@ -1110,7 +1162,7 @@ async fn active_idempotency_lease_stops_a_second_request_before_evaluation(
         error["message"],
         "The idempotent request is in progress or awaiting recovery."
     );
-    assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 2));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 0, 0, 0, 2));
 
     store.close().await;
     database.destroy().await?;
@@ -1148,7 +1200,7 @@ async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decisio
     assert_eq!(recovered["decision"], "ERROR");
     assert_eq!(
         recovered["reasons"][0]["code"],
-        "RECOVERY_CONTEXT_UNAVAILABLE"
+        "RECOVERY_REPLAY_NOT_IMPLEMENTED"
     );
     let finalized = restarted_store
         .load_finalized_decision("alpha-lab", intent_id)
@@ -1160,7 +1212,7 @@ async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decisio
     );
     assert_eq!(
         finalized.evaluation.evidence["policy"]["outcome"]["error_code"],
-        "RECOVERY_CONTEXT_UNAVAILABLE"
+        "RECOVERY_REPLAY_NOT_IMPLEMENTED"
     );
     assert_eq!(
         finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
@@ -1171,14 +1223,14 @@ async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decisio
         .await?
         .expect("the reclaimed reservation remains queryable");
     assert_eq!(reservation.lease_generation, 2);
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 7));
 
     let retry = restarted_gateway
         .oneshot(post_intent_request(intent_id, "12.50"))
         .await?;
     assert_eq!(retry.status(), StatusCode::OK);
     assert_eq!(body_json(retry).await?, recovered);
-    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 6));
+    assert_eq!(database.business_record_counts().await?, (1, 1, 1, 1, 1, 7));
 
     restarted_store.close().await;
     database.destroy().await?;

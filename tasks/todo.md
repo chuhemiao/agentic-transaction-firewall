@@ -109,8 +109,8 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   canonical hash/freshness/allowlist/optional Ed25519 verification and the
   Risk privileged-context firewall; Agent inputs cannot overwrite verified
   values and invalid present evidence fails closed. Depends: DS-010, DS-021.
-- [ ] **NEXT — DS-023:** persist immutable Evaluation Context snapshots. Depends: DS-020..DS-022.
-- [ ] **DS-024:** remove wall-clock and untrusted privileged inputs from evaluators. Depends: DS-023.
+- [x] **DS-023:** persisted immutable, hash-verified Evaluation Context snapshots before Policy/Risk with typed Audit and final Evaluation binding. Depends: DS-020..DS-022.
+- [ ] **NEXT — DS-024:** remove wall-clock and separately supplied privileged inputs from evaluators. Depends: DS-023.
 - [ ] **DS-025:** emit strongly bound canonical Decisions and update Schema/Audit. Depends: DS-023, DS-024.
 - [ ] **DS-026:** implement Original Replay with exact Decision-hash reproduction. Depends: DS-025.
 - [ ] **DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.

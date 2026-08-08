@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/evaluation-context.schema.json",
+  "title": "ATF Immutable Evaluation Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_context_version",
+    "evaluation_id",
+    "intent_id",
+    "intent_hash",
+    "evaluation_time",
+    "environment",
+    "profile_id",
+    "profile_version",
+    "policy",
+    "risk",
+    "context_snapshot_id",
+    "agent_context_hash",
+    "evidence_trust_policy",
+    "evidence",
+    "context_snapshot_hash",
+    "history",
+    "market_data",
+    "simulation",
+    "evaluation_context_hash"
+  ],
+  "properties": {
+    "evaluation_context_version": { "const": "1" },
+    "evaluation_id": { "$ref": "#/$defs/identifier" },
+    "intent_id": { "$ref": "#/$defs/identifier" },
+    "intent_hash": { "$ref": "#/$defs/sha256" },
+    "evaluation_time": { "type": "string", "format": "date-time" },
+    "environment": { "$ref": "#/$defs/identifier" },
+    "profile_id": { "$ref": "#/$defs/identifier" },
+    "profile_version": { "$ref": "#/$defs/identifier" },
+    "policy": { "$ref": "#/$defs/artifactReference" },
+    "risk": { "$ref": "#/$defs/artifactReference" },
+    "context_snapshot_id": { "$ref": "#/$defs/identifier" },
+    "agent_context_hash": { "$ref": "#/$defs/sha256" },
+    "evidence_trust_policy": { "$ref": "#/$defs/trustPolicyReference" },
+    "evidence": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/evidenceRecord" }
+    },
+    "context_snapshot_hash": { "$ref": "#/$defs/sha256" },
+    "history": { "$ref": "#/$defs/repositorySnapshot" },
+    "market_data": { "$ref": "#/$defs/externalSnapshotReference" },
+    "simulation": { "$ref": "#/$defs/simulationReference" },
+    "evaluation_context_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifactReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "artifact_id", "version", "hash"],
+          "properties": {
+            "status": { "const": "AVAILABLE" },
+            "artifact_id": { "$ref": "#/$defs/identifier" },
+            "version": { "$ref": "#/$defs/identifier" },
+            "hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "UNAVAILABLE" },
+            "reason_code": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "trustPolicyReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "version", "hash"],
+          "properties": {
+            "status": { "const": "CONFIGURED" },
+            "version": { "$ref": "#/$defs/identifier" },
+            "hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "NOT_CONFIGURED" },
+            "reason_code": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "repositorySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "through_sequence", "snapshot_hash"],
+      "properties": {
+        "snapshot_id": { "$ref": "#/$defs/identifier" },
+        "through_sequence": { "type": "integer", "minimum": 1 },
+        "snapshot_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "externalSnapshotReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "snapshot_id", "snapshot_hash"],
+          "properties": {
+            "status": { "const": "AVAILABLE" },
+            "snapshot_id": { "$ref": "#/$defs/identifier" },
+            "snapshot_hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "UNAVAILABLE" },
+            "reason_code": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "simulationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_code"],
+      "properties": {
+        "status": { "const": "NOT_RUN" },
+        "reason_code": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "evidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelope", "freshness_status"],
+      "properties": {
+        "envelope": { "$ref": "#/$defs/evidenceEnvelope" },
+        "freshness_status": { "const": "FRESH" }
+      }
+    },
+    "evidenceEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_version",
+        "kind",
+        "source",
+        "source_id",
+        "observed_at",
+        "expires_at",
+        "value",
+        "evidence_hash"
+      ],
+      "properties": {
+        "evidence_version": { "const": "1" },
+        "kind": {
+          "enum": [
+            "PRICE",
+            "BALANCE",
+            "POSITION",
+            "LEVERAGE",
+            "CUMULATIVE_SPEND",
+            "PROTOCOL_RISK",
+            "ADDRESS_REPUTATION",
+            "MARKET_DATA_FRESHNESS",
+            "SIMULATION_RESULT"
+          ]
+        },
+        "source": {
+          "enum": [
+            "AGENT_PROVIDED",
+            "ATF_ENRICHED",
+            "ORACLE_PROVIDED",
+            "ADAPTER_PROVIDED",
+            "ADMIN_PROVIDED",
+            "SIGNED_EXTERNAL_EVIDENCE"
+          ]
+        },
+        "source_id": { "$ref": "#/$defs/identifier" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "value": { "$ref": "#/$defs/nonNumericValue" },
+        "confidence_bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "evidence_hash": { "$ref": "#/$defs/sha256" },
+        "signature": { "$ref": "#/$defs/evidenceSignature" }
+      }
+    },
+    "evidenceSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_version", "algorithm", "key_id", "signature"],
+      "properties": {
+        "signature_version": { "const": "1" },
+        "algorithm": { "const": "Ed25519" },
+        "key_id": { "$ref": "#/$defs/identifier" },
+        "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+      }
+    },
+    "nonNumericValue": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "boolean" },
+        { "type": "array", "items": { "$ref": "#/$defs/nonNumericValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/nonNumericValue" }
+        }
+      ]
+    }
+  }
+}

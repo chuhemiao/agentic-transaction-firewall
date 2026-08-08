@@ -12,13 +12,17 @@ use atf_audit::{
     OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
     RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
 };
-use atf_core::Timestamp;
+use atf_core::{
+    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicy, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
+};
 use atf_decision::{Decision, DecisionKind, Reason};
-use atf_intent::TransactionIntent;
+use atf_intent::{validate_profile, TransactionIntent};
 use atf_policy::PolicyDecision;
 use atf_store::{
-    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationInput, EvaluatorLease,
-    FinalizationInput, OperatorPrincipal, Store, StoreError,
+    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationContextPersistence,
+    EvaluationInput, EvaluatorLease, FinalizationInput, OperatorPrincipal, Store, StoreError,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -165,7 +169,47 @@ async fn create_intent(
     );
 
     let evaluated_at = Timestamp::now_millis();
-    let policy_result = state.evaluate_policy(&intent, evaluated_at).await;
+    let evaluation_id = atf_core::new_ulid();
+    let resolved_policy = state.resolve_policy(&intent, evaluated_at).await;
+    let chain = match state
+        .store
+        .load_verified_audit_chain(&agent_principal.organization_id)
+        .await
+    {
+        Ok(chain) => chain,
+        Err(error) => return store_error_response(&request_id, "load Evaluation history", error),
+    };
+    let evaluation_context = match build_evaluation_context(
+        &state,
+        &intent,
+        &evaluation_id,
+        evaluated_at,
+        resolved_policy
+            .as_ref()
+            .ok()
+            .map(|resolved| resolved.bundle()),
+        &chain,
+    ) {
+        Ok(context) => context,
+        Err(error) => return store_error_response(&request_id, "build Evaluation Context", error),
+    };
+    if let Err(error) = state
+        .store
+        .persist_evaluation_context(EvaluationContextPersistence {
+            organization_id: agent_principal.organization_id.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            context: evaluation_context.clone(),
+        })
+        .await
+    {
+        return store_error_response(&request_id, "persist Evaluation Context", error);
+    }
+
+    let policy_result = match &resolved_policy {
+        Ok(policy) => policy.evaluate_at(&intent, evaluated_at),
+        Err(_) => Err(atf_policy::PolicyError::Unavailable),
+    };
     let policy_evidence = match &policy_result {
         Ok(outcome) => PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -204,17 +248,16 @@ async fn create_intent(
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
     let (risk_findings, risk_evidence) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
-            let chain = match state
-                .store
-                .load_verified_audit_chain(&agent_principal.organization_id)
-                .await
-            {
-                Ok(chain) => chain,
-                Err(error) => return store_error_response(&request_id, "load Risk history", error),
-            };
-            let result = atf_risk::evaluate_with_events_at(
+            let risk_context = atf_risk::RiskContext::from_evidence(
+                &intent,
+                [],
+                &EvidenceTrustPolicy::default(),
+                evaluated_at,
+            );
+            let result = atf_risk::evaluate_with_events_and_context_at(
                 &intent,
                 &state.risk_rule_set,
+                &risk_context,
                 chain.iter().map(|stored| &stored.event),
                 evaluated_at,
             );
@@ -282,7 +325,8 @@ async fn create_intent(
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: EvaluationInput {
-                evaluation_id: atf_core::new_ulid(),
+                evaluation_id,
+                evaluation_context_hash: evaluation_context.evaluation_context_hash().into(),
                 evaluated_at,
                 policy: policy_evidence,
                 risk: risk_evidence,
@@ -302,6 +346,71 @@ async fn create_intent(
     };
 
     Json(finalized.decision).into_response()
+}
+
+fn build_evaluation_context(
+    state: &AppState,
+    intent: &TransactionIntent,
+    evaluation_id: &str,
+    evaluation_time: Timestamp,
+    policy: Option<&atf_policy::PolicyBundle>,
+    history: &[atf_store::StoredAuditEvent],
+) -> Result<EvaluationContext, StoreError> {
+    let profile = validate_profile(intent).map_err(|error| StoreError::InvalidRepositoryInput {
+        reason: format!("validated Intent lost its Profile: {error}"),
+    })?;
+    let policy = match policy {
+        Some(bundle) => VersionedArtifactReference::available(
+            bundle.bundle_id(),
+            bundle.policy_version(),
+            bundle.bundle_hash(),
+        )?,
+        None => VersionedArtifactReference::unavailable("POLICY_ARTIFACT_UNAVAILABLE")?,
+    };
+    let risk = VersionedArtifactReference::available(
+        state.risk_rule_set.engine_version(),
+        state.risk_rule_set.version(),
+        state.risk_rule_set.rule_set_hash(),
+    )?;
+    let tail = history
+        .last()
+        .ok_or_else(|| StoreError::IncompleteAdmissionEvidence {
+            organization_id: intent.principal.organization_id.clone(),
+            intent_id: intent.intent_id.clone(),
+        })?;
+    let through_sequence =
+        u64::try_from(tail.sequence).map_err(|_| StoreError::InvalidRepositoryInput {
+            reason: "Audit history sequence cannot be represented by Evaluation Context".into(),
+        })?;
+
+    EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: evaluation_id.into(),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time,
+        environment: state.identity.environment().into(),
+        profile_id: profile.id().into(),
+        profile_version: profile.version().into(),
+        policy,
+        risk,
+        context_snapshot_id: atf_core::new_ulid(),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )?,
+        history: RepositorySnapshot::new(
+            format!(
+                "audit-chain:{}:{through_sequence}",
+                intent.principal.organization_id
+            ),
+            through_sequence,
+            tail.event_hash.clone(),
+        )?,
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
+    })
+    .map_err(StoreError::from)
 }
 
 async fn admit_or_recover(
@@ -331,7 +440,7 @@ async fn admit_or_recover(
             ..
         }) => load_completed_decision(store, &organization_id, &intent_id, &decision_id).await,
         Err(StoreError::IdempotencyInProgress { .. }) => {
-            recover_expired_intent(store, &intent).await
+            recover_expired_intent(store, &intent, environment).await
         }
         Err(error) => Err(error),
     }
@@ -340,6 +449,7 @@ async fn admit_or_recover(
 async fn recover_expired_intent(
     store: &Store,
     intent: &TransactionIntent,
+    environment: &str,
 ) -> Result<AdmissionOutcome, StoreError> {
     let organization_id = &intent.principal.organization_id;
     let intent_hash = intent.canonical_hash();
@@ -377,11 +487,30 @@ async fn recover_expired_intent(
             stored: admitted.intent_hash,
         });
     }
+    let context = match store
+        .load_evaluation_context_for_intent(organization_id, &intent.intent_id)
+        .await?
+    {
+        Some(stored) => stored.context,
+        None => {
+            let chain = store.load_verified_audit_chain(organization_id).await?;
+            let context = build_recovery_context(intent, environment, &chain)?;
+            store
+                .persist_evaluation_context(EvaluationContextPersistence {
+                    organization_id: organization_id.clone(),
+                    expected_intent_hash: admitted.intent_hash.clone(),
+                    evaluator_lease: evaluator_lease.clone(),
+                    context: context.clone(),
+                })
+                .await?;
+            context
+        }
+    };
     let evaluator_lease = store
         .renew_evaluator_lease(&evaluator_lease, EVALUATOR_LEASE_DURATION)
         .await?;
     let finalized = store
-        .finalize_decision(recovery_finalization(admitted, evaluator_lease))
+        .finalize_decision(recovery_finalization(admitted, evaluator_lease, &context))
         .await?;
     Ok(AdmissionOutcome::Completed(finalized.decision))
 }
@@ -409,8 +538,14 @@ async fn load_completed_decision(
 fn recovery_finalization(
     admitted: AdmittedIntent,
     evaluator_lease: EvaluatorLease,
+    context: &EvaluationContext,
 ) -> FinalizationInput {
-    let evaluated_at = Timestamp::now_millis();
+    let (risk_rule_set_version, risk_rule_set_hash) = context
+        .risk()
+        .available_parts()
+        .map_or((None, None), |(_, version, hash)| {
+            (Some(version.into()), Some(hash.into()))
+        });
     FinalizationInput {
         organization_id: admitted.organization_id,
         intent_id: admitted.intent.intent_id.clone(),
@@ -418,24 +553,25 @@ fn recovery_finalization(
         expected_lifecycle_version: admitted.lifecycle.version,
         evaluator_lease,
         evaluation: EvaluationInput {
-            evaluation_id: atf_core::new_ulid(),
-            evaluated_at,
+            evaluation_id: context.evaluation_id().into(),
+            evaluation_context_hash: context.evaluation_context_hash().into(),
+            evaluated_at: context.evaluation_time(),
             policy: PolicyEvaluatedPayload {
                 outcome: RequiredModuleOutcome::Error {
-                    error_code: "RECOVERY_CONTEXT_UNAVAILABLE".into(),
+                    error_code: "RECOVERY_REPLAY_NOT_IMPLEMENTED".into(),
                 },
                 policy_ids: Vec::new(),
             },
             risk: RiskEvaluatedPayload {
-                risk_rule_set_version: None,
-                risk_rule_set_hash: None,
+                risk_rule_set_version,
+                risk_rule_set_hash,
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_ERROR".into(),
                 },
             },
             simulation: SimulationCompletedPayload {
                 outcome: OptionalModuleOutcome::NotRun {
-                    reason_code: "RECOVERY_CONTEXT_UNAVAILABLE".into(),
+                    reason_code: context.simulation().reason_code().into(),
                 },
             },
         },
@@ -444,14 +580,62 @@ fn recovery_finalization(
             intent_id: admitted.intent.intent_id,
             decision: DecisionKind::Error,
             reasons: vec![Reason {
-                code: "RECOVERY_CONTEXT_UNAVAILABLE".into(),
+                code: "RECOVERY_REPLAY_NOT_IMPLEMENTED".into(),
                 severity: "critical".into(),
-                message: "Recovery failed closed because pinned evaluation context is unavailable."
+                message: "Recovery failed closed because deterministic replay is not implemented."
                     .into(),
             }],
         },
         decided_at: Timestamp::now_millis(),
     }
+}
+
+fn build_recovery_context(
+    intent: &TransactionIntent,
+    environment: &str,
+    history: &[atf_store::StoredAuditEvent],
+) -> Result<EvaluationContext, StoreError> {
+    let profile = validate_profile(intent).map_err(|error| StoreError::InvalidRepositoryInput {
+        reason: format!("admitted Intent lost its Profile during recovery: {error}"),
+    })?;
+    let tail = history
+        .last()
+        .ok_or_else(|| StoreError::IncompleteAdmissionEvidence {
+            organization_id: intent.principal.organization_id.clone(),
+            intent_id: intent.intent_id.clone(),
+        })?;
+    let through_sequence =
+        u64::try_from(tail.sequence).map_err(|_| StoreError::InvalidRepositoryInput {
+            reason: "Audit history sequence cannot be represented by Evaluation Context".into(),
+        })?;
+    EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: atf_core::new_ulid(),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time: Timestamp::now_millis(),
+        environment: environment.into(),
+        profile_id: profile.id().into(),
+        profile_version: profile.version().into(),
+        policy: VersionedArtifactReference::unavailable("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+        risk: VersionedArtifactReference::unavailable("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+        context_snapshot_id: atf_core::new_ulid(),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )?,
+        history: RepositorySnapshot::new(
+            format!(
+                "audit-chain:{}:{through_sequence}",
+                intent.principal.organization_id
+            ),
+            through_sequence,
+            tail.event_hash.clone(),
+        )?,
+        market_data: ExternalSnapshotReference::unavailable("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+        simulation: SimulationReference::not_run("RECOVERY_REPLAY_NOT_IMPLEMENTED")?,
+    })
+    .map_err(StoreError::from)
 }
 
 /// `GET /v1/intents/{intent_id}/decision` (PRD §22.2).

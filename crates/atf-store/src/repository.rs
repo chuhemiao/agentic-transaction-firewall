@@ -1,4 +1,5 @@
 use crate::audit::{load_verified_in_transaction, AuditReferences, StoredAuditEvent};
+use crate::evaluation::load_verified_context_in_transaction;
 use crate::idempotency::{
     complete_in_transaction as complete_idempotency, verify_admission_binding,
     verify_completed_binding, verify_lease_for_finalization,
@@ -12,8 +13,8 @@ use crate::models::{
     AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation, StoredLifecycle,
 };
 use crate::{Store, StoreError};
-use atf_audit::{AuditPayload, DecisionRecordedPayload, EventType};
-use atf_core::{sort_json_keys, Timestamp};
+use atf_audit::{AuditPayload, DecisionRecordedPayload, EventType, OptionalModuleOutcome};
+use atf_core::{sort_json_keys, EvaluationContext, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
 use chrono::{DateTime, Utc};
@@ -21,10 +22,11 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::{FromRow, Postgres, Transaction};
 
-const EVALUATION_SCHEMA_VERSION: u32 = 1;
+const EVALUATION_SCHEMA_VERSION: u32 = 2;
+const LEGACY_EVALUATION_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, FromRow)]
-struct IntentRow {
+pub(crate) struct IntentRow {
     organization_id: String,
     intent_id: String,
     idempotency_key: String,
@@ -49,6 +51,7 @@ struct FinalizationRow {
     canonical_evaluation: Value,
     canonical_evaluation_bytes: Vec<u8>,
     evaluation_hash: String,
+    evaluation_context_hash: Option<String>,
     evaluated_at: DateTime<Utc>,
     decision_id: String,
     decision_intent_id: String,
@@ -59,11 +62,11 @@ struct FinalizationRow {
     decided_at: DateTime<Utc>,
 }
 
-struct VerifiedIntent {
-    intent: TransactionIntent,
-    intent_hash: String,
-    received_at: Timestamp,
-    lifecycle: StoredLifecycle,
+pub(crate) struct VerifiedIntent {
+    pub(crate) intent: TransactionIntent,
+    pub(crate) intent_hash: String,
+    pub(crate) received_at: Timestamp,
+    pub(crate) lifecycle: StoredLifecycle,
 }
 
 impl Store {
@@ -229,6 +232,15 @@ impl Store {
             &existing_chain,
         )
         .await?;
+        let evaluation_context = load_verified_context_in_transaction(
+            &mut transaction,
+            &input.organization_id,
+            &input.evaluation.evaluation_id,
+            &verified_intent.intent,
+            &existing_chain,
+        )
+        .await?;
+        validate_context_binding(&input, &evaluation_context.context)?;
 
         let already_finalized: bool = sqlx::query_scalar(
             r#"
@@ -255,6 +267,7 @@ impl Store {
             evaluation_id: input.evaluation.evaluation_id.clone(),
             intent_id: input.intent_id.clone(),
             intent_hash: verified_intent.intent_hash.clone(),
+            evaluation_context_hash: Some(input.evaluation.evaluation_context_hash.clone()),
             evaluated_at,
             evidence: serde_json::json!({
                 "identity": AuditPayload::IdentityVerified(
@@ -279,8 +292,9 @@ impl Store {
                 canonical_evaluation,
                 canonical_evaluation_bytes,
                 evaluation_hash,
+                evaluation_context_hash,
                 evaluated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(&input.organization_id)
@@ -289,6 +303,7 @@ impl Store {
         .bind(&canonical_evaluation)
         .bind(&canonical_evaluation_bytes)
         .bind(&evaluation_hash)
+        .bind(&input.evaluation.evaluation_context_hash)
         .bind(evaluated_at.as_datetime())
         .execute(&mut *transaction)
         .await
@@ -429,6 +444,7 @@ impl Store {
         Ok(FinalizedDecision {
             organization_id: input.organization_id,
             intent_hash: verified_intent.intent_hash,
+            evaluation_context: Some(evaluation_context.context),
             evaluation,
             evaluation_hash,
             decision: input.decision,
@@ -483,6 +499,7 @@ impl Store {
                 e.canonical_evaluation,
                 e.canonical_evaluation_bytes,
                 e.evaluation_hash::text AS evaluation_hash,
+                e.evaluation_context_hash::text AS evaluation_context_hash,
                 e.evaluated_at,
                 d.decision_id,
                 d.intent_id AS decision_intent_id,
@@ -523,6 +540,31 @@ impl Store {
             )?;
 
         let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
+        let evaluation_context = match evaluation.evaluation_context_hash.as_deref() {
+            Some(context_hash) => {
+                let stored = load_verified_context_in_transaction(
+                    &mut transaction,
+                    organization_id,
+                    &evaluation.evaluation_id,
+                    &verified_intent.intent,
+                    &chain,
+                )
+                .await?;
+                if stored.context.evaluation_context_hash() != context_hash
+                    || stored.context.evaluation_time() != evaluation.evaluated_at
+                {
+                    return Err(durable_corrupt(
+                        organization_id,
+                        format!(
+                            "Evaluation `{}` disagrees with its immutable Context",
+                            evaluation.evaluation_id
+                        ),
+                    ));
+                }
+                Some(stored.context)
+            }
+            None => None,
+        };
         verify_lifecycle_replay(
             organization_id,
             &verified_intent.intent,
@@ -555,6 +597,7 @@ impl Store {
         Ok(Some(FinalizedDecision {
             organization_id: organization_id.to_owned(),
             intent_hash: verified_intent.intent_hash,
+            evaluation_context,
             evaluation,
             evaluation_hash,
             decision,
@@ -578,7 +621,9 @@ pub(crate) async fn set_write_timeouts(
     Ok(())
 }
 
-async fn set_read_snapshot(transaction: &mut Transaction<'_, Postgres>) -> Result<(), StoreError> {
+pub(crate) async fn set_read_snapshot(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), StoreError> {
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .execute(&mut **transaction)
         .await?;
@@ -588,7 +633,7 @@ async fn set_read_snapshot(transaction: &mut Transaction<'_, Postgres>) -> Resul
     Ok(())
 }
 
-async fn load_intent_row(
+pub(crate) async fn load_intent_row(
     transaction: &mut Transaction<'_, Postgres>,
     organization_id: &str,
     intent_id: &str,
@@ -671,7 +716,10 @@ fn canonical_document<T: Serialize>(value: &T) -> Result<(Value, Vec<u8>, String
     Ok((canonical, bytes, hash))
 }
 
-fn verify_intent_row(organization_id: &str, row: IntentRow) -> Result<VerifiedIntent, StoreError> {
+pub(crate) fn verify_intent_row(
+    organization_id: &str,
+    row: IntentRow,
+) -> Result<VerifiedIntent, StoreError> {
     let intent: TransactionIntent =
         serde_json::from_slice(&row.canonical_intent_bytes).map_err(|error| {
             durable_corrupt(
@@ -761,7 +809,14 @@ fn verify_finalization_row(
         })?;
     let (canonical_evaluation, evaluation_bytes, evaluation_hash) =
         canonical_document(&evaluation)?;
-    let evaluation_matches = evaluation.schema_version == EVALUATION_SCHEMA_VERSION
+    let supported_schema = matches!(
+        (
+            evaluation.schema_version,
+            &evaluation.evaluation_context_hash
+        ),
+        (LEGACY_EVALUATION_SCHEMA_VERSION, None) | (EVALUATION_SCHEMA_VERSION, Some(_))
+    );
+    let evaluation_matches = supported_schema
         && evaluation.evaluation_id == row.evaluation_id
         && evaluation.intent_id == intent_id
         && evaluation.intent_hash == intent_hash
@@ -769,6 +824,7 @@ fn verify_finalization_row(
         && sort_json_keys(row.canonical_evaluation) == canonical_evaluation
         && row.canonical_evaluation_bytes == evaluation_bytes
         && row.evaluation_hash == evaluation_hash
+        && row.evaluation_context_hash == evaluation.evaluation_context_hash
         && Timestamp::from_datetime(row.evaluated_at) == evaluation.evaluated_at;
     if !evaluation_matches {
         return Err(durable_corrupt(
@@ -812,6 +868,54 @@ fn verify_finalization_row(
         decision_hash,
         Timestamp::from_datetime(row.decided_at),
     ))
+}
+
+fn validate_context_binding(
+    input: &FinalizationInput,
+    context: &EvaluationContext,
+) -> Result<(), StoreError> {
+    let basic_binding = context.evaluation_id() == input.evaluation.evaluation_id
+        && context.intent_id() == input.intent_id
+        && context.intent_hash() == input.expected_intent_hash
+        && context.evaluation_time() == input.evaluation.evaluated_at
+        && context.evaluation_context_hash() == input.evaluation.evaluation_context_hash;
+    if !basic_binding {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "finalization does not match its immutable Evaluation Context".into(),
+        });
+    }
+
+    let risk_binding = match context.risk().available_parts() {
+        Some((_, version, hash)) => {
+            input.evaluation.risk.risk_rule_set_version.as_deref() == Some(version)
+                && input.evaluation.risk.risk_rule_set_hash.as_deref() == Some(hash)
+        }
+        None => {
+            input.evaluation.risk.risk_rule_set_version.is_none()
+                && input.evaluation.risk.risk_rule_set_hash.is_none()
+                && matches!(
+                    input.evaluation.risk.outcome,
+                    OptionalModuleOutcome::Error { .. } | OptionalModuleOutcome::NotRun { .. }
+                )
+        }
+    };
+    if !risk_binding {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "Risk output identity disagrees with its Evaluation Context".into(),
+        });
+    }
+
+    let simulation_binding = matches!(
+        &input.evaluation.simulation.outcome,
+        OptionalModuleOutcome::NotRun { reason_code }
+            if reason_code == context.simulation().reason_code()
+    );
+    if !simulation_binding {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "Simulation output disagrees with its Evaluation Context".into(),
+        });
+    }
+    Ok(())
 }
 
 fn exactly_one_admission_event(

@@ -33,12 +33,12 @@ real network request path, but no execution path or production secret.
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. Independent checkpoints, retention, and privileged-database threat controls remain later work |
-| 13 | Price oracle manipulation | Partially mitigated: DS-022 stops reading Agent `historical_vendor_median`, accepts only fresh/hash-verified/allowlisted/exact-scope `ATF_ENRICHED` evidence, and turns stale/tampered/unsigned/ambiguous or Agent-provided inputs into explicit restrictive findings. Durable trust-policy/evidence snapshots and production enrichers remain DS-023+ work |
+| 13 | Price oracle manipulation | Partially mitigated: DS-022 stops reading Agent `historical_vendor_median`, accepts only fresh/hash-verified/allowlisted/exact-scope `ATF_ENRICHED` evidence, and turns stale/tampered/unsigned/ambiguous or Agent-provided inputs into explicit restrictive findings. DS-023 durably binds the exact verified Evidence and trust-policy identity before evaluation; production enrichers remain future work |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
 | 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, and the versioned DS-021 rule explicitly counts the `PERMITTED` boundary for the same organization/Agent/resource over 86,400 seconds. Durable snapshot identity does not exist yet |
+| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, the versioned DS-021 rule explicitly counts the `PERMITTED` boundary for the same organization/Agent/resource over 86,400 seconds, and DS-023 pins the exact Audit-history prefix. Bounded snapshot queries remain DS-028 |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
 | 20 | High-frequency small-order splitting to bypass per-transaction limits | Not applicable yet — cumulative-spend risk rules are Phase 2 |
 
@@ -95,16 +95,17 @@ secret. The realistic attack surface today includes:
   domain-separates a canonical hash over every decision-affecting field.
   Gateway startup fails if the configured artifact cannot validate, and Risk
   evidence records its exact version/hash. The artifact is still process-local
-  rather than durable/organization-scoped. DS-022 now enforces provenance for
-  the current vendor-price consumer, but the trust policy and evidence are not
-  durably snapshot-bound yet.
+  rather than durable/organization-scoped. DS-022 enforces provenance for the
+  current vendor-price consumer, and DS-023 durably snapshot-binds the selected
+  artifact, trust-policy identity and verified Evidence before evaluation.
 - **Evidence source spoofing and price-context poisoning** — source labels do
   not grant authority. DS-022 requires an exact deployment-owned source/kind
   allowlist, canonical hash, explicit evaluation-time freshness and configured
   strict Ed25519 proof when required. `VerifiedEvidence` cannot be directly
   constructed. Agent privileged keys are isolated, and an exact trusted value
-  wins regardless of Agent overrides or unrelated-scope evidence. Until
-  DS-023, verified evidence and trust selection are not persisted for replay.
+  wins regardless of Agent overrides or unrelated-scope evidence. DS-023
+  persists those verified envelopes and the trust selection in one immutable,
+  hash-checked context; production evidence acquisition is still absent.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
   restart no longer clears history. The Gateway currently reloads and verifies
@@ -117,14 +118,13 @@ secret. The realistic attack surface today includes:
   Renewal preserves its generation; conditional expiry reclaim rotates the
   opaque owner and increments that generation. Finalization locks and verifies
   the reservation before the Intent, so a late predecessor cannot overwrite a
-  recovered result. Until immutable Evaluation Context recovery exists,
-  generation greater than one can only finalize a fail-closed
-  `Decision(ERROR)`. DS-013 renews the active generation between Policy/Risk
+  recovered result. Generation greater than one can only finalize a
+  fail-closed `Decision(ERROR)`. DS-013 renews the active generation between Policy/Risk
   stages, returns the verified original Decision after a completed-response
-  loss, and makes a retry conditionally reclaim an expired admission. Because
-  pinned Evaluation Context does not exist, the recovered worker does not run
-  current Policy/Risk; it records one explicit
-  `RECOVERY_CONTEXT_UNAVAILABLE` error. Recovery is request-driven, so an
+  loss, and makes a retry conditionally reclaim an expired admission. DS-023
+  makes the retry reuse a pre-crash context or persist an explicit-unavailable
+  recovery context; it does not run current Policy/Risk and records
+  `RECOVERY_REPLAY_NOT_IMPLEMENTED`. Recovery is request-driven, so an
   abandoned Intent remains `RECEIVED` until a retry arrives; no background
   scanner or operational alert exists yet.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via

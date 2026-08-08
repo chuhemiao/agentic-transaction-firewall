@@ -3,6 +3,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("Evaluation Context domain rejected durable state: {0}")]
+    EvaluationContextDomain(#[from] atf_core::EvaluationContextError),
+
     #[error("typed Audit payload is invalid: {0}")]
     AuditPayload(#[from] atf_audit::AuditPayloadError),
 
@@ -268,6 +271,22 @@ pub enum StoreError {
     FinalizationConflict {
         organization_id: String,
         intent_id: String,
+    },
+
+    #[error(
+        "Intent `{intent_id}` in organization `{organization_id}` already has a conflicting immutable Evaluation Context"
+    )]
+    EvaluationContextConflict {
+        organization_id: String,
+        intent_id: String,
+    },
+
+    #[error(
+        "Evaluation Context `{evaluation_id}` does not exist in organization `{organization_id}`"
+    )]
+    EvaluationContextNotFound {
+        organization_id: String,
+        evaluation_id: String,
     },
 
     #[error("durable state for organization `{organization_id}` is corrupt: {reason}")]

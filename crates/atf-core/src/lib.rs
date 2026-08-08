@@ -9,6 +9,7 @@ mod amount;
 mod canonical;
 mod decision;
 mod error;
+mod evaluation;
 mod evidence;
 mod id;
 mod lifecycle;
@@ -18,6 +19,11 @@ pub use amount::Amount;
 pub use canonical::{sha256_hex, sort_json_keys};
 pub use decision::DecisionKind;
 pub use error::CoreError;
+pub use evaluation::{
+    EvaluationContext, EvaluationContextError, EvaluationContextInput,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
+    SimulationReference, VersionedArtifactReference,
+};
 pub use evidence::{
     EvidenceEnvelope, EvidenceError, EvidenceFreshness, EvidenceKind, EvidenceSignature,
     EvidenceSource, EvidenceTrustPolicy, TrustedEvidenceSource, VerifiedEvidence,

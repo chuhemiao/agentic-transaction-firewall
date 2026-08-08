@@ -83,7 +83,8 @@ principals and non-enumerating Decision-read RBAC. DS-019 now provides
 validated Policy Bundle identity, and DS-020 adds signed durable activation
 and rollback. DS-021 now adds the canonical versioned Risk Rule Set and exact
 identity in Risk results/evidence. DS-022 adds provenance-bearing Evidence and
-the privileged-context firewall; the next task is DS-023.
+the privileged-context firewall. DS-023 now persists one immutable Evaluation
+Context before Policy/Risk; the next task is DS-024.
 
 ### Present but incomplete or unwired
 
@@ -95,12 +96,12 @@ the privileged-context firewall; the next task is DS-023.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy now has a closed manifest, Cedar schema, scope/time validity,
   deterministic version/hash, detached Ed25519 signature, immutable archive,
-  active pointer and immediate rollback. It is not yet bound into a durable
-  Evaluation Context or strongly bound Decision.
+  active pointer and immediate rollback. The selected artifact is now bound in
+  the durable Evaluation Context, but not yet in the strongly bound Decision.
 - Risk's versioned entry points use one explicit caller time and accept only
-  verified, provenance-bearing vendor evidence. Legacy convenience entry
-  points still sample the wall clock, and the resulting inputs are not yet
-  pinned into a durable Evaluation Context.
+  verified, provenance-bearing vendor evidence. Gateway now pins the exact
+  inputs into a durable Evaluation Context; legacy convenience entry points
+  still sample the wall clock or accept separately supplied inputs.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
   intermediate events. Current admissions emit `IdentityVerified`; the old
   `IdentityVerificationSkipped` branch is compatibility-only.
@@ -119,9 +120,10 @@ the privileged-context firewall; the next task is DS-023.
   protection, exact result return and restrictive request-driven recovery are
   complete.
 - Supported action profiles; common Rust semantic validation is complete.
-- Evaluation Context persistence and Replay; Agent/Operator tenant authority
-  and DS-022 provenance types/firewall are complete, while future Admin/Audit
-  endpoints still require their endpoint-specific role matrices.
+- Context-only evaluation and Replay; Evaluation Context persistence,
+  Agent/Operator tenant authority and DS-022 provenance types/firewall are
+  complete, while future Admin/Audit endpoints still require their
+  endpoint-specific role matrices.
 - Audit query, metrics, request limits, background recovery operations and
   security CI gates; request-driven restrictive recovery tests are complete.
 - Simulator, Approval, Adapter execution, reconciliation and SDKs.
@@ -606,11 +608,13 @@ the same owner/generation in independent short transactions after Policy and
 Risk. An `IN_PROGRESS` retry performs the database-conditional reclaim: an
 active evaluator/recovery owner remains a bounded 409, while expired work gets
 the next generation, reloads admitted evidence, renews once and records one
-`RECOVERY_CONTEXT_UNAVAILABLE -> Decision(ERROR)`. Barrier-based concurrent
+fail-closed `Decision(ERROR)`. DS-023 supersedes the original
+`RECOVERY_CONTEXT_UNAVAILABLE` reason: recovery now persists/reuses an
+immutable context and records `RECOVERY_REPLAY_NOT_IMPLEMENTED`. Barrier-based concurrent
 HTTP tests converge on one Evaluation, Decision and final Audit transition;
 restart recovery and its exact retry keep record counts unchanged. Recovery is
 request-driven. Background scanning, authenticated nonce consumption and
-Context-based deterministic recomputation remain later tasks.
+deterministic recomputation remain later tasks.
 
 ### DS-014 — Replace raw-hash signatures with an Identity Envelope `[M]`
 
@@ -844,7 +848,7 @@ Classify Agent context separately and prohibit privileged risk inputs from it.
 
 ### DS-023 — Persist immutable Evaluation Context snapshots `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Add `EvaluationContext` with evaluation ID/time, profile,
 Policy/Risk versions and hashes, context/evidence snapshot hash, environment
@@ -852,16 +856,24 @@ and explicit simulation `NOT_RUN`. Persist its canonical snapshot before
 evaluation.
 
 - **Dependencies:** DS-020, DS-021, DS-022.
-- **Likely files:** `crates/atf-core/src/evaluation.rs`,
-  `migrations/0007_evaluation_context.sql`, `crates/atf-store/src/evaluation.rs`,
-  `crates/atf-store/tests/evaluation.rs`, `docs/architecture.md`.
+- **Delivered files:** `crates/atf-core/src/evaluation.rs`,
+  `schemas/evaluation-context.schema.json`,
+  `migrations/0008_evaluation_contexts.sql`,
+  `crates/atf-store/src/evaluation.rs`,
+  `crates/atf-store/tests/evaluation.rs`, `docs/evaluation-context.md`, plus
+  finalization and Gateway integration coverage.
 - **Acceptance criteria:**
   1. Every decision-affecting input is present or explicitly `NOT_RUN`/unavailable.
   2. Persisted snapshots are immutable and hash-verified on load.
   3. Evaluation time is captured once and reused throughout the pipeline.
-- **Verification:** snapshot round-trip/mutation/immutability tests; full DoD.
+- **Verification:** canonical golden hash, Schema/mutation/Evidence freshness,
+  Intent/Profile/Agent-context binding, exact retry/conflict/stale fencing,
+  update/delete/truncate, row/Audit tamper, restart, finalization, recovery and
+  real Gateway/PostgreSQL tests; full DoD.
 
 ### DS-024 — Make Policy and Risk evaluation context-only `[M]`
+
+**Status:** Next.
 
 **Description:** Remove direct `Timestamp::now()` and privileged Agent-context
 reads from evaluators. Query history relative to `evaluation_time`; missing

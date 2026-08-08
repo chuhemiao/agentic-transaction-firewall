@@ -200,6 +200,7 @@ impl ApiError {
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
             | StoreError::FinalizationConflict { .. }
+            | StoreError::EvaluationContextConflict { .. }
             | StoreError::IdempotencyCompleted { .. }
             | StoreError::EvaluatorLeaseLost { .. } => Self::new(
                 StatusCode::CONFLICT,
@@ -211,6 +212,7 @@ impl ApiError {
             | StoreError::OperatorStateCorrupt { .. }
             | StoreError::PolicyStateCorrupt { .. }
             | StoreError::NonceStateCorrupt { .. }
+            | StoreError::EvaluationContextNotFound { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
             | StoreError::IncompleteDecisionEvidence { .. }
             | StoreError::AuditChainCorrupt { .. } => Self::new(
@@ -219,6 +221,7 @@ impl ApiError {
                 "Durable state failed an integrity check.",
             ),
             StoreError::AuditPayload(_)
+            | StoreError::EvaluationContextDomain(_)
             | StoreError::IdentityDomain(_)
             | StoreError::PolicyDomain(_)
             | StoreError::InvalidAuditEvent { .. }

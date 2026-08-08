@@ -3,13 +3,17 @@ use atf_audit::{
     PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome, RiskEvaluatedPayload,
     SimulationCompletedPayload,
 };
-use atf_core::{Amount, IntentLifecycleState as State, Timestamp};
+use atf_core::{
+    Amount, EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, IntentLifecycleState as State, RepositorySnapshot,
+    SimulationReference, Timestamp, VersionedArtifactReference,
+};
 use atf_decision::{Decision, DecisionKind, Reason};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
-    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationInput, FinalizationInput,
-    IdempotencyState, Store, StoreError, StoredAuditEvent, StoredEvaluation,
+    AdmissionGrant, AuthenticatedAdmissionInput, EvaluationContextPersistence, EvaluationInput,
+    FinalizationInput, IdempotencyState, Store, StoreError, StoredAuditEvent, StoredEvaluation,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use sqlx::{
@@ -200,6 +204,8 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         })
         .await?;
     let decision = sample_decision("decision-a", "intent-a");
+    let context_hash =
+        persist_test_context(&store, &admitted, "evaluation-a", "2026-08-08T01:00:01Z").await?;
 
     let finalized = store
         .finalize_decision(FinalizationInput {
@@ -208,7 +214,7 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
             evaluator_lease: admitted.evaluator_lease.clone(),
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
-            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
             decision: decision.clone(),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -242,7 +248,7 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
     assert_eq!(reloaded, finalized);
 
     let chain = request_events(store.load_verified_audit_chain("org-a").await?);
-    assert_eq!(chain.len(), 6);
+    assert_eq!(chain.len(), 7);
     assert_eq!(
         chain
             .iter()
@@ -251,16 +257,17 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         vec![
             EventType::IntentReceived,
             EventType::IdentityVerified,
+            EventType::ContextEnriched,
             EventType::PolicyEvaluated,
             EventType::RiskEvaluated,
             EventType::SimulationCompleted,
             EventType::DecisionRecorded,
         ]
     );
-    assert_eq!(chain[5].evaluation_id.as_deref(), Some("evaluation-a"));
-    assert_eq!(chain[5].decision_id.as_deref(), Some("decision-a"));
+    assert_eq!(chain[6].evaluation_id.as_deref(), Some("evaluation-a"));
+    assert_eq!(chain[6].decision_id.as_deref(), Some("decision-a"));
     assert!(matches!(
-        chain[5].event.typed_payload()?,
+        chain[6].event.typed_payload()?,
         AuditPayload::DecisionRecorded(_)
     ));
 
@@ -310,6 +317,8 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
     )
     .execute(&database.pool)
     .await?;
+    let context_hash =
+        persist_test_context(&store, &admitted, "evaluation-a", "2026-08-08T01:00:01Z").await?;
 
     let error = store
         .finalize_decision(FinalizationInput {
@@ -318,7 +327,7 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
             evaluator_lease: admitted.evaluator_lease.clone(),
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
-            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -350,9 +359,10 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
         .is_none());
 
     let chain = request_events(store.load_verified_audit_chain("org-a").await?);
-    assert_eq!(chain.len(), 2);
+    assert_eq!(chain.len(), 3);
     assert_eq!(chain[0].event.event_type, EventType::IntentReceived);
     assert_eq!(chain[1].event.event_type, EventType::IdentityVerified);
+    assert_eq!(chain[2].event.event_type, EventType::ContextEnriched);
     assert_eq!(
         store
             .load_intent_lifecycle("org-a", "intent-a")
@@ -389,7 +399,7 @@ async fn finalization_rejects_an_intent_hash_mismatch_without_writes() -> Result
             evaluator_lease: admitted.evaluator_lease.clone(),
             expected_intent_hash: "f".repeat(64),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
-            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &"e".repeat(64)),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
@@ -430,7 +440,7 @@ async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
             evaluator_lease: admitted.evaluator_lease.clone(),
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
-            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:02Z"),
+            evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:02Z", &"e".repeat(64)),
             decision: sample_decision("decision-a", "intent-a"),
             decided_at: timestamp("2026-08-08T01:00:01Z"),
         })
@@ -447,6 +457,58 @@ async fn finalization_rejects_a_decision_time_before_evaluation_without_writes(
         request_events(store.load_verified_audit_chain("org-a").await?).len(),
         2
     );
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn finalization_rejects_succeeded_risk_when_context_marks_it_unavailable(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create("unavailable_risk").await?;
+    database.seed_organization("org-a").await?;
+    let store = Store::connect(&database.url).await?;
+    let admitted = store
+        .admit_intent(AdmissionInput {
+            intent: sample_intent("org-a", "intent-a", "idem-a", "12.50"),
+            received_at: timestamp("2026-08-08T01:00:00Z"),
+            lease_duration: Duration::from_secs(30),
+        })
+        .await?;
+    let context_hash = persist_test_context_with_risk(
+        &store,
+        &admitted,
+        "evaluation-a",
+        "2026-08-08T01:00:01Z",
+        VersionedArtifactReference::unavailable("RISK_ARTIFACT_UNAVAILABLE")?,
+    )
+    .await?;
+    let mut evaluation = evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash);
+    evaluation.risk.risk_rule_set_version = None;
+    evaluation.risk.risk_rule_set_hash = None;
+
+    let error = store
+        .finalize_decision(FinalizationInput {
+            organization_id: "org-a".into(),
+            intent_id: "intent-a".into(),
+            evaluator_lease: admitted.evaluator_lease,
+            expected_intent_hash: admitted.admitted.intent_hash,
+            expected_lifecycle_version: admitted.admitted.lifecycle.version,
+            evaluation,
+            decision: sample_decision("decision-a", "intent-a"),
+            decided_at: timestamp("2026-08-08T01:00:02Z"),
+        })
+        .await
+        .expect_err("an unavailable Risk artifact cannot produce a successful result");
+    assert!(matches!(error, StoreError::InvalidRepositoryInput { .. }));
+
+    let (evaluations, decisions): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM evaluations), (SELECT count(*) FROM decisions)",
+    )
+    .fetch_one(&database.pool)
+    .await?;
+    assert_eq!((evaluations, decisions), (0, 0));
 
     store.close().await;
     database.destroy().await?;
@@ -473,6 +535,7 @@ async fn read_api_rejects_a_decision_without_bound_audit_evidence() -> Result<()
         evaluation_id: "evaluation-a".into(),
         intent_id: "intent-a".into(),
         intent_hash: admitted.admitted.intent_hash.clone(),
+        evaluation_context_hash: None,
         evaluated_at,
         evidence: serde_json::json!({"policy": {"decision": "PERMIT"}}),
     };
@@ -540,6 +603,8 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
             lease_duration: Duration::from_secs(30),
         })
         .await?;
+    let context_hash =
+        persist_test_context(&store, &admitted, "evaluation-a", "2026-08-08T01:00:01Z").await?;
 
     let input_a = FinalizationInput {
         organization_id: "org-a".into(),
@@ -547,7 +612,7 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
         evaluator_lease: admitted.evaluator_lease.clone(),
         expected_intent_hash: admitted.admitted.intent_hash.clone(),
         expected_lifecycle_version: admitted.admitted.lifecycle.version,
-        evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z"),
+        evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
         decision: sample_decision("decision-a", "intent-a"),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
     };
@@ -557,7 +622,7 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
         evaluator_lease: admitted.evaluator_lease.clone(),
         expected_intent_hash: admitted.admitted.intent_hash.clone(),
         expected_lifecycle_version: admitted.admitted.lifecycle.version,
-        evaluation: evaluation_input("evaluation-b", "2026-08-08T01:00:01Z"),
+        evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
         decision: sample_decision("decision-b", "intent-a"),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
     };
@@ -586,7 +651,7 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
     assert_eq!((evaluations, decisions), (1, 1));
     assert_eq!(
         request_events(store.load_verified_audit_chain("org-a").await?).len(),
-        6
+        7
     );
 
     store.close().await;
@@ -678,7 +743,9 @@ async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(
             lease_duration: Duration::from_secs(30),
         })
         .await?;
-    let mut evaluation = evaluation_input("evaluation-a", "2026-08-08T01:00:01Z");
+    let context_hash =
+        persist_test_context(&store, &admitted, "evaluation-a", "2026-08-08T01:00:01Z").await?;
+    let mut evaluation = evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash);
     evaluation.risk.outcome = OptionalModuleOutcome::Error {
         error_code: "RISK_EVALUATION_ERROR".into(),
     };
@@ -709,9 +776,84 @@ async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(
     Ok(())
 }
 
-fn evaluation_input(evaluation_id: &str, evaluated_at: &str) -> EvaluationInput {
+async fn persist_test_context(
+    store: &Store,
+    admitted: &AdmissionGrant,
+    evaluation_id: &str,
+    evaluated_at: &str,
+) -> Result<String, StoreError> {
+    let risk =
+        VersionedArtifactReference::available("atf-risk-engine-v1", "risk-test-1", "c".repeat(64))?;
+    persist_test_context_with_risk(store, admitted, evaluation_id, evaluated_at, risk).await
+}
+
+async fn persist_test_context_with_risk(
+    store: &Store,
+    admitted: &AdmissionGrant,
+    evaluation_id: &str,
+    evaluated_at: &str,
+    risk: VersionedArtifactReference,
+) -> Result<String, StoreError> {
+    let chain = store
+        .load_verified_audit_chain(&admitted.admitted.organization_id)
+        .await?;
+    let tail = chain
+        .last()
+        .ok_or_else(|| StoreError::IncompleteAdmissionEvidence {
+            organization_id: admitted.admitted.organization_id.clone(),
+            intent_id: admitted.admitted.intent.intent_id.clone(),
+        })?;
+    let through_sequence =
+        u64::try_from(tail.sequence).map_err(|_| StoreError::InvalidRepositoryInput {
+            reason: "test Audit sequence is out of range".into(),
+        })?;
+    let context = EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: evaluation_id.into(),
+        intent_id: admitted.admitted.intent.intent_id.clone(),
+        intent_hash: admitted.admitted.intent_hash.clone(),
+        evaluation_time: timestamp(evaluated_at),
+        environment: TEST_ENVIRONMENT.into(),
+        profile_id: "atf.agent-commerce.payment".into(),
+        profile_version: "1.0".into(),
+        policy: VersionedArtifactReference::available("policy-a", "1.0.0", "b".repeat(64))?,
+        risk,
+        context_snapshot_id: format!("snapshot-{evaluation_id}"),
+        agent_context: admitted.admitted.intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )?,
+        history: RepositorySnapshot::new(
+            format!(
+                "audit-chain:{}:{through_sequence}",
+                admitted.admitted.organization_id
+            ),
+            through_sequence,
+            tail.event_hash.clone(),
+        )?,
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
+    })?;
+    let context_hash = context.evaluation_context_hash().to_owned();
+    store
+        .persist_evaluation_context(EvaluationContextPersistence {
+            organization_id: admitted.admitted.organization_id.clone(),
+            expected_intent_hash: admitted.admitted.intent_hash.clone(),
+            evaluator_lease: admitted.evaluator_lease.clone(),
+            context,
+        })
+        .await?;
+    Ok(context_hash)
+}
+
+fn evaluation_input(
+    evaluation_id: &str,
+    evaluated_at: &str,
+    evaluation_context_hash: &str,
+) -> EvaluationInput {
     EvaluationInput {
         evaluation_id: evaluation_id.into(),
+        evaluation_context_hash: evaluation_context_hash.into(),
         evaluated_at: timestamp(evaluated_at),
         policy: PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -720,8 +862,8 @@ fn evaluation_input(evaluation_id: &str, evaluated_at: &str) -> EvaluationInput 
             policy_ids: vec!["policy-a".into()],
         },
         risk: RiskEvaluatedPayload {
-            risk_rule_set_version: None,
-            risk_rule_set_hash: None,
+            risk_rule_set_version: Some("risk-test-1".into()),
+            risk_rule_set_hash: Some("c".repeat(64)),
             outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
         },
         simulation: SimulationCompletedPayload {
