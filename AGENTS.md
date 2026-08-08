@@ -57,7 +57,9 @@ If you're asked to "continue" or "keep going through the TODO list":
   privileged Agent-context firewall in `atf-risk`; DS-023 persists immutable
   Evaluation Context snapshots before Policy/Risk and binds final Evaluations
   to them; DS-024 makes both evaluators validate and consume that Context
-  without ambient time or separate privileged inputs.
+  without ambient time or separate privileged inputs; DS-025 emits a closed,
+  domain-separated canonical Decision v1 and makes Store/Audit verify the same
+  Intent/Profile/artifact/snapshot/Simulation/time/constraint bindings.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

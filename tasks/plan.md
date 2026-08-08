@@ -85,7 +85,9 @@ and rollback. DS-021 now adds the canonical versioned Risk Rule Set and exact
 identity in Risk results/evidence. DS-022 adds provenance-bearing Evidence and
 the privileged-context firewall. DS-023 now persists one immutable Evaluation
 Context before Policy/Risk. DS-024 now makes that persisted Context the only
-decision-input authority consumed by both evaluators; the next task is DS-025.
+decision-input authority consumed by both evaluators. DS-025 now seals those
+inputs and the merge output into one closed canonical Decision; the next task
+is DS-026 Original Replay.
 
 ### Present but incomplete or unwired
 
@@ -94,11 +96,14 @@ decision-input authority consumed by both evaluators; the next task is DS-025.
   authorization are wired. Policy activation/rollback now have an explicit
   authenticated role matrix; future Admin/Audit endpoints still need their
   own capability matrices.
-- Decision contains only ID, Intent ID, kind and reasons.
+- Decision v1 binds Intent/Profile, exact Policy/Risk artifacts, Evaluation
+  Context/snapshot, explicit Simulation state, evaluation/expiry times, future
+  Approval/Obligation sets and execution constraints under one
+  domain-separated canonical hash.
 - Policy now has a closed manifest, Cedar schema, scope/time validity,
   deterministic version/hash, detached Ed25519 signature, immutable archive,
   active pointer and immediate rollback. The selected artifact is now bound in
-  the durable Evaluation Context, but not yet in the strongly bound Decision.
+  the durable Evaluation Context and the strongly bound Decision.
 - Policy and Risk now expose only Context-authorized evaluation entry points.
   Gateway pins the exact inputs before execution; time, Evidence, artifact
   identity and Audit boundary are taken from that Context, while mismatch and
@@ -183,7 +188,7 @@ flowchart TD
 |---|---|---|
 | C0 Plan accepted | Human approves ordering, storage boundary and auth decision gates | Implementation has not started |
 | C1 Durable state | DS-001..DS-007; restart and concurrent Audit append work | Shared/anonymous deployment remains unsafe |
-| C2 Trusted admission | DS-008..DS-018; invalid, duplicate, replayed or unauthenticated requests cannot reach Policy/Risk | Replay and strong Decision proof remain incomplete |
+| C2 Trusted admission | DS-008..DS-018; invalid, duplicate, replayed or unauthenticated requests cannot reach Policy/Risk | C3 Decision/Replay work remains outside this checkpoint |
 | C3 Reproducible decisions | DS-019..DS-027; exact inputs are versioned, bound and replayable | Operational release gate remains closed |
 | C4 Durable Shadow | DS-028..DS-040; relevant CRITICAL/HIGH gaps have executable evidence and re-audit | Real execution and production-readiness claims remain forbidden |
 | C5 Reference controls | RA-001..RA-008; simulation and three adapters work in Shadow/Mock mode under conformance | Enforce Mode remains disabled |
@@ -903,6 +908,8 @@ trusted vendor data returns a configured finding, never implicit Permit.
 
 ### DS-025 — Produce a strongly bound canonical Decision `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Expand Decision to bind Intent, profile, Policy, Risk,
 Context and Simulation hashes, evaluation time, expiry, constraints and a
 domain-separated canonical Decision hash. Keep future approval fields explicit.
@@ -911,6 +918,13 @@ domain-separated canonical Decision hash. Keep future approval fields explicit.
 - **Likely files:** `crates/atf-decision/src/types.rs`,
   `crates/atf-decision/src/decide.rs`, `schemas/decision.schema.json`,
   `crates/atf-decision/tests/binding.rs`, `services/gateway/src/routes.rs`.
+- **Delivered boundary:** Decision v1 is a closed Serde/Schema envelope whose
+  domain-separated hash covers Intent/Profile, exact Policy/Risk artifact
+  references, Evaluation Context/snapshot, explicit Simulation `NOT_RUN`,
+  evaluation/expiry times, reasons, future Approval/Obligation arrays and
+  execution constraints. Store verifies the embedded hash and immutable
+  Intent/Context binding on write/read; current `DecisionRecorded.binding`
+  mirrors the same values while older immutable events remain decodable.
 - **Acceptance criteria:**
   1. Mutation of any bound input changes/invalidates `decision_hash`.
   2. Persisted Decision and `DecisionRecorded` carry the same binding values.

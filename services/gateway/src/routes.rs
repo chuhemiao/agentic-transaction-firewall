@@ -17,7 +17,7 @@ use atf_core::{
     ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
     VersionedArtifactReference,
 };
-use atf_decision::{Decision, DecisionKind, Reason};
+use atf_decision::Decision;
 use atf_intent::{validate_profile, TransactionIntent};
 use atf_policy::PolicyDecision;
 use atf_store::{
@@ -37,7 +37,7 @@ const EVALUATOR_LEASE_DURATION: Duration = Duration::from_secs(30);
 
 enum AdmissionOutcome {
     Evaluate(Box<AdmissionGrant>),
-    Completed(Decision),
+    Completed(Box<Decision>),
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -246,7 +246,7 @@ async fn create_intent(
     };
 
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
-    let (risk_findings, risk_evidence, risk_error) = match &policy_result {
+    let (risk_evaluation, risk_evidence, risk_error) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
             let result = atf_risk::evaluate_context(
                 &intent,
@@ -256,6 +256,8 @@ async fn create_intent(
             );
             match result {
                 Ok(result) => {
+                    let rule_set_version = result.rule_set_version.clone();
+                    let rule_set_hash = result.rule_set_hash.clone();
                     let evidence = result
                         .findings
                         .iter()
@@ -270,10 +272,10 @@ async fn create_intent(
                         })
                         .collect();
                     (
-                        result.findings,
+                        Some(result),
                         RiskEvaluatedPayload {
-                            risk_rule_set_version: Some(result.rule_set_version),
-                            risk_rule_set_hash: Some(result.rule_set_hash),
+                            risk_rule_set_version: Some(rule_set_version),
+                            risk_rule_set_hash: Some(rule_set_hash),
                             outcome: OptionalModuleOutcome::Succeeded { result: evidence },
                         },
                         None,
@@ -286,7 +288,7 @@ async fn create_intent(
                         "Risk evaluation failed closed"
                     );
                     (
-                        Vec::new(),
+                        None,
                         RiskEvaluatedPayload {
                             risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                             risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
@@ -300,7 +302,7 @@ async fn create_intent(
             }
         }
         Ok(_) => (
-            Vec::new(),
+            None,
             RiskEvaluatedPayload {
                 risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                 risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
@@ -311,7 +313,7 @@ async fn create_intent(
             None,
         ),
         Err(_) => (
-            Vec::new(),
+            None,
             RiskEvaluatedPayload {
                 risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                 risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
@@ -333,9 +335,51 @@ async fn create_intent(
         }
     };
 
-    let decision = match risk_error.as_ref() {
-        Some(error) => atf_decision::decide_with_risk_result(&intent, policy_result, Err(error)),
-        None => atf_decision::decide(&intent, policy_result, &risk_findings),
+    let policy_input = match &policy_result {
+        Ok(outcome) => atf_decision::PolicyDecisionInput::Evaluated(outcome),
+        Err(_) => atf_decision::PolicyDecisionInput::Error {
+            error_code: "POLICY_EVALUATION_ERROR",
+        },
+    };
+    let risk_input = match (
+        risk_evaluation.as_ref(),
+        risk_error.as_ref(),
+        &policy_result,
+    ) {
+        (Some(evaluation), None, _) => atf_decision::RiskDecisionInput::Evaluated(evaluation),
+        (None, Some(error), _) => atf_decision::RiskDecisionInput::Error {
+            error_code: error.code(),
+        },
+        (None, None, Ok(_)) => atf_decision::RiskDecisionInput::NotRun {
+            reason_code: "POLICY_FORBID",
+        },
+        (None, None, Err(_)) => atf_decision::RiskDecisionInput::NotRun {
+            reason_code: "POLICY_ERROR",
+        },
+        (Some(_), Some(_), _) => unreachable!("Risk cannot succeed and error"),
+    };
+    let decision = match atf_decision::decide(atf_decision::DecisionInput {
+        decision_id: atf_core::new_ulid(),
+        intent: &intent,
+        evaluation_context: &evaluation_context,
+        policy: policy_input,
+        risk: risk_input,
+    }) {
+        Ok(decision) => decision,
+        Err(error) => {
+            tracing::error!(
+                request_id = request_id.as_str(),
+                error_code = error.code(),
+                "Decision input binding failed closed"
+            );
+            return store_error_response(
+                &request_id,
+                "bind Decision",
+                StoreError::InvalidRepositoryInput {
+                    reason: error.code().into(),
+                },
+            );
+        }
     };
     let finalized = match state
         .store
@@ -533,7 +577,7 @@ async fn recover_expired_intent(
     let finalized = store
         .finalize_decision(recovery_finalization(admitted, evaluator_lease, &context))
         .await?;
-    Ok(AdmissionOutcome::Completed(finalized.decision))
+    Ok(AdmissionOutcome::Completed(Box::new(finalized.decision)))
 }
 
 async fn load_completed_decision(
@@ -547,7 +591,7 @@ async fn load_completed_decision(
         .await?
     {
         Some(finalized) if finalized.decision.decision_id == decision_id => {
-            Ok(AdmissionOutcome::Completed(finalized.decision))
+            Ok(AdmissionOutcome::Completed(Box::new(finalized.decision)))
         }
         _ => Err(StoreError::IncompleteDecisionEvidence {
             organization_id: organization_id.to_owned(),
@@ -596,17 +640,18 @@ fn recovery_finalization(
                 },
             },
         },
-        decision: Decision {
+        decision: atf_decision::decide(atf_decision::DecisionInput {
             decision_id: atf_core::new_ulid(),
-            intent_id: admitted.intent.intent_id,
-            decision: DecisionKind::Error,
-            reasons: vec![Reason {
-                code: "RECOVERY_REPLAY_NOT_IMPLEMENTED".into(),
-                severity: "critical".into(),
-                message: "Recovery failed closed because deterministic replay is not implemented."
-                    .into(),
-            }],
-        },
+            intent: &admitted.intent,
+            evaluation_context: context,
+            policy: atf_decision::PolicyDecisionInput::Error {
+                error_code: "RECOVERY_REPLAY_NOT_IMPLEMENTED",
+            },
+            risk: atf_decision::RiskDecisionInput::NotRun {
+                reason_code: "POLICY_ERROR",
+            },
+        })
+        .expect("recovery Context is already bound to its admitted Intent"),
         decided_at: Timestamp::now_millis(),
     }
 }

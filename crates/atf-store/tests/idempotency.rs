@@ -7,7 +7,7 @@ use atf_core::{
     ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
     VersionedArtifactReference,
 };
-use atf_decision::{Decision, DecisionKind, Reason};
+use atf_decision::{decide, DecisionInput, DecisionKind, PolicyDecisionInput, RiskDecisionInput};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
@@ -458,7 +458,7 @@ async fn persist_recovery_context(
     store: &Store,
     grant: &AdmissionGrant,
     evaluator_lease: &atf_store::EvaluatorLease,
-) -> Result<String, StoreError> {
+) -> Result<EvaluationContext, StoreError> {
     let chain = store
         .load_verified_audit_chain(&grant.admitted.organization_id)
         .await?;
@@ -499,16 +499,15 @@ async fn persist_recovery_context(
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
     })?;
-    let hash = context.evaluation_context_hash().to_owned();
     store
         .persist_evaluation_context(EvaluationContextPersistence {
             organization_id: grant.admitted.organization_id.clone(),
             expected_intent_hash: grant.admitted.intent_hash.clone(),
             evaluator_lease: evaluator_lease.clone(),
-            context,
+            context: context.clone(),
         })
         .await?;
-    Ok(hash)
+    Ok(context)
 }
 
 fn finalization_input(
@@ -516,7 +515,7 @@ fn finalization_input(
     evaluator_lease: atf_store::EvaluatorLease,
     decision_id: &str,
     decision_kind: DecisionKind,
-    evaluation_context_hash: &str,
+    evaluation_context: &EvaluationContext,
 ) -> FinalizationInput {
     let is_error = decision_kind == DecisionKind::Error;
     FinalizationInput {
@@ -527,7 +526,7 @@ fn finalization_input(
         evaluator_lease,
         evaluation: EvaluationInput {
             evaluation_id: "evaluation-a".into(),
-            evaluation_context_hash: evaluation_context_hash.into(),
+            evaluation_context_hash: evaluation_context.evaluation_context_hash().into(),
             evaluated_at: timestamp("2026-08-08T01:00:01Z"),
             policy: PolicyEvaluatedPayload {
                 outcome: if is_error {
@@ -566,30 +565,80 @@ fn finalization_input(
                 },
             },
         },
-        decision: Decision {
-            decision_id: decision_id.into(),
-            intent_id: grant.admitted.intent.intent_id.clone(),
-            decision: decision_kind,
-            reasons: vec![Reason {
-                code: if is_error {
-                    "RECOVERY_REPLAY_NOT_IMPLEMENTED".into()
-                } else {
-                    "policy-a".into()
-                },
-                severity: if is_error {
-                    "critical".into()
-                } else {
-                    "info".into()
-                },
-                message: if is_error {
-                    "Recovery failed closed.".into()
-                } else {
-                    "Policy allowed the request.".into()
-                },
-            }],
-        },
+        decision: recovery_decision(
+            decision_id,
+            &grant.admitted.intent,
+            evaluation_context,
+            decision_kind,
+        ),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
     }
+}
+
+fn recovery_decision(
+    decision_id: &str,
+    intent: &TransactionIntent,
+    recovery_context: &EvaluationContext,
+    decision_kind: DecisionKind,
+) -> atf_decision::Decision {
+    if decision_kind == DecisionKind::Error {
+        return decide(DecisionInput {
+            decision_id: decision_id.into(),
+            intent,
+            evaluation_context: recovery_context,
+            policy: PolicyDecisionInput::Error {
+                error_code: "RECOVERY_REPLAY_NOT_IMPLEMENTED",
+            },
+            risk: RiskDecisionInput::NotRun {
+                reason_code: "POLICY_ERROR",
+            },
+        })
+        .unwrap();
+    }
+
+    let synthetic_context = EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: "evaluation-a".into(),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time: timestamp("2026-08-08T01:00:01Z"),
+        environment: TEST_ENVIRONMENT.into(),
+        profile_id: "atf.agent-commerce.payment".into(),
+        profile_version: "1.0".into(),
+        policy: VersionedArtifactReference::available("policy-a", "1.0.0", "b".repeat(64)).unwrap(),
+        risk: VersionedArtifactReference::available("risk-v1", "1.0.0", "c".repeat(64)).unwrap(),
+        context_snapshot_id: "synthetic-snapshot".into(),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )
+        .unwrap(),
+        history: RepositorySnapshot::new("audit-chain:org-a:1", 1, "d".repeat(64)).unwrap(),
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")
+            .unwrap(),
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+    })
+    .unwrap();
+    let policy = atf_policy::PolicyOutcome {
+        decision: atf_policy::PolicyDecision::Permit,
+        policy_ids: vec!["policy-a".into()],
+        bundle_id: "policy-a".into(),
+        policy_version: "1.0.0".into(),
+        bundle_hash: "b".repeat(64),
+    };
+    let risk = atf_risk::RiskEvaluation {
+        rule_set_version: "1.0.0".into(),
+        rule_set_hash: "c".repeat(64),
+        findings: Vec::new(),
+    };
+    decide(DecisionInput {
+        decision_id: decision_id.into(),
+        intent,
+        evaluation_context: &synthetic_context,
+        policy: PolicyDecisionInput::Evaluated(&policy),
+        risk: RiskDecisionInput::Evaluated(&risk),
+    })
+    .unwrap()
 }
 
 fn assert_sqlstate(error: &sqlx::Error, expected: &str) {

@@ -125,7 +125,9 @@ order. The executable order is:
 - [x] P0.6 Versioned `EvaluationContext`; DS-023 persists the exact immutable
   input snapshot before evaluation, and DS-024 makes Policy/Risk validate and
   consume that snapshot without wall-clock or separate privileged inputs.
-- [ ] P0.7 Original and counterfactual deterministic replay.
+- [~] P0.7 Strong Decision binding plus original/counterfactual deterministic
+  replay. DS-025 completes the closed canonical Decision v1 and matching Audit
+  binding; DS-026/DS-027 replay remain.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -140,9 +142,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-025` — produce a strongly bound canonical
-Decision whose hash and Audit evidence name the exact Intent, Profile, Policy,
-Risk, Evaluation Context, Simulation state, time and constraints.
+**Immediate next task:** `DS-026` — implement Original Replay over the exact
+immutable inputs named by Decision v1 and prove exact Decision-hash
+reproduction without overwriting the authoritative result.
 
 ## Later releases
 

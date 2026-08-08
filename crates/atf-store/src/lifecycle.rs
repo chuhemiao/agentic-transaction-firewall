@@ -12,6 +12,12 @@ use sqlx::{Postgres, Transaction};
 pub(crate) const CONTRACT_VERSION: i32 = 1;
 
 pub(crate) fn validate_finalization_input(input: &FinalizationInput) -> Result<(), StoreError> {
+    input
+        .decision
+        .verify_hash()
+        .map_err(|error| StoreError::DecisionBindingMismatch {
+            reason: error.to_string(),
+        })?;
     if input.decision.intent_id != input.intent_id {
         return Err(StoreError::DecisionBindingMismatch {
             reason: format!(

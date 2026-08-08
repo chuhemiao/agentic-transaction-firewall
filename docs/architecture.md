@@ -103,9 +103,12 @@ Agent Intent
   as a domain library. The Gateway commits current admission/finalization
   events through typed constructors and persists them through `atf-store`; it
   does not use the in-memory ledger as a fallback.*
-- **`atf-decision`** — `Decision` type + the real PRD §10.1 merge algorithm,
-  minus the Simulator branch (no `atf-simulator` yet). *Implemented
-  (partial).*
+- **`atf-decision`** — the real PRD §10.1 merge plus DS-025's closed Decision
+  v1 envelope. The domain-separated canonical hash binds Intent/Profile,
+  Policy/Risk artifacts, Evaluation Context/snapshot, explicit Simulation
+  state, evaluation/expiry times, reasons, future Approval/Obligation fields
+  and execution constraints. Module identity/order mismatch fails closed.
+  *Implemented except for the Simulator branch (no `atf-simulator` yet).*
 - **`atf-store`** — one SQLx/PostgreSQL boundary with an embedded forward-only
   migration runner and fail-closed schema compatibility check. Migration 0001
   creates organization-scoped Intent/Evaluation/Decision records,
@@ -320,6 +323,12 @@ a second context, stale generation, update/delete/truncate or any canonical,
 redundant-column, history or Audit mismatch fails closed. Finalization and
 Decision reads require the Evaluation ID/time/context hash and Risk/Simulation
 output identity to agree with that snapshot.
+DS-025 closes final output integrity. Finalization verifies the Decision's
+embedded `ATF_DECISION_V1` hash and every Intent/Context-derived binding before
+insertion; the `decisions.decision_hash` column stores that same hash.
+`DecisionRecorded.binding` mirrors Profile, artifact, snapshot, Simulation,
+time, expiry, Approval/Obligation and execution-constraint values. Read paths
+recompute the hash, recheck Context binding and require exact Audit equality.
 
 The target request path has two critical atomic visibility boundaries:
 
@@ -372,13 +381,16 @@ implementation order are in ADR-0002.
    `NOT_RUN` evidence still names the selected Rule Set. DS-022 prevents raw
    Agent context from supplying privileged Risk inputs; the current vendor
    median consumes only fresh verified, scope-bound `ATF_ENRICHED` evidence.
-6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
+6. `atf-decision::decide` validates the Policy/Risk output identities against
+   the same Context and merges them into ATF's own `Decision` enum
    (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.1/§10.2: Cedar `forbid` (or
    default-deny) -> `DENY`; otherwise a `Critical` Risk Finding -> `DENY`, a
    `High` Risk Finding -> `REVIEW`, anything less -> `PERMIT`; any internal
    evaluation error -> `ERROR` (fail closed, never silently `PERMIT`). The
    Simulator branch of §10.1 is not implemented — there is no
-   `atf-simulator` yet.
+   `atf-simulator` yet. It then seals Decision v1 with the Intent/Profile,
+   artifact, Context/snapshot, Simulation, time/expiry and execution-
+   constraint bindings under the `ATF_DECISION_V1` canonical hash.
 7. `atf-cli evaluate` drives steps 1-6 from the command line and prints the
    resulting `Decision` as JSON. It does not touch `atf-audit` — it's a
    one-shot local tool, not a long-running service with a ledger to keep.
@@ -402,8 +414,10 @@ implementation order are in ADR-0002.
     wired, so the Gateway records a stable reason-coded Simulation `NOT_RUN`.
     Finalization atomically stores typed Policy/Risk/Simulation evidence in an
     Evaluation, all intermediate events, the Decision, lifecycle state, and a
-    foreign-key-bound typed `DecisionRecorded`. Only that committed Decision is
-    returned. GET reads the same verified record by organization + Intent ID,
+    foreign-key-bound typed `DecisionRecorded` carrying the same Decision v1
+    bindings. Store verifies the embedded Decision hash and Context on both
+    write and read. Only that committed Decision is returned. GET reads the
+    same verified record by organization + Intent ID,
     so restart or a second process observes the original result. DS-013 also
     resolves completed same-hash POSTs through that verified read without
     rerunning Policy/Risk. A crash after admission remains visibly

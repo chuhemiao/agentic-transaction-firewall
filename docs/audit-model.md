@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-023 authenticated lifecycle plus durable Evaluation Context evidence
+Status: DS-025 authenticated lifecycle, Context and bound Decision evidence
 
-Version: 7
+Version: 8
 
-Authority: `docs/PRD.md` §12.5–12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-023
+Authority: `docs/PRD.md` §12.5–12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-025
 
 ## Objective
 
@@ -169,7 +169,7 @@ Every row below also carries `schema_version: 1`.
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |
-| Decision recorded | organization, Agent, Intent/Evaluation/Decision IDs and hashes, Decision kind, action/resource/amount evidence |
+| Decision recorded | organization, Agent, Intent/Evaluation/Decision IDs and hashes, Decision kind, action/resource/amount evidence; current producers additionally mirror the complete Decision v1 Profile/artifact/Context/snapshot/Simulation/time/expiry/Approval/Obligation/execution-constraint binding while pre-DS-025 immutable events remain decodable without it |
 | Approval | approval/Decision IDs, required roles or approver plus stable rejection code |
 | Execution | grant/execution/adapter IDs, request/result hashes, expiry, or stable failure code |
 | Settlement/service/reconciliation | execution ID plus settlement/delivery hash or stable failure code |
@@ -306,6 +306,12 @@ Never:
 - append an Intent lifecycle event without changing persisted state in the same
   transaction.
 
+DS-025 current finalization additionally requires the domain-separated hash
+embedded in Decision v1 to equal the `decisions.decision_hash` column, and the
+typed `DecisionRecorded.binding` to equal that same Decision's immutable
+Context-derived fields. Reads recheck all three representations before
+exposure; changing one copy cannot silently re-authorize a Decision.
+
 Threats addressed are Audit payload confusion/tampering, backward or
 post-terminal state advancement, stale-writer races, state/event split brain,
 partial evidence batches, ambiguous skipped modules, fabricated identity
@@ -330,7 +336,7 @@ later tasks.
 8. Contract-version-1 reads replay typed evidence and reject any mismatch with
    materialized lifecycle state, version, or last event ID.
 
-There are no open DS-007 Intent or DS-015 Agent/Key lifecycle persistence
-questions. Gateway identity/Nonce verification, Decision/execution binding,
-and Enforce authorization remain explicit later milestones and must preserve
-this contract.
+There are no open DS-007 Intent, DS-015 Agent/Key lifecycle, or DS-025
+Decision-binding persistence questions. Gateway execution binding and Enforce
+authorization remain explicit later milestones and must preserve this
+contract.

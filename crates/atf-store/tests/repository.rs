@@ -8,7 +8,9 @@ use atf_core::{
     ExternalSnapshotReference, IntentLifecycleState as State, RepositorySnapshot,
     SimulationReference, Timestamp, VersionedArtifactReference,
 };
-use atf_decision::{Decision, DecisionKind, Reason};
+use atf_decision::{
+    decide, Decision, DecisionInput, DecisionKind, PolicyDecisionInput, RiskDecisionInput,
+};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
 use atf_store::{
@@ -203,9 +205,9 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
             lease_duration: Duration::from_secs(30),
         })
         .await?;
-    let decision = sample_decision("decision-a", "intent-a");
     let context_hash =
         persist_test_context(&store, &admitted, "evaluation-a", "2026-08-08T01:00:01Z").await?;
+    let decision = bound_decision("decision-a", &intent, &context_hash, DecisionKind::Permit);
 
     let finalized = store
         .finalize_decision(FinalizationInput {
@@ -221,6 +223,14 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
         .await?;
 
     assert_eq!(finalized.decision, decision);
+    assert_eq!(
+        finalized.decision.decision_hash, finalized.decision_hash,
+        "the persisted Decision column must use the embedded domain hash"
+    );
+    finalized
+        .decision
+        .verify_binding(&intent, &context_hash)
+        .unwrap();
     assert_eq!(
         finalized.evaluation.intent_hash,
         admitted.admitted.intent_hash
@@ -266,10 +276,32 @@ async fn finalization_is_queryable_only_with_matching_evaluation_and_audit_evide
     );
     assert_eq!(chain[6].evaluation_id.as_deref(), Some("evaluation-a"));
     assert_eq!(chain[6].decision_id.as_deref(), Some("decision-a"));
-    assert!(matches!(
-        chain[6].event.typed_payload()?,
-        AuditPayload::DecisionRecorded(_)
-    ));
+    let AuditPayload::DecisionRecorded(recorded) = chain[6].event.typed_payload()? else {
+        panic!("the terminal event must be DecisionRecorded");
+    };
+    let binding = recorded
+        .binding
+        .expect("current DecisionRecorded producers must mirror Decision v1 bindings");
+    assert_eq!(recorded.decision_hash, decision.decision_hash);
+    assert_eq!(binding.decision_version, decision.decision_version);
+    assert_eq!(binding.profile, decision.profile);
+    assert_eq!(binding.policy, decision.policy);
+    assert_eq!(binding.risk, decision.risk);
+    assert_eq!(
+        binding.evaluation_context_hash,
+        decision.evaluation_context_hash
+    );
+    assert_eq!(
+        binding.context_snapshot_hash,
+        decision.context_snapshot_hash
+    );
+    assert_eq!(binding.simulation, decision.simulation);
+    assert_eq!(binding.evaluation_time, decision.evaluation_time);
+    assert_eq!(binding.expires_at, decision.expires_at);
+    assert_eq!(
+        binding.execution_constraints,
+        decision.execution_constraints
+    );
 
     store.close().await;
     database.destroy().await?;
@@ -328,7 +360,12 @@ async fn audit_failure_rolls_back_every_finalization_record() -> Result<(), Box<
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             expected_lifecycle_version: admitted.admitted.lifecycle.version,
             evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
-            decision: sample_decision("decision-a", "intent-a"),
+            decision: bound_decision(
+                "decision-a",
+                &admitted.admitted.intent,
+                &context_hash,
+                DecisionKind::Permit,
+            ),
             decided_at: timestamp("2026-08-08T01:00:02Z"),
         })
         .await
@@ -559,8 +596,8 @@ async fn read_api_rejects_a_decision_without_bound_audit_evidence() -> Result<()
 
     let decision = sample_decision("decision-a", "intent-a");
     let decision_value = atf_core::sort_json_keys(serde_json::to_value(&decision)?);
-    let decision_bytes = serde_json::to_vec(&decision_value)?;
-    let decision_hash = atf_core::sha256_hex(&decision_bytes);
+    let decision_bytes = decision.canonical_bytes();
+    let decision_hash = decision.decision_hash.clone();
     sqlx::query(
         r#"
         INSERT INTO decisions (
@@ -613,7 +650,12 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
         expected_intent_hash: admitted.admitted.intent_hash.clone(),
         expected_lifecycle_version: admitted.admitted.lifecycle.version,
         evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
-        decision: sample_decision("decision-a", "intent-a"),
+        decision: bound_decision(
+            "decision-a",
+            &admitted.admitted.intent,
+            &context_hash,
+            DecisionKind::Permit,
+        ),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
     };
     let input_b = FinalizationInput {
@@ -623,7 +665,12 @@ async fn expected_lifecycle_version_allows_only_one_concurrent_finalizer(
         expected_intent_hash: admitted.admitted.intent_hash.clone(),
         expected_lifecycle_version: admitted.admitted.lifecycle.version,
         evaluation: evaluation_input("evaluation-a", "2026-08-08T01:00:01Z", &context_hash),
-        decision: sample_decision("decision-b", "intent-a"),
+        decision: bound_decision(
+            "decision-b",
+            &admitted.admitted.intent,
+            &context_hash,
+            DecisionKind::Permit,
+        ),
         decided_at: timestamp("2026-08-08T01:00:02Z"),
     };
 
@@ -749,8 +796,12 @@ async fn typed_risk_failure_commits_a_decided_error_terminal_state() -> Result<(
     evaluation.risk.outcome = OptionalModuleOutcome::Error {
         error_code: "RISK_EVALUATION_ERROR".into(),
     };
-    let mut decision = sample_decision("decision-a", "intent-a");
-    decision.decision = DecisionKind::Error;
+    let decision = bound_decision(
+        "decision-a",
+        &admitted.admitted.intent,
+        &context_hash,
+        DecisionKind::Error,
+    );
 
     let finalized = store
         .finalize_decision(FinalizationInput {
@@ -781,7 +832,7 @@ async fn persist_test_context(
     admitted: &AdmissionGrant,
     evaluation_id: &str,
     evaluated_at: &str,
-) -> Result<String, StoreError> {
+) -> Result<EvaluationContext, StoreError> {
     let risk =
         VersionedArtifactReference::available("atf-risk-engine-v1", "risk-test-1", "c".repeat(64))?;
     persist_test_context_with_risk(store, admitted, evaluation_id, evaluated_at, risk).await
@@ -793,7 +844,7 @@ async fn persist_test_context_with_risk(
     evaluation_id: &str,
     evaluated_at: &str,
     risk: VersionedArtifactReference,
-) -> Result<String, StoreError> {
+) -> Result<EvaluationContext, StoreError> {
     let chain = store
         .load_verified_audit_chain(&admitted.admitted.organization_id)
         .await?;
@@ -834,26 +885,47 @@ async fn persist_test_context_with_risk(
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
     })?;
-    let context_hash = context.evaluation_context_hash().to_owned();
     store
         .persist_evaluation_context(EvaluationContextPersistence {
             organization_id: admitted.admitted.organization_id.clone(),
             expected_intent_hash: admitted.admitted.intent_hash.clone(),
             evaluator_lease: admitted.evaluator_lease.clone(),
-            context,
+            context: context.clone(),
         })
         .await?;
-    Ok(context_hash)
+    Ok(context)
 }
 
-fn evaluation_input(
+trait TestContextHash {
+    fn test_context_hash(&self) -> &str;
+}
+
+impl TestContextHash for EvaluationContext {
+    fn test_context_hash(&self) -> &str {
+        self.evaluation_context_hash()
+    }
+}
+
+impl TestContextHash for str {
+    fn test_context_hash(&self) -> &str {
+        self
+    }
+}
+
+impl TestContextHash for String {
+    fn test_context_hash(&self) -> &str {
+        self
+    }
+}
+
+fn evaluation_input<T: TestContextHash + ?Sized>(
     evaluation_id: &str,
     evaluated_at: &str,
-    evaluation_context_hash: &str,
+    evaluation_context: &T,
 ) -> EvaluationInput {
     EvaluationInput {
         evaluation_id: evaluation_id.into(),
-        evaluation_context_hash: evaluation_context_hash.into(),
+        evaluation_context_hash: evaluation_context.test_context_hash().into(),
         evaluated_at: timestamp(evaluated_at),
         policy: PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -926,17 +998,96 @@ fn sample_intent(
     }
 }
 
-fn sample_decision(decision_id: &str, intent_id: &str) -> Decision {
-    Decision {
+fn bound_decision(
+    decision_id: &str,
+    intent: &TransactionIntent,
+    context: &EvaluationContext,
+    decision_kind: DecisionKind,
+) -> Decision {
+    let policy = atf_policy::PolicyOutcome {
+        decision: atf_policy::PolicyDecision::Permit,
+        policy_ids: vec!["policy-a".into()],
+        bundle_id: "policy-a".into(),
+        policy_version: "1.0.0".into(),
+        bundle_hash: "b".repeat(64),
+    };
+    let risk = atf_risk::RiskEvaluation {
+        rule_set_version: context
+            .risk()
+            .available_parts()
+            .map_or("risk-test-1", |(_, version, _)| version)
+            .into(),
+        rule_set_hash: context
+            .risk()
+            .available_parts()
+            .map_or_else(|| "c".repeat(64), |(_, _, hash)| hash.into()),
+        findings: Vec::new(),
+    };
+    let (policy_input, risk_input) = if decision_kind == DecisionKind::Error {
+        if context.policy().available_parts().is_some() {
+            (
+                PolicyDecisionInput::Evaluated(&policy),
+                RiskDecisionInput::Error {
+                    error_code: "RISK_EVALUATION_ERROR",
+                },
+            )
+        } else {
+            (
+                PolicyDecisionInput::Error {
+                    error_code: "RECOVERY_REPLAY_NOT_IMPLEMENTED",
+                },
+                RiskDecisionInput::NotRun {
+                    reason_code: "POLICY_ERROR",
+                },
+            )
+        }
+    } else {
+        (
+            PolicyDecisionInput::Evaluated(&policy),
+            RiskDecisionInput::Evaluated(&risk),
+        )
+    };
+    decide(DecisionInput {
         decision_id: decision_id.into(),
-        intent_id: intent_id.into(),
-        decision: DecisionKind::Permit,
-        reasons: vec![Reason {
-            code: "policy-a".into(),
-            severity: "info".into(),
-            message: "policy allowed the request".into(),
-        }],
-    }
+        intent,
+        evaluation_context: context,
+        policy: policy_input,
+        risk: risk_input,
+    })
+    .expect("test Decision inputs are bound")
+}
+
+fn sample_decision(decision_id: &str, intent_id: &str) -> Decision {
+    let intent = sample_intent("org-a", intent_id, "idem-a", "12.50");
+    let context = EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: "evaluation-a".into(),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time: timestamp("2026-08-08T01:00:01Z"),
+        environment: TEST_ENVIRONMENT.into(),
+        profile_id: "atf.agent-commerce.payment".into(),
+        profile_version: "1.0".into(),
+        policy: VersionedArtifactReference::available("policy-a", "1.0.0", "b".repeat(64)).unwrap(),
+        risk: VersionedArtifactReference::available(
+            "atf-risk-engine-v1",
+            "risk-test-1",
+            "c".repeat(64),
+        )
+        .unwrap(),
+        context_snapshot_id: "snapshot-evaluation-a".into(),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )
+        .unwrap(),
+        history: RepositorySnapshot::new("audit-chain:org-a:1", 1, "d".repeat(64)).unwrap(),
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")
+            .unwrap(),
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+    })
+    .unwrap();
+    bound_decision(decision_id, &intent, &context, DecisionKind::Permit)
 }
 
 fn timestamp(value: &str) -> Timestamp {

@@ -43,8 +43,9 @@ Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
   the fail-closed pure transition validator, DS-022 provenance-bearing
-  Evidence envelopes, and the DS-023/DS-024 immutable `EvaluationContext`
-  evaluator boundary. Evidence uses closed typed source/kind enums, bounded
+  Evidence envelopes, the DS-023/DS-024 immutable `EvaluationContext`
+  evaluator boundary, and DS-025 shared Decision-binding types. Evidence uses
+  closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
   the exact Intent/Profile, one evaluation time, Policy/Risk artifacts,
@@ -102,8 +103,12 @@ Only the following crates are implemented so far:
   or post-terminal evidence fails closed. Its standalone `AuditLedger` remains
   an in-memory domain utility; the Gateway uses `atf-store` as the persistent
   writer/verifier and has no in-memory Audit fallback.
-- `crates/atf-decision` — the Decision model and the real PRD §10.1 merge
-  algorithm (Policy + Risk; no Simulator branch yet).
+- `crates/atf-decision` — the real PRD §10.1 Policy/Risk merge plus the closed
+  DS-025 Decision v1 envelope. It binds Intent/Profile, exact Policy/Risk
+  artifact references, Evaluation Context/snapshot, explicit Simulation
+  state, evaluation/expiry times, future Approval/Obligation sets and closed
+  execution constraints under a domain-separated canonical hash. The
+  Simulator branch remains unwired.
 - `crates/atf-store` — the SQLx/PostgreSQL persistence boundary, embedded
   migration runner, schema compatibility check, and initial constrained
   tables for organizations, Intents, Evaluations, Decisions, idempotency
@@ -114,7 +119,9 @@ Only the following crates are implemented so far:
   and exact Key, consume the signed Nonce, and atomically commit canonical
   Intent + `IntentReceived` + `IDENTITY_VERIFIED/v2`; finalization commits
   typed Policy/Risk/Simulation evidence + Evaluation + Decision + the final
-  lifecycle state at `v6`.
+  lifecycle state at `v6`. DS-025 persists the Decision's embedded canonical
+  hash, verifies its Intent/Context binding on write/read and mirrors the same
+  binding values into current `DecisionRecorded` evidence.
   Migration 0002 stores state, optimistic version, contract version, update
   time, and the last state-producing Audit event pointer. Migration 0003 adds
   immutable organization/key -> Intent-hash bindings, database-clock evaluator
@@ -247,6 +254,10 @@ prefix before evaluation; final Evaluation rows bind that context hash.
 privileged-input entry points. Both engines now validate and consume the
 persisted Context; Risk additionally verifies the exact Audit prefix and
 rejects Agent vendor values and post-snapshot history.
+`DS-025` replaces the four-field Decision with a closed, strongly bound v1
+envelope and domain-separated canonical hash. Store finalization and reads
+verify it against the immutable Intent/Context, while current
+`DecisionRecorded` payloads mirror the same bindings.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -256,7 +267,8 @@ Rust profile validator),
 `risk-rule-set.schema.json` (the closed DS-021 Risk artifact contract),
 `evidence.schema.json` (the closed DS-022 provenance envelope contract),
 `evaluation-context.schema.json` (the closed DS-023 input snapshot contract),
-`decision.schema.json` (validated in CI against real `atf-decision` output),
+`decision.schema.json` (the closed DS-025 envelope, validated in CI against
+all four real `atf-decision` outcomes),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
 
@@ -417,9 +429,15 @@ semantics (evaluate only, never execute).
     exact Intent/Profile/artifact/history bindings, reject history after the
     snapshot, never read Agent vendor fields, and produce byte-equivalent
     Policy/Risk output for repeated evaluation.
-25. **NEXT — Strongly bound canonical Decision:** bind Intent, Profile,
-    Policy, Risk, Context, Simulation, time and constraints into the Decision
-    hash and matching Audit evidence.
+25. ~~Strongly bound canonical Decision.~~ Done in DS-025: the closed v1
+    envelope binds Intent, Profile, Policy/Risk references, Evaluation
+    Context/snapshot, explicit Simulation state, evaluation/expiry times,
+    future Approval/Obligation fields and execution constraints under one
+    domain-separated hash. Store and `DecisionRecorded` enforce the same
+    values; mutation and four-outcome Schema tests lock the contract.
+26. **NEXT — Original Replay:** reload the immutable inputs named by the
+    original Decision, reproduce its exact hash and append replay evidence
+    without overwriting the authoritative result.
 
 ### Remaining before Phase 2 can close out
 
@@ -478,8 +496,9 @@ semantics (evaluate only, never execute).
 - ~~Organization-scoped operator authentication/RBAC following accepted
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
-- Make Policy/Risk consume only the persisted `EvaluationContext`, strongly
-  bind canonical Decisions to it, then add Original/Counterfactual Replay.
+- ~~Make Policy/Risk consume only the persisted `EvaluationContext` and
+  strongly bind canonical Decisions to it.~~ Done in DS-024/DS-025. Add
+  Original/Counterfactual Replay next.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
@@ -496,9 +515,9 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  deterministic replay, strongly bound Decisions,
-  stateful Risk, Audit query/metrics, operational hardening, and security
-  re-audit.
+  deterministic replay, stateful Risk, Audit query/metrics, operational
+  hardening, and security re-audit. Strongly bound Decisions are complete in
+  DS-025.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

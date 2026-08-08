@@ -1,61 +1,183 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atf.dev/schemas/decision.schema.json",
-  "title": "ATF Decision",
-  "description": "The Decision Engine's output for a Transaction Intent (docs/PRD.md §10). Only decision_id, intent_id, decision, and reasons are required: that is the full shape atf-decision currently produces. risk_score, policy_version, required_approvals, obligations, and expires_at are part of the eventual PRD §10 shape but are not emitted by any crate in this repo yet (no Approval Engine, no Policy Bundle versioning) — see docs/architecture.md. additionalProperties is left open at the top level so those fields can be added later without breaking existing validators.",
+  "title": "ATF Canonical Decision v1",
+  "description": "Closed, strongly bound Decision envelope produced by atf-decision (PRD §10.3).",
   "type": "object",
-  "additionalProperties": true,
-  "required": ["decision_id", "intent_id", "decision", "reasons"],
+  "additionalProperties": false,
+  "required": [
+    "decision_version",
+    "decision_id",
+    "intent_id",
+    "intent_hash",
+    "evaluation_id",
+    "profile",
+    "policy",
+    "risk",
+    "evaluation_context_hash",
+    "context_snapshot_hash",
+    "simulation",
+    "evaluation_time",
+    "expires_at",
+    "decision",
+    "reasons",
+    "required_approvals",
+    "obligations",
+    "execution_constraints",
+    "decision_hash"
+  ],
   "properties": {
-    "decision_id": { "type": "string", "minLength": 1 },
-    "intent_id": { "type": "string", "minLength": 1 },
+    "decision_version": { "const": "1" },
+    "decision_id": { "$ref": "#/$defs/identifier" },
+    "intent_id": { "$ref": "#/$defs/identifier" },
+    "intent_hash": { "$ref": "#/$defs/sha256" },
+    "evaluation_id": { "$ref": "#/$defs/identifier" },
+    "profile": { "$ref": "#/$defs/profile" },
+    "policy": { "$ref": "#/$defs/artifactReference" },
+    "risk": { "$ref": "#/$defs/artifactReference" },
+    "evaluation_context_hash": { "$ref": "#/$defs/sha256" },
+    "context_snapshot_hash": { "$ref": "#/$defs/sha256" },
+    "simulation": { "$ref": "#/$defs/simulationReference" },
+    "evaluation_time": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
     "decision": {
       "type": "string",
       "enum": ["PERMIT", "DENY", "REVIEW", "ERROR"]
     },
     "reasons": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["code", "severity", "message"],
-        "properties": {
-          "code": { "type": "string", "minLength": 1 },
-          "severity": { "type": "string" },
-          "message": { "type": "string" }
-        }
-      }
-    },
-    "risk_score": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 100,
-      "description": "Not yet produced by atf-decision; PRD §10 example only."
-    },
-    "policy_version": {
-      "type": "string",
-      "description": "Not yet produced; waits on Policy Bundle versioning (PRD §11.3)."
+      "items": { "$ref": "#/$defs/reason" }
     },
     "required_approvals": {
       "type": "array",
-      "description": "Not yet produced; waits on atf-approval (Phase 4).",
-      "items": {
-        "type": "object",
-        "properties": {
-          "role": { "type": "string" },
-          "count": { "type": "integer", "minimum": 1 }
-        }
-      }
+      "items": { "$ref": "#/$defs/requiredApproval" }
     },
     "obligations": {
       "type": "array",
-      "description": "Not yet produced; waits on atf-approval/atf-reconciliation (Phase 4).",
-      "items": { "type": "object" }
+      "items": { "$ref": "#/$defs/obligation" }
     },
-    "expires_at": {
+    "execution_constraints": { "$ref": "#/$defs/executionConstraints" },
+    "decision_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "identifier": {
       "type": "string",
-      "format": "date-time",
-      "description": "Not yet produced; waits on the Approval Engine (Phase 4)."
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\s].*[^\\s]$|^[^\\s]$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "version": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "artifactReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "artifact_id", "version", "hash"],
+          "properties": {
+            "status": { "const": "AVAILABLE" },
+            "artifact_id": { "$ref": "#/$defs/identifier" },
+            "version": { "$ref": "#/$defs/identifier" },
+            "hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "UNAVAILABLE" },
+            "reason_code": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "simulationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_code"],
+      "properties": {
+        "status": { "const": "NOT_RUN" },
+        "reason_code": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/identifier" },
+        "severity": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "requiredApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "count"],
+      "properties": {
+        "role": { "$ref": "#/$defs/identifier" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "executionConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_category",
+        "action_operation",
+        "resource_id",
+        "resource_protocol",
+        "network",
+        "asset",
+        "max_amount",
+        "destination",
+        "adapter_id"
+      ],
+      "properties": {
+        "action_category": { "$ref": "#/$defs/identifier" },
+        "action_operation": { "$ref": "#/$defs/identifier" },
+        "resource_id": { "$ref": "#/$defs/identifier" },
+        "resource_protocol": { "$ref": "#/$defs/identifier" },
+        "network": { "$ref": "#/$defs/identifier" },
+        "asset": { "$ref": "#/$defs/identifier" },
+        "max_amount": { "$ref": "#/$defs/amount" },
+        "destination": {
+          "oneOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
+        },
+        "adapter_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
+        }
+      }
     }
   }
 }

@@ -105,7 +105,7 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 37 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key events, DS-016 adds `ReplayDetected`, and DS-018 adds four Operator/Role events; the Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
-| `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
+| `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, authenticated atomic admission/finalization, persisted/replayed Intent, Agent/Key and Operator/Role lifecycle, immutable hashed Nonce bindings, evidence-gated reads, evaluator lease/fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Background scanning and provenance-pinned deterministic recovery remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
 | `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision GET requires a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and Audit/Admin query APIs are missing. |
@@ -222,17 +222,18 @@ principals and non-enumerating Decision-read RBAC.
   monotonic active pointers, atomic rollback and typed `PolicyChanged`. JWT
   Admin routes and the Store both recheck current Policy roles; Gateway reloads
   and verifies the active artifact per request. Multi-Bundle resolution and
-  persistent Decision binding remain open. DS-023 pins the resolved Bundle in
-  immutable Evaluation Context and final Evaluation input.
+  multi-Bundle resolution remains open. DS-023 pins the resolved Bundle in
+  immutable Evaluation Context and final Evaluation input; DS-025 carries the
+  same exact identity into canonical Decision/Audit evidence.
 - **security_impact:** the selected Bundle is now provenance-checked and
   rollback-safe, but future multi-Bundle composition could still omit or mix a
   required scope until resolver/binding work is complete.
-- **financial_impact:** a current evaluation uses one exact authorized Bundle;
-  the canonical Decision still does not persistently name every decisive input.
-- **severity:** `HIGH`
-- **recommended_change:** retain DS-019/DS-020/DS-023 invariants; DS-025 must
-  pin the resolved Bundle identity into canonical Decision/Audit, followed by
-  replay verification.
+- **financial_impact:** a current evaluation and Decision use one exact
+  authorized Bundle; future multi-Bundle resolution still needs explicit
+  composition evidence.
+- **severity:** `MEDIUM`
+- **recommended_change:** retain DS-019/DS-020/DS-023/DS-025 invariants and
+  add replay verification plus explicit future multi-Bundle composition.
 - **required_tests:** implemented for bad signature/schema/scope/version/
   expiry, duplicate/conflict, concurrent activation, restart, rollback,
   privileged tamper, authenticated RBAC API and real CLI.
@@ -343,13 +344,24 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-DEC-001 — Decision Binding
 
 - **module:** `atf-decision`, `schemas/decision.schema.json`
-- **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** `Decision` contains only ID, Intent ID, kind, and reasons; Gateway Audit now records Intent hash externally, but Decision lacks policy/risk/context/simulation hashes, evaluation time, expiry, constraints, and decision hash.
-- **security_impact:** a Decision object alone cannot prove exactly which request and evaluator inputs it authorizes.
-- **financial_impact:** stale or mismatched Decisions may be reused by future execution code.
-- **severity:** `HIGH`
-- **recommended_change:** add the complete binding envelope and canonical Decision hash.
-- **required_tests:** mutation sensitivity, Schema compatibility, expiry, version/hash mismatch, deterministic hash.
+- **current_state:** `IMPLEMENTED_AND_WIRED`
+- **evidence:** DS-025's closed Decision v1 binds Intent/Profile, exact
+  Policy/Risk references, Evaluation Context/snapshot, explicit Simulation
+  state, evaluation/expiry times, future Approval/Obligation fields and closed
+  execution constraints under `ATF_DECISION_V1`. Store write/read verification
+  compares the embedded hash and authoritative Intent/Context; current
+  `DecisionRecorded.binding` mirrors the same fields.
+- **security_impact:** changing a bound field invalidates the Decision hash;
+  mismatched module identity, Context or persisted/Audit evidence fails closed.
+- **financial_impact:** a future execution grant can bind one exact immutable
+  Decision instead of trusting a mutable ID or stale module selection.
+- **severity:** `CLOSED` (formerly `HIGH`)
+- **recommended_change:** retain DS-025 invariants; DS-026 must reproduce the
+  exact original hash and future Simulator/Approval work must extend with a
+  new version rather than weakening v1.
+- **required_tests:** implemented mutation sensitivity, deterministic bytes,
+  all-four-outcome closed Schema, module mismatch, PostgreSQL persistence/
+  Audit equality, Gateway integration and live API smoke.
 - **dependencies:** EvaluationContext, policy/risk versions, simulator.
 - **target_release:** Durable Shadow Mode before replay completion.
 - **acceptance_criteria:** changing any bound input invalidates the Decision hash and future execution authorization.
@@ -517,6 +529,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-025` is next: bind the exact Intent, Profile, Policy, Risk, Evaluation
-Context, Simulation state, time and constraints into one canonical Decision
-hash and matching Audit evidence.
+`DS-026` is next: load the immutable inputs named by Decision v1, reproduce the
+exact original Decision hash, append replay evidence and never overwrite the
+authoritative Evaluation/Decision.

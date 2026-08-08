@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018 将类型化 Audit Payload 扩展到 37 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。DS-019 以闭合 Manifest、Cedar Schema、文件摘要、组织/环境作用域和激活窗口构造 Domain-separated Canonical Policy Bundle Hash；DS-020 migration 0007 进一步保存严格 Ed25519 发布者证明、不可变精确字节归档与单调 Active Pointer，安装/激活/回滚和 `PolicyChanged` 同事务提交，Gateway 每请求重载并验证当前签名版本，JWT Admin API 要求当前 `policy_author`/`org_admin`。DS-021 将 Risk 的 Engine/Rule Set Version、启用状态、Severity、Threshold、Missing-data Behavior、Deny List、History Window 与 Accounting Boundary 绑定为 Domain-separated Canonical Hash；每个 Risk Result 和当前 Gateway Risk Evidence 均携带精确 Version/Hash。DS-022 增加闭合、无 JSON Number 的 Provenance Evidence Envelope，将 Source/Kind/Source ID/Observation/Expiry/Value/Confidence 绑定为 Canonical Hash，并以精确 Allowlist、可选严格 Ed25519 Proof 和显式 Freshness 产生不可直接构造的 `VerifiedEvidence`；Risk 将 Agent Privileged Context 隔离，Vendor Median 只接受组织/资源/资产精确绑定的 `ATF_ENRICHED` Evidence，否则显式 Fail Closed。DS-023 migration 0008 在 Policy/Risk 前持久化不可变 Evaluation Context，将精确 Intent/Profile、同一次 Evaluation Time、Policy/Risk Artifact、Agent Context Hash、已验证 Evidence/Trust Policy、Audit History Prefix、外部 Snapshot 可用性和 Simulation `NOT_RUN` 绑定到 Domain-separated Canonical Hash，并以 `ContextEnriched` 和最终 Evaluation 外键验证；恢复路径复用已有 Context 或创建显式不可用 Context，在 DS-026 前只产生 `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、Context-only Evaluator、确定性 Replay、其他 Admin/Audit HTTP Role Matrix 和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018 将类型化 Audit Payload 扩展到 37 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。DS-019 以闭合 Manifest、Cedar Schema、文件摘要、组织/环境作用域和激活窗口构造 Domain-separated Canonical Policy Bundle Hash；DS-020 migration 0007 进一步保存严格 Ed25519 发布者证明、不可变精确字节归档与单调 Active Pointer，安装/激活/回滚和 `PolicyChanged` 同事务提交，Gateway 每请求重载并验证当前签名版本，JWT Admin API 要求当前 `policy_author`/`org_admin`。DS-021 将 Risk 的 Engine/Rule Set Version、启用状态、Severity、Threshold、Missing-data Behavior、Deny List、History Window 与 Accounting Boundary 绑定为 Domain-separated Canonical Hash；每个 Risk Result 和当前 Gateway Risk Evidence 均携带精确 Version/Hash。DS-022 增加闭合、无 JSON Number 的 Provenance Evidence Envelope，将 Source/Kind/Source ID/Observation/Expiry/Value/Confidence 绑定为 Canonical Hash，并以精确 Allowlist、可选严格 Ed25519 Proof 和显式 Freshness 产生不可直接构造的 `VerifiedEvidence`；Risk 将 Agent Privileged Context 隔离，Vendor Median 只接受组织/资源/资产精确绑定的 `ATF_ENRICHED` Evidence，否则显式 Fail Closed。DS-023 migration 0008 在 Policy/Risk 前持久化不可变 Evaluation Context，将精确 Intent/Profile、同一次 Evaluation Time、Policy/Risk Artifact、Agent Context Hash、已验证 Evidence/Trust Policy、Audit History Prefix、外部 Snapshot 可用性和 Simulation `NOT_RUN` 绑定到 Domain-separated Canonical Hash，并以 `ContextEnriched` 和最终 Evaluation 外键验证；恢复路径复用已有 Context 或创建显式不可用 Context，在 DS-026 前只产生 `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`。DS-024 已使 Policy/Risk 只验证并消费该持久化 Context；DS-025 进一步以闭合 Decision v1 将 Intent/Profile、Policy/Risk、Context/Snapshot、Simulation、时间/到期时间和执行约束绑定到 Domain-separated Canonical Hash，并要求 Store 与 `DecisionRecorded` 使用相同绑定。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、Original/Counterfactual Replay、其他 Admin/Audit HTTP Role Matrix 和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -597,18 +597,36 @@ ATF 对每个请求返回统一 Decision。
 
 ```json
 {
+  "decision_version": "1",
   "decision_id": "dec-001",
   "intent_id": "01J...",
-  "intent_hash": "sha256:...",
+  "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "evaluation_id": "eval-001",
+  "profile": {
+    "id": "atf.agent-commerce.payment",
+    "version": "1.0"
+  },
+  "policy": {
+    "status": "AVAILABLE",
+    "artifact_id": "payment-policy",
+    "version": "2026-07-18.3",
+    "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "risk": {
+    "status": "AVAILABLE",
+    "artifact_id": "atf-risk-engine-v1",
+    "version": "1.0.0",
+    "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "evaluation_context_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "context_snapshot_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "simulation": {
+    "status": "NOT_RUN",
+    "reason_code": "SIMULATOR_NOT_IMPLEMENTED"
+  },
+  "evaluation_time": "2026-07-18T08:00:01.000Z",
+  "expires_at": "2026-07-18T08:03:00.000Z",
   "decision": "REVIEW",
-  "risk_score": 72,
-  "policy_bundle_version": "policy-bundle-2026-07-18.3",
-  "policy_bundle_hash": "sha256:...",
-  "risk_rule_set_version": "risk-rules-1.0.0",
-  "risk_rule_set_hash": "sha256:...",
-  "context_snapshot_hash": "sha256:...",
-  "simulation_result_hash": null,
-  "evaluation_time": "2026-07-18T08:00:01Z",
   "reasons": [
     {
       "code": "VENDOR_PRICE_DEVIATION",
@@ -621,30 +639,28 @@ ATF 对每个请求返回统一 Decision。
       "message": "Vendor has not been used by this organization."
     }
   ],
-  "required_approvals": [
-    {
-      "role": "treasury-approver",
-      "count": 1
-    }
-  ],
-  "obligations": [
-    {
-      "type": "bind_execution_hash"
-    },
-    {
-      "type": "verify_service_delivery"
-    }
-  ],
+  "required_approvals": [],
+  "obligations": [],
   "execution_constraints": {
-    "adapter_id": "x402",
-    "max_amount": "12.50"
+    "action_category": "payment",
+    "action_operation": "purchase_api_resource",
+    "resource_id": "dataset-001",
+    "resource_protocol": "x402",
+    "network": "eip155:8453",
+    "asset": "eip155:8453/erc20:0x...",
+    "max_amount": "12.50",
+    "destination": "eip155:8453:0x...",
+    "adapter_id": null
   },
-  "expires_at": "2026-07-18T08:03:00Z",
-  "decision_hash": "sha256:..."
+  "decision_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 }
 ```
 
-上例是目标 Decision Envelope。当前 `atf-decision` 只实现 `decision_id`、`intent_id`、`decision` 和 `reasons`；缺失字段必须按 Durable Shadow Mode 路线逐步实现，不能由调用方伪造默认值。
+上例是 DS-025 已实现的 Decision v1 Envelope。`decision_hash` 为
+`SHA-256("ATF_DECISION_V1\\0" || Canonical JSON without decision_hash)`；
+顶层与嵌套对象均拒绝未知字段。当前没有 Approval/Obligation/Adapter 或
+Simulator，因此对应数组为空、`adapter_id` 为 `null`、Simulation 为显式
+`NOT_RUN`，不得伪造为已执行或已授权。
 
 ### 10.1 Decision 合并算法
 
@@ -683,6 +699,12 @@ Decision 必须绑定产生它的全部决定性输入：
 6. Evaluation Time、Decision Expiry 和 Execution Constraints。
 7. Canonical Decision Hash。
 
+DS-025 已实现上述当前可用输入的 v1 绑定：Policy/Risk 使用 Context 中的
+精确 Artifact Reference，Simulation 以闭合 `NOT_RUN` Reference 表示，
+Execution Constraints 从已验证 Intent 派生；未来新增 Simulator/Approval
+语义必须发布新版本。Store 写入与读取均验证内嵌 Hash、Intent/Context 与
+`DecisionRecorded.binding` 三者一致。
+
 任何绑定字段变化都会产生新的 Evaluation 和 Decision；Original Decision 不得被覆盖。未来 Approval 和 Execution Grant 必须绑定 `intent_hash` 与 `decision_hash`，不能只引用可变数据库 ID。
 
 ---
@@ -696,7 +718,8 @@ Cedar Policy 与每个 Request 均按同一 Schema 验证，任何 Runtime Diagn
 Fail Closed。Detached Ed25519 Proof 绑定发布者 Key ID 与 Bundle Hash；migration
 0007 保存不可变归档和发布者公钥证据，Active Pointer 原子保留上一签名版本并写
 `PolicyChanged`。Gateway 每次新评估在同一 Repeatable-read Snapshot 中加载并重验
-当前版本。多 Bundle 合并/冲突管理与 Decision 强绑定仍未实现。
+当前版本。多 Bundle 合并/冲突管理仍未实现；当前单 Bundle 的精确版本与 Hash
+已由 DS-025 绑定进 Decision v1。
 
 ### 11.1 技术选择
 
@@ -1847,7 +1870,9 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 
 1. **P0.1 PostgreSQL Persistence（基础能力已完成）**：持久化 Intent、Evaluation、Decision、Audit，已证明 Final Decision 的 Restart/Second-instance Recovery 与并发 Append；DS-013 已让重试请求以 Fencing 接管未完成 Evaluation 并记录限制性 `Decision(ERROR)`，基于持久化 Evaluation Context 的确定性重算恢复仍属于后续工作。
 2. **P0.2 Lifecycle State Machine（已完成当前 Shadow 边界）**：DS-006/DS-007 已定义并穷举验证合法状态转换与类型化事件，完成 PostgreSQL 事务持久化、预期版本并发控制、事件指针和读取重放；DS-016 已让当前 Gateway 新请求只通过可验证 `IDENTITY_VERIFIED` 分支，`IDENTITY_UNVERIFIED` 仅保留为不可升级的历史兼容事实。
-3. **P0.3 DecisionRecorded**：已完成基础事件和 `PERMIT` 历史语义；持久化后继续强化 Schema/Binding。
+3. **P0.3 DecisionRecorded（已完成当前 Decision v1 边界）**：已完成事件、
+   `PERMIT` 历史语义及 DS-025 的闭合 Schema/完整 Binding；未来 Simulator/
+   Approval 扩展必须发布新版本，不得弱化 v1。
 4. **P0.4 Idempotency & Replay Protection（已完成）**：DS-012/DS-013 已实现不同 Hash 的稳定 409、同 Hash 活动请求的稳定 409、单 Evaluator 租约/阶段 Heartbeat/接管/Fencing、完成 Result 与 Decision/Audit 的原子绑定和不可变约束、完成态精确重试，以及请求驱动的 Fail-Closed Recovery；DS-016 进一步加入 PostgreSQL 权威 hashed Nonce 原子消费、精确重试、冲突并发单赢家和 `ReplayDetected`。
 5. **P0.5 Identity Gateway Wiring（已完成）**：DS-014/DS-015 的 Canonical Domain-separated Envelope、精确 Key 选择、Key Lifecycle 与离线预配已由 DS-016 接入 Policy/Risk 前 Gateway Admission；拒绝/replay 有类型化证据且不能创建 Intent。
    **Operator Read RBAC（已完成）**：DS-017 接受 ADR-0003，DS-018 以 migration 0006、离线 Operator/Role Lifecycle、配置的 JWT/JWKS 验证、typed Principal 和每请求持久化 Role 重验保护 Decision GET；跨组织、缺失资源和无读取角色统一非枚举 404。
@@ -1860,7 +1885,8 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 8. **P0.8 Context Provenance（类型、防火墙与持久化已完成）**：DS-022 已实现可信来源、Freshness、签名/Hash 校验和 Agent 不可覆盖规则；DS-023 已持久化精确 Evidence/Trust Snapshot，生产 Enricher 仍属于后续工作。
 9. **P0.9 Policy Bundle Versioning（已完成）**：DS-019 落地 Manifest、
    Hash、Scope 与 Cedar Schema；DS-020 落地签名证明、不可变持久化、
-   RBAC 激活和原子回滚。多 Bundle 解析与 Decision 强绑定进入后续 C3 任务。
+   RBAC 激活和原子回滚；DS-025 已将当前单 Bundle 精确绑定到 Decision v1。
+   多 Bundle 解析仍是后续能力。
 10. **P0.10 Metrics & Audit Query API**：组织隔离查询、Trace/Correlation 和安全指标。
 
 **Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。未通过 Gate 不启动真实 Adapter 或执行权限集成。

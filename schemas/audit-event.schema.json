@@ -134,6 +134,116 @@
       "type": "string",
       "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
     },
+    "versionedArtifactReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "artifact_id", "version", "hash"],
+          "properties": {
+            "status": { "const": "AVAILABLE" },
+            "artifact_id": { "$ref": "#/$defs/nonEmpty" },
+            "version": { "$ref": "#/$defs/nonEmpty" },
+            "hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "UNAVAILABLE" },
+            "reason_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "decisionSimulationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_code"],
+      "properties": {
+        "status": { "const": "NOT_RUN" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "decisionProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmpty" },
+        "version": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "decisionRequiredApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "count"],
+      "properties": {
+        "role": { "$ref": "#/$defs/nonEmpty" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "decisionObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "decisionExecutionConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_category", "action_operation", "resource_id", "resource_protocol", "network", "asset", "max_amount", "destination", "adapter_id"],
+      "properties": {
+        "action_category": { "$ref": "#/$defs/nonEmpty" },
+        "action_operation": { "$ref": "#/$defs/nonEmpty" },
+        "resource_id": { "$ref": "#/$defs/nonEmpty" },
+        "resource_protocol": { "$ref": "#/$defs/nonEmpty" },
+        "network": { "$ref": "#/$defs/nonEmpty" },
+        "asset": { "$ref": "#/$defs/nonEmpty" },
+        "max_amount": { "$ref": "#/$defs/amount" },
+        "destination": {
+          "oneOf": [
+            { "$ref": "#/$defs/nonEmpty" },
+            { "type": "null" }
+          ]
+        },
+        "adapter_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/nonEmpty" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "decisionBindingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_version", "profile", "policy", "risk", "evaluation_context_hash", "context_snapshot_hash", "simulation", "evaluation_time", "expires_at", "required_approvals", "obligations", "execution_constraints"],
+      "properties": {
+        "decision_version": { "const": "1" },
+        "profile": { "$ref": "#/$defs/decisionProfile" },
+        "policy": { "$ref": "#/$defs/versionedArtifactReference" },
+        "risk": { "$ref": "#/$defs/versionedArtifactReference" },
+        "evaluation_context_hash": { "$ref": "#/$defs/sha256" },
+        "context_snapshot_hash": { "$ref": "#/$defs/sha256" },
+        "simulation": { "$ref": "#/$defs/decisionSimulationReference" },
+        "evaluation_time": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "required_approvals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/decisionRequiredApproval" }
+        },
+        "obligations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/decisionObligation" }
+        },
+        "execution_constraints": { "$ref": "#/$defs/decisionExecutionConstraints" }
+      }
+    },
     "intentScope": {
       "type": "string",
       "minLength": 1,
@@ -391,7 +501,8 @@
             { "$ref": "#/$defs/nonEmpty" },
             { "type": "null" }
           ]
-        }
+        },
+        "binding": { "$ref": "#/$defs/decisionBindingEvidence" }
       }
     },
     "approvalRequested": {

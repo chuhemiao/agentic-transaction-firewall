@@ -731,16 +731,44 @@ fn run_evaluate(
     let policy_result = bundle.evaluate(&intent, &evaluation_context);
     // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
     // forbidden request terminates the merge before Risk is consulted.
-    let risk_findings = match &policy_result {
+    let risk_result = match &policy_result {
         Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => {
-            atf_risk::evaluate_context(&intent, &risk_rule_set, &evaluation_context, history.iter())
-                .context("evaluating Risk from the local Evaluation Context")?
-                .findings
+            Some(atf_risk::evaluate_context(
+                &intent,
+                &risk_rule_set,
+                &evaluation_context,
+                history.iter(),
+            ))
         }
-        _ => Vec::new(),
+        _ => None,
     };
 
-    let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
+    let policy_input = match &policy_result {
+        Ok(outcome) => atf_decision::PolicyDecisionInput::Evaluated(outcome),
+        Err(_) => atf_decision::PolicyDecisionInput::Error {
+            error_code: "POLICY_EVALUATION_ERROR",
+        },
+    };
+    let risk_input = match (&risk_result, &policy_result) {
+        (Some(Ok(evaluation)), _) => atf_decision::RiskDecisionInput::Evaluated(evaluation),
+        (Some(Err(error)), _) => atf_decision::RiskDecisionInput::Error {
+            error_code: error.code(),
+        },
+        (None, Ok(_)) => atf_decision::RiskDecisionInput::NotRun {
+            reason_code: "POLICY_FORBID",
+        },
+        (None, Err(_)) => atf_decision::RiskDecisionInput::NotRun {
+            reason_code: "POLICY_ERROR",
+        },
+    };
+    let decision = atf_decision::decide(atf_decision::DecisionInput {
+        decision_id: atf_core::new_ulid(),
+        intent: &intent,
+        evaluation_context: &evaluation_context,
+        policy: policy_input,
+        risk: risk_input,
+    })
+    .context("binding canonical Decision")?;
     println!("{}", serde_json::to_string_pretty(&decision)?);
     Ok(())
 }

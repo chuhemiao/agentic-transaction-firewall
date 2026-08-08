@@ -197,6 +197,7 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -292,6 +293,7 @@ dependencies = [
  "atf-identity",
  "atf-intent",
  "atf-policy",
+ "atf-risk",
  "chrono",
  "ed25519-dalek",
  "home",

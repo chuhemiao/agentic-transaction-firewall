@@ -40,6 +40,7 @@ fn decision_payload(decision: DecisionKind) -> AuditPayload {
         resource_id: "dataset-1".into(),
         amount: Amount::from_str("12.50").unwrap(),
         destination: Some("merchant-1".into()),
+        binding: None,
     })
 }
 

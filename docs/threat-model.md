@@ -23,7 +23,7 @@ real network request path, but no execution path or production secret.
 |---|---|---|
 | 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by authenticated Agent identity, common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported and execution enforcement remains absent |
 | 2 | Agent tool-call parameters tampered with | Addressed at current Shadow admission: `atf-intent` supplies a tamper-evident canonical hash; DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519; DS-015 persists exact public-key lifecycle; DS-016 requires and reverifies that proof before Policy/Risk |
-| 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
+| 3 | Intent and final transaction diverge | Partially addressed: DS-025's closed Decision v1 binds the exact Intent hash, Profile, artifacts, Context/snapshot, Simulation state, time/expiry and execution constraints under a canonical hash. No execution path or execution-request hash binding exists yet, so Phase 4 must enforce these constraints rather than merely record them |
 | 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. DS-019 rejects unmanifested, mis-scoped, inactive, hash/digest-mismatched or Cedar-Schema-invalid Bundles. DS-020 additionally requires strict detached publisher proof, immutable durable installation and an audited active pointer reloaded per request; Policy mutation requires current `policy_author`/`org_admin`. Multi-Bundle conflict resolution and production edge controls remain absent, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
@@ -120,6 +120,12 @@ secret. The realistic attack surface today includes:
   than changing a replay. Bounded snapshot
   queries and request/rate limits are still required to resist growth-based
   denial of service.
+- **Decision substitution or field tampering** — DS-025 rejects Policy/Risk
+  output identities that differ from the persisted Context, seals every
+  decisive field under `ATF_DECISION_V1`, and makes Store reads require the
+  embedded hash, canonical Decision row, immutable Context and mirrored
+  `DecisionRecorded.binding` to agree. This proves what was decided; a future
+  execution grant must still bind and enforce the exact Decision hash.
 - **Evaluator crash and stale completion** — authenticated admission durably
   records `IDENTITY_VERIFIED/v2` and atomically creates a database-clock
   evaluator lease.

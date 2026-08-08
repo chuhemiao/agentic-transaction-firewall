@@ -4,7 +4,10 @@
 use std::str::FromStr;
 
 use atf_audit::*;
-use atf_core::{Amount, DecisionKind, Timestamp};
+use atf_core::{
+    Amount, DecisionKind, ExecutionConstraints, ProfileBinding, SimulationReference, Timestamp,
+    VersionedArtifactReference,
+};
 use jsonschema::Validator;
 
 const SCHEMA_STR: &str = include_str!("../../../schemas/audit-event.schema.json");
@@ -42,6 +45,36 @@ fn hash(byte: char) -> String {
 
 fn amount() -> Amount {
     Amount::from_str("12.50").unwrap()
+}
+
+fn decision_binding() -> DecisionBindingEvidence {
+    DecisionBindingEvidence {
+        decision_version: "1".into(),
+        profile: ProfileBinding {
+            id: "atf.agent-commerce.payment".into(),
+            version: "1.0".into(),
+        },
+        policy: VersionedArtifactReference::available("policy-a", "1.0.0", hash('a')).unwrap(),
+        risk: VersionedArtifactReference::available("risk-v1", "1.0.0", hash('b')).unwrap(),
+        evaluation_context_hash: hash('c'),
+        context_snapshot_hash: hash('d'),
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+        evaluation_time: Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
+        expires_at: Timestamp::from_str("2026-08-08T12:05:00Z").unwrap(),
+        required_approvals: Vec::new(),
+        obligations: Vec::new(),
+        execution_constraints: ExecutionConstraints {
+            action_category: "payment".into(),
+            action_operation: "purchase_api_resource".into(),
+            resource_id: "dataset-1".into(),
+            resource_protocol: "x402".into(),
+            network: "eip155:8453".into(),
+            asset: "eip155:8453/erc20:0x1234".into(),
+            max_amount: amount(),
+            destination: Some("eip155:8453:0x1111".into()),
+            adapter_id: None,
+        },
+    }
 }
 
 fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
@@ -149,6 +182,7 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
                 resource_id: text("dataset-1"),
                 amount: amount(),
                 destination: Some(text("merchant-1")),
+                binding: Some(Box::new(decision_binding())),
             }),
         ),
         (

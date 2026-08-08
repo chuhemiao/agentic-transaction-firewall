@@ -5,7 +5,12 @@
 //! `atf-simulator` doesn't exist (Phase 3) — see `docs/architecture.md`.
 
 mod decide;
+mod error;
 mod types;
 
-pub use decide::{decide, decide_with_risk_result};
+pub use atf_core::{
+    DecisionObligation as Obligation, ExecutionConstraints, ProfileBinding, RequiredApproval,
+};
+pub use decide::{decide, DecisionInput, PolicyDecisionInput, RiskDecisionInput};
+pub use error::DecisionError;
 pub use types::{Decision, DecisionKind, Reason};

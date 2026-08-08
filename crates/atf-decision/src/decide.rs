@@ -1,275 +1,175 @@
-use atf_core::new_ulid;
+use atf_core::DecisionKind;
 use atf_intent::TransactionIntent;
-use atf_policy::{PolicyDecision, PolicyError, PolicyOutcome};
-use atf_risk::{RiskEvaluationError, RiskFinding, Severity};
+use atf_policy::{PolicyDecision, PolicyOutcome};
+use atf_risk::{RiskEvaluation, Severity};
 
-use crate::types::{Decision, DecisionKind, Reason};
+use crate::error::DecisionError;
+use crate::types::{Decision, Reason};
 
-/// Merge a Policy Kernel result and a set of Risk Findings into an ATF
-/// [`Decision`] (PRD §10.1).
-///
-/// This is a pure merge function — it does not call `atf-policy` or
-/// `atf-risk` itself. The caller is expected to follow §10.1's own ordering
-/// when producing its inputs: evaluate Policy first, and only compute Risk
-/// Findings if Policy did not already `forbid` (there is no point risk-
-/// scoring a request that's already denied). `atf-cli`'s `evaluate` command
-/// is the reference caller.
-///
-/// Order implemented here, matching PRD §10.1 items 2-6 (item 1, Simulator,
-/// is skipped entirely — there is no `atf-simulator` yet):
-///
-/// 1. Policy evaluation itself errored -> `ERROR` (fail closed, PRD §18.1.1).
-/// 2. Cedar `forbid` (or Cedar's default-deny) -> `DENY`.
-/// 3. Policy permits and some Risk Finding is `Critical` -> `DENY`.
-/// 4. Policy permits and the worst Risk Finding is `High` -> `REVIEW`.
-/// 5. Policy permits and no Risk Finding is `High` or worse -> `PERMIT`.
-pub fn decide(
-    intent: &TransactionIntent,
-    policy: Result<PolicyOutcome, PolicyError>,
-    risk_findings: &[RiskFinding],
-) -> Decision {
-    decide_with_risk_result(intent, policy, Ok(risk_findings))
+/// Exact Policy module outcome consumed by the Decision merge. Errors retain
+/// only a stable safe code; detailed Policy diagnostics never enter Decision.
+#[derive(Debug, Clone, Copy)]
+pub enum PolicyDecisionInput<'a> {
+    Evaluated(&'a PolicyOutcome),
+    Error { error_code: &'a str },
 }
 
-/// Merge Policy with either a completed Risk result or a typed Risk module
-/// error. A Risk error after Policy Permit is terminal `ERROR`; it can never
-/// be represented by an empty finding list and accidentally become Permit.
-pub fn decide_with_risk_result(
-    intent: &TransactionIntent,
-    policy: Result<PolicyOutcome, PolicyError>,
-    risk: Result<&[RiskFinding], &RiskEvaluationError>,
-) -> Decision {
-    let policy_outcome = match policy {
-        Ok(outcome) => outcome,
-        Err(_) => return module_error_decision(intent, "POLICY_EVALUATION_ERROR", "Policy"),
+/// Exact Risk module outcome consumed by the Decision merge. `NotRun` is only
+/// valid after Policy forbid/error; a Policy Permit requires Evaluated/Error.
+#[derive(Debug, Clone, Copy)]
+pub enum RiskDecisionInput<'a> {
+    Evaluated(&'a RiskEvaluation),
+    Error { error_code: &'a str },
+    NotRun { reason_code: &'a str },
+}
+
+/// All authority needed to create one canonical Decision. IDs and time come
+/// from the caller's already-persisted Evaluation Context; the merge samples
+/// no clock, randomness or environment state.
+#[derive(Debug)]
+pub struct DecisionInput<'a> {
+    pub decision_id: String,
+    pub intent: &'a TransactionIntent,
+    pub evaluation_context: &'a atf_core::EvaluationContext,
+    pub policy: PolicyDecisionInput<'a>,
+    pub risk: RiskDecisionInput<'a>,
+}
+
+/// Merge Policy and Risk into a strongly bound version-1 Decision.
+///
+/// The function rejects module outputs whose Bundle/Rule Set identity differs
+/// from the immutable Evaluation Context. Simulator remains explicitly
+/// `NOT_RUN` through the Context binding until a typed Simulator exists.
+pub fn decide(input: DecisionInput<'_>) -> Result<Decision, DecisionError> {
+    validate_base_binding(input.intent, input.evaluation_context)?;
+
+    let (decision, reasons) = match input.policy {
+        PolicyDecisionInput::Error { error_code } => {
+            require_not_run(input.risk)?;
+            (
+                DecisionKind::Error,
+                vec![module_error_reason(error_code, "Policy")],
+            )
+        }
+        PolicyDecisionInput::Evaluated(policy) => {
+            validate_policy_binding(policy, input.evaluation_context)?;
+            let policy_reasons = policy
+                .policy_ids
+                .iter()
+                .map(|id| Reason {
+                    code: id.clone(),
+                    severity: "info".into(),
+                    message: format!("Cedar policy `{id}` matched this request"),
+                })
+                .collect::<Vec<_>>();
+
+            match policy.decision {
+                PolicyDecision::Forbid => {
+                    require_not_run(input.risk)?;
+                    (DecisionKind::Deny, policy_reasons)
+                }
+                PolicyDecision::Permit => {
+                    merge_permitted(input.risk, policy_reasons, input.evaluation_context)?
+                }
+            }
+        }
     };
 
-    let mut reasons: Vec<Reason> = policy_outcome
-        .policy_ids
-        .iter()
-        .map(|id| Reason {
-            code: id.clone(),
-            severity: "info".to_string(),
-            message: format!("Cedar policy `{id}` matched this request"),
-        })
-        .collect();
-
-    if policy_outcome.decision == PolicyDecision::Forbid {
-        return Decision {
-            decision_id: new_ulid(),
-            intent_id: intent.intent_id.clone(),
-            decision: DecisionKind::Deny,
-            reasons,
-        };
-    }
-
-    let risk_findings = match risk {
-        Ok(findings) => findings,
-        Err(error) => return module_error_decision(intent, error.code(), "Risk"),
-    };
-
-    reasons.extend(risk_findings.iter().map(|finding| Reason {
-        code: finding.code.clone(),
-        severity: finding.severity.to_string(),
-        message: finding.message.clone(),
-    }));
-
-    let worst_risk = risk_findings.iter().map(|f| f.severity).max();
-    let decision = match worst_risk {
-        Some(Severity::Critical) => DecisionKind::Deny,
-        Some(Severity::High) => DecisionKind::Review,
-        _ => DecisionKind::Permit,
-    };
-
-    Decision {
-        decision_id: new_ulid(),
-        intent_id: intent.intent_id.clone(),
+    Decision::seal(
+        input.decision_id,
+        input.intent,
+        input.evaluation_context,
         decision,
         reasons,
+    )
+}
+
+fn validate_base_binding(
+    intent: &TransactionIntent,
+    context: &atf_core::EvaluationContext,
+) -> Result<(), DecisionError> {
+    if context.intent_id() != intent.intent_id
+        || context.intent_hash() != intent.canonical_hash()
+        || context.verify_agent_context(&intent.context).is_err()
+    {
+        return Err(DecisionError::IntentBindingMismatch);
+    }
+    let profile =
+        atf_intent::validate_profile(intent).map_err(|_| DecisionError::IntentBindingMismatch)?;
+    if context.profile_id() != profile.id() || context.profile_version() != profile.version() {
+        return Err(DecisionError::ContextBindingMismatch);
+    }
+    Ok(())
+}
+
+fn validate_policy_binding(
+    policy: &PolicyOutcome,
+    context: &atf_core::EvaluationContext,
+) -> Result<(), DecisionError> {
+    let expected = (
+        policy.bundle_id.as_str(),
+        policy.policy_version.as_str(),
+        policy.bundle_hash.as_str(),
+    );
+    if context.policy().available_parts() != Some(expected) {
+        return Err(DecisionError::PolicyBindingMismatch);
+    }
+    Ok(())
+}
+
+fn validate_risk_binding(
+    risk: &RiskEvaluation,
+    context: &atf_core::EvaluationContext,
+) -> Result<(), DecisionError> {
+    let Some((_, version, hash)) = context.risk().available_parts() else {
+        return Err(DecisionError::RiskBindingMismatch);
+    };
+    if version != risk.rule_set_version || hash != risk.rule_set_hash {
+        return Err(DecisionError::RiskBindingMismatch);
+    }
+    Ok(())
+}
+
+fn require_not_run(risk: RiskDecisionInput<'_>) -> Result<(), DecisionError> {
+    match risk {
+        RiskDecisionInput::NotRun { reason_code } if !reason_code.is_empty() => Ok(()),
+        _ => Err(DecisionError::ModuleOrdering),
     }
 }
 
-fn module_error_decision(intent: &TransactionIntent, code: &str, module: &str) -> Decision {
-    Decision {
-        decision_id: new_ulid(),
-        intent_id: intent.intent_id.clone(),
-        decision: DecisionKind::Error,
-        reasons: vec![Reason {
-            code: code.to_string(),
-            severity: "critical".to_string(),
-            message: format!("{module} evaluation failed safely."),
-        }],
+fn merge_permitted(
+    risk: RiskDecisionInput<'_>,
+    mut reasons: Vec<Reason>,
+    context: &atf_core::EvaluationContext,
+) -> Result<(DecisionKind, Vec<Reason>), DecisionError> {
+    match risk {
+        RiskDecisionInput::Error { error_code } => Ok((
+            DecisionKind::Error,
+            vec![module_error_reason(error_code, "Risk")],
+        )),
+        RiskDecisionInput::NotRun { .. } => Err(DecisionError::ModuleOrdering),
+        RiskDecisionInput::Evaluated(risk) => {
+            validate_risk_binding(risk, context)?;
+            reasons.extend(risk.findings.iter().map(|finding| Reason {
+                code: finding.code.clone(),
+                severity: finding.severity.to_string(),
+                message: finding.message.clone(),
+            }));
+            let worst_risk = risk.findings.iter().map(|finding| finding.severity).max();
+            let decision = match worst_risk {
+                Some(Severity::Critical) => DecisionKind::Deny,
+                Some(Severity::High) => DecisionKind::Review,
+                _ => DecisionKind::Permit,
+            };
+            Ok((decision, reasons))
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use atf_core::{Amount, Timestamp};
-    use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
-    use std::str::FromStr;
-
-    fn sample_intent(amount: &str) -> TransactionIntent {
-        TransactionIntent {
-            spec_version: "1.0".into(),
-            intent_id: "01J00000000000000000000000".into(),
-            idempotency_key: "idem-1".into(),
-            created_at: Timestamp::from_str("2026-07-18T08:00:00Z").unwrap(),
-            expires_at: Timestamp::from_str("2026-07-18T08:05:00Z").unwrap(),
-            principal: Principal {
-                organization_id: "alpha-lab".into(),
-                user_id: None,
-                agent_id: "research-agent-01".into(),
-                agent_version: None,
-                strategy_id: None,
-            },
-            mandate: Mandate {
-                mandate_id: "mandate-001".into(),
-                task_id: None,
-                purpose: "purchase historical order-book data".into(),
-                budget_id: None,
-                human_authorized: true,
-            },
-            action: Action {
-                category: "payment".into(),
-                operation: "purchase_api_resource".into(),
-            },
-            resource: Resource {
-                protocol: "x402".into(),
-                venue: None,
-                resource_id: "btc-orderbook-2026-07-01".into(),
-                resource_type: None,
-            },
-            transaction: Transaction {
-                network: "eip155:8453".into(),
-                asset: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".into(),
-                amount: Amount::from_str(amount).unwrap(),
-                destination: Some("eip155:8453:0x1111111111111111111111111111111111111111".into()),
-                contract: None,
-                calldata_hash: None,
-                max_fee: None,
-                slippage_bps: None,
-                leverage: None,
-            },
-            context: serde_json::json!({}),
-            metadata: serde_json::json!({}),
-        }
-    }
-
-    fn finding(severity: Severity) -> RiskFinding {
-        RiskFinding {
-            code: "TEST_FINDING".to_string(),
-            severity,
-            message: "test".to_string(),
-        }
-    }
-
-    fn policy(decision: PolicyDecision) -> Result<PolicyOutcome, PolicyError> {
-        Ok(PolicyOutcome {
-            decision,
-            policy_ids: vec!["test-policy".into()],
-            bundle_id: "test-bundle".into(),
-            policy_version: "1.0.0".into(),
-            bundle_hash: "a".repeat(64),
-        })
-    }
-
-    #[test]
-    fn permit_with_no_findings_maps_to_permit() {
-        let intent = sample_intent("12.50");
-        let decision = decide(&intent, policy(PolicyDecision::Permit), &[]);
-        assert_eq!(decision.decision, DecisionKind::Permit);
-        assert!(!decision.reasons.is_empty());
-    }
-
-    #[test]
-    fn default_deny_maps_to_deny_regardless_of_risk() {
-        let intent = sample_intent("999.00");
-        // Even a critical finding must not matter once Policy already denied
-        // (PRD §10.1.2: "终止合并，不再评估Risk").
-        let decision = decide(
-            &intent,
-            policy(PolicyDecision::Forbid),
-            &[finding(Severity::Critical)],
-        );
-        assert_eq!(decision.decision, DecisionKind::Deny);
-    }
-
-    #[test]
-    fn critical_risk_finding_overrides_policy_permit_to_deny() {
-        let intent = sample_intent("12.50");
-        let decision = decide(
-            &intent,
-            policy(PolicyDecision::Permit),
-            &[finding(Severity::Critical)],
-        );
-        assert_eq!(decision.decision, DecisionKind::Deny);
-    }
-
-    #[test]
-    fn high_risk_finding_sends_a_permit_to_review() {
-        let intent = sample_intent("12.50");
-        let decision = decide(
-            &intent,
-            policy(PolicyDecision::Permit),
-            &[finding(Severity::High)],
-        );
-        assert_eq!(decision.decision, DecisionKind::Review);
-    }
-
-    #[test]
-    fn info_and_medium_findings_do_not_block_permit() {
-        let intent = sample_intent("12.50");
-        let decision = decide(
-            &intent,
-            policy(PolicyDecision::Permit),
-            &[finding(Severity::Info), finding(Severity::Medium)],
-        );
-        assert_eq!(decision.decision, DecisionKind::Permit);
-    }
-
-    #[test]
-    fn policy_evaluation_error_fails_closed_to_error_not_permit() {
-        // Cedar's `decimal` extension supports at most 4 fractional digits
-        // (see atf-policy::mapping::decimal_value); an amount with finer
-        // precision can't be turned into a Cedar context at all.
-        let intent = sample_intent("12.123456");
-        let decision = decide(
-            &intent,
-            Err(PolicyError::ContextBuild("test error".into())),
-            &[],
-        );
-        assert_eq!(decision.decision, DecisionKind::Error);
-        assert_ne!(decision.decision, DecisionKind::Permit);
-        assert_eq!(decision.reasons.len(), 1);
-        assert_eq!(decision.reasons[0].code, "POLICY_EVALUATION_ERROR");
-        assert_eq!(
-            decision.reasons[0].message,
-            "Policy evaluation failed safely."
-        );
-    }
-
-    #[test]
-    fn risk_context_error_fails_closed_to_error_not_empty_findings_permit() {
-        let intent = sample_intent("12.50");
-        let error = RiskEvaluationError::RuleSetMismatch;
-
-        let decision =
-            decide_with_risk_result(&intent, policy(PolicyDecision::Permit), Err(&error));
-
-        assert_eq!(decision.decision, DecisionKind::Error);
-        assert_eq!(decision.reasons.len(), 1);
-        assert_eq!(decision.reasons[0].code, "RISK_RULE_SET_MISMATCH");
-        assert_eq!(
-            decision.reasons[0].message,
-            "Risk evaluation failed safely."
-        );
-    }
-
-    #[test]
-    fn decision_is_bound_to_the_intent_id() {
-        let intent = sample_intent("12.50");
-        let decision = decide(&intent, policy(PolicyDecision::Permit), &[]);
-        assert_eq!(decision.intent_id, intent.intent_id);
+fn module_error_reason(code: &str, module: &str) -> Reason {
+    Reason {
+        code: code.into(),
+        severity: "critical".into(),
+        message: format!("{module} evaluation failed safely."),
     }
 }

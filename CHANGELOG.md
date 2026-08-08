@@ -7,6 +7,12 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-025 strongly bound canonical Decision v1. The closed envelope binds the
+  exact Intent/Profile, Policy/Risk artifacts, Evaluation Context/snapshot,
+  explicit Simulation state, evaluation/expiry times, future Approval and
+  Obligation fields, and execution constraints under the domain-separated
+  `ATF_DECISION_V1` hash. Store write/read verification uses that embedded
+  hash, and current `DecisionRecorded` evidence mirrors every binding value.
 - DS-024 context-only deterministic Policy/Risk evaluation. Public evaluators
   no longer sample time or accept separately supplied privileged values;
   Context binding covers Intent/Profile/artifact identity, while Risk verifies

@@ -8,6 +8,7 @@
 mod amount;
 mod canonical;
 mod decision;
+mod decision_binding;
 mod error;
 mod evaluation;
 mod evidence;
@@ -18,6 +19,9 @@ mod time;
 pub use amount::Amount;
 pub use canonical::{sha256_hex, sort_json_keys};
 pub use decision::DecisionKind;
+pub use decision_binding::{
+    DecisionObligation, ExecutionConstraints, ProfileBinding, RequiredApproval,
+};
 pub use error::CoreError;
 pub use evaluation::{
     EvaluationContext, EvaluationContextError, EvaluationContextInput,

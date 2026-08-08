@@ -13,7 +13,10 @@ use crate::models::{
     AdmittedIntent, FinalizationInput, FinalizedDecision, StoredEvaluation, StoredLifecycle,
 };
 use crate::{Store, StoreError};
-use atf_audit::{AuditPayload, DecisionRecordedPayload, EventType, OptionalModuleOutcome};
+use atf_audit::{
+    AuditPayload, DecisionBindingEvidence, DecisionRecordedPayload, EventType,
+    OptionalModuleOutcome,
+};
 use atf_core::{sort_json_keys, EvaluationContext, Timestamp};
 use atf_decision::Decision;
 use atf_intent::TransactionIntent;
@@ -309,8 +312,15 @@ impl Store {
         .await
         .map_err(|error| map_finalization_insert_error(error, &input))?;
 
-        let (canonical_decision, canonical_decision_bytes, decision_hash) =
-            canonical_document(&input.decision)?;
+        input
+            .decision
+            .verify_binding(&verified_intent.intent, &evaluation_context.context)
+            .map_err(|error| StoreError::DecisionBindingMismatch {
+                reason: error.to_string(),
+            })?;
+        let canonical_decision_bytes = input.decision.canonical_bytes();
+        let canonical_decision: Value = serde_json::from_slice(&canonical_decision_bytes)?;
+        let decision_hash = input.decision.decision_hash.clone();
         sqlx::query(
             r#"
             INSERT INTO decisions (
@@ -390,6 +400,7 @@ impl Store {
                 resource_id: verified_intent.intent.resource.resource_id.clone(),
                 amount: verified_intent.intent.transaction.amount,
                 destination: verified_intent.intent.transaction.destination.clone(),
+                binding: Some(Box::new(decision_binding_evidence(&input.decision))),
             }),
             AuditReferences {
                 evaluation_id: Some(evaluation.evaluation_id.clone()),
@@ -561,6 +572,17 @@ impl Store {
                         ),
                     ));
                 }
+                decision
+                    .verify_binding(&verified_intent.intent, &stored.context)
+                    .map_err(|error| {
+                        durable_corrupt(
+                            organization_id,
+                            format!(
+                                "Decision `{}` disagrees with its immutable Context: {error}",
+                                decision.decision_id
+                            ),
+                        )
+                    })?;
                 Some(stored.context)
             }
             None => None,
@@ -843,7 +865,15 @@ fn verify_finalization_row(
                 format!("Decision canonical bytes cannot be decoded: {error}"),
             )
         })?;
-    let (canonical_decision, decision_bytes, decision_hash) = canonical_document(&decision)?;
+    decision.verify_hash().map_err(|error| {
+        durable_corrupt(
+            organization_id,
+            format!("Decision canonical hash is invalid: {error}"),
+        )
+    })?;
+    let decision_bytes = decision.canonical_bytes();
+    let canonical_decision: Value = serde_json::from_slice(&decision_bytes)?;
+    let decision_hash = decision.decision_hash.clone();
     let decision_matches = decision.decision_id == row.decision_id
         && decision.intent_id == intent_id
         && row.decision_intent_id == intent_id
@@ -975,6 +1005,11 @@ fn exactly_one_decision_event(
             && data_string(&stored.event.data, "decision_id") == Some(decision.decision_id.as_str())
             && data_string(&stored.event.data, "decision") == Some(decision_kind.as_str())
             && data_string(&stored.event.data, "decision_hash") == Some(decision_hash)
+            && stored.event.data.get("binding")
+                == Some(
+                    &serde_json::to_value(decision_binding_evidence(decision))
+                        .expect("Decision binding evidence serialization cannot fail"),
+                )
     });
     let Some(event) = matches.next() else {
         return Err(StoreError::IncompleteDecisionEvidence {
@@ -989,6 +1024,23 @@ fn exactly_one_decision_event(
         });
     }
     Ok(event)
+}
+
+fn decision_binding_evidence(decision: &Decision) -> DecisionBindingEvidence {
+    DecisionBindingEvidence {
+        decision_version: decision.decision_version.clone(),
+        profile: decision.profile.clone(),
+        policy: decision.policy.clone(),
+        risk: decision.risk.clone(),
+        evaluation_context_hash: decision.evaluation_context_hash.clone(),
+        context_snapshot_hash: decision.context_snapshot_hash.clone(),
+        simulation: decision.simulation.clone(),
+        evaluation_time: decision.evaluation_time,
+        expires_at: decision.expires_at,
+        required_approvals: decision.required_approvals.clone(),
+        obligations: decision.obligations.clone(),
+        execution_constraints: decision.execution_constraints.clone(),
+    }
 }
 
 fn data_string<'a>(data: &'a Value, key: &str) -> Option<&'a str> {

@@ -4,7 +4,9 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use atf_core::{
-    validate_lifecycle_transition, Amount, DecisionKind, IntentLifecycleState, Timestamp,
+    validate_lifecycle_transition, Amount, DecisionKind, DecisionObligation, ExecutionConstraints,
+    IntentLifecycleState, ProfileBinding, RequiredApproval, SimulationReference, Timestamp,
+    VersionedArtifactReference,
 };
 
 use crate::EventType;
@@ -145,6 +147,26 @@ pub struct SimulationCompletedPayload {
     pub outcome: OptionalModuleOutcome<SimulationOutcome>,
 }
 
+/// Exact Decision-v1 input bindings mirrored into `DecisionRecorded`. The
+/// optional parent field preserves decoding of immutable pre-DS-025 events;
+/// every current Store finalization requires and verifies this value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionBindingEvidence {
+    pub decision_version: String,
+    pub profile: ProfileBinding,
+    pub policy: VersionedArtifactReference,
+    pub risk: VersionedArtifactReference,
+    pub evaluation_context_hash: String,
+    pub context_snapshot_hash: String,
+    pub simulation: SimulationReference,
+    pub evaluation_time: Timestamp,
+    pub expires_at: Timestamp,
+    pub required_approvals: Vec<RequiredApproval>,
+    pub obligations: Vec<DecisionObligation>,
+    pub execution_constraints: ExecutionConstraints,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DecisionRecordedPayload {
@@ -160,6 +182,8 @@ pub struct DecisionRecordedPayload {
     pub resource_id: String,
     pub amount: Amount,
     pub destination: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Box<DecisionBindingEvidence>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -697,6 +721,9 @@ impl AuditPayload {
                 if let Some(destination) = &value.destination {
                     nonempty(event_type, "destination", destination)?;
                 }
+                if let Some(binding) = &value.binding {
+                    validate_decision_binding(event_type, binding)?;
+                }
             }
             Self::ApprovalRequested(value) => {
                 strings(
@@ -1216,6 +1243,128 @@ fn validate_optional_outcome<T>(
         OptionalModuleOutcome::NotRun { reason_code } => {
             nonempty(event_type, "outcome.reason_code", reason_code)
         }
+    }
+}
+
+fn validate_decision_binding(
+    event_type: EventType,
+    binding: &DecisionBindingEvidence,
+) -> Result<(), AuditPayloadError> {
+    strings(
+        event_type,
+        &[
+            ("binding.decision_version", &binding.decision_version),
+            ("binding.profile.id", &binding.profile.id),
+            ("binding.profile.version", &binding.profile.version),
+        ],
+    )?;
+    validate_artifact_reference(event_type, "binding.policy", &binding.policy)?;
+    validate_artifact_reference(event_type, "binding.risk", &binding.risk)?;
+    sha256(
+        event_type,
+        "binding.evaluation_context_hash",
+        &binding.evaluation_context_hash,
+    )?;
+    sha256(
+        event_type,
+        "binding.context_snapshot_hash",
+        &binding.context_snapshot_hash,
+    )?;
+    nonempty(
+        event_type,
+        "binding.simulation.reason_code",
+        binding.simulation.reason_code(),
+    )?;
+    for value in [binding.evaluation_time, binding.expires_at] {
+        if value.as_datetime().timestamp_subsec_nanos() % 1_000_000 != 0 {
+            return Err(invalid(
+                event_type,
+                "Decision binding timestamps must use millisecond precision",
+            ));
+        }
+    }
+    for approval in &binding.required_approvals {
+        nonempty(
+            event_type,
+            "binding.required_approvals.role",
+            &approval.role,
+        )?;
+        if approval.count == 0 {
+            return Err(invalid(
+                event_type,
+                "binding.required_approvals.count must be positive",
+            ));
+        }
+    }
+    for obligation in &binding.obligations {
+        nonempty(
+            event_type,
+            "binding.obligations.type",
+            &obligation.obligation_type,
+        )?;
+    }
+    let constraints = &binding.execution_constraints;
+    strings(
+        event_type,
+        &[
+            (
+                "binding.execution_constraints.action_category",
+                &constraints.action_category,
+            ),
+            (
+                "binding.execution_constraints.action_operation",
+                &constraints.action_operation,
+            ),
+            (
+                "binding.execution_constraints.resource_id",
+                &constraints.resource_id,
+            ),
+            (
+                "binding.execution_constraints.resource_protocol",
+                &constraints.resource_protocol,
+            ),
+            (
+                "binding.execution_constraints.network",
+                &constraints.network,
+            ),
+            ("binding.execution_constraints.asset", &constraints.asset),
+        ],
+    )?;
+    nonnegative_amount(
+        event_type,
+        "binding.execution_constraints.max_amount",
+        constraints.max_amount,
+    )?;
+    if let Some(destination) = &constraints.destination {
+        nonempty(
+            event_type,
+            "binding.execution_constraints.destination",
+            destination,
+        )?;
+    }
+    if let Some(adapter_id) = &constraints.adapter_id {
+        nonempty(
+            event_type,
+            "binding.execution_constraints.adapter_id",
+            adapter_id,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_artifact_reference(
+    event_type: EventType,
+    field: &'static str,
+    reference: &VersionedArtifactReference,
+) -> Result<(), AuditPayloadError> {
+    if let Some((artifact_id, version, hash)) = reference.available_parts() {
+        nonempty(event_type, field, artifact_id)?;
+        nonempty(event_type, field, version)?;
+        sha256(event_type, field, hash)
+    } else if let Some(reason_code) = reference.unavailable_reason() {
+        nonempty(event_type, field, reason_code)
+    } else {
+        Err(invalid(event_type, format!("{field} is invalid")))
     }
 }
 

@@ -114,8 +114,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   privileged inputs; Policy/Risk now validate the immutable Context, Risk
   verifies its exact Audit prefix, and repeated outputs are byte-equivalent.
   Depends: DS-023.
-- [ ] **NEXT — DS-025:** emit strongly bound canonical Decisions and update Schema/Audit. Depends: DS-023, DS-024.
-- [ ] **DS-026:** implement Original Replay with exact Decision-hash reproduction. Depends: DS-025.
+- [x] **DS-025:** emitted closed strongly bound canonical Decisions; Store and
+  `DecisionRecorded` verify the exact same bindings, and Schema rejects
+  unknown core fields for all four outcomes. Depends: DS-023, DS-024.
+- [ ] **NEXT — DS-026:** implement Original Replay with exact Decision-hash reproduction. Depends: DS-025.
 - [ ] **DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.
 - [ ] **Checkpoint C3:** every Decision names immutable inputs and is exactly replayable.
 

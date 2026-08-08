@@ -24,6 +24,22 @@ selector; it and JWT organization/role/email claims never become authority.
 Decision absence, cross-organization selection and insufficient read role all
 return the same `404 DECISION_NOT_FOUND` response.
 
+Both Decision routes return the closed DS-025 Decision v1 envelope defined by
+`schemas/decision.schema.json`. In addition to ID/kind/reasons it carries the
+canonical Intent hash, Profile, exact Policy/Risk artifact references,
+Evaluation ID and Context/snapshot hashes, explicit Simulation state,
+evaluation/expiry times, future Approval/Obligation arrays and closed
+execution constraints. Unknown top-level or nested core fields are rejected.
+`decision_hash` is:
+
+```text
+SHA-256("ATF_DECISION_V1\0" || canonical_decision_without_decision_hash)
+```
+
+The stored Decision column and `DecisionRecorded.binding` are verified against
+the same envelope before a read is exposed. `adapter_id` is explicitly `null`
+until Adapter selection exists; this service still cannot execute a Decision.
+
 Policy mutation routes require the same validated Operator token and selector,
 plus a current `policy_author` or `org_admin` binding. The Store repeats that
 authorization while holding the mutation transaction locks. Missing Bundle,
