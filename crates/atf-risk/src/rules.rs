@@ -1,7 +1,10 @@
+#[cfg(test)]
 use std::str::FromStr;
 
 use atf_audit::{AuditEvent, AuditLedger};
-use atf_core::{Amount, Timestamp};
+#[cfg(test)]
+use atf_core::Amount;
+use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
 use rust_decimal::Decimal;
 
@@ -9,6 +12,7 @@ use crate::finding::RiskFinding;
 use crate::history_rules;
 use crate::rule_set::{MissingDataBehavior, RiskEvaluation, RiskRuleSet};
 use crate::severity::Severity;
+use crate::{RiskContext, RiskContextIssue};
 
 /// Run every stateless MVP rule against `intent` and return the findings
 /// that fired.
@@ -30,12 +34,22 @@ pub fn evaluate_at(
     rule_set: &RiskRuleSet,
     evaluated_at: Timestamp,
 ) -> RiskEvaluation {
+    let context = RiskContext::agent_only(intent);
+    evaluate_with_context_at(intent, rule_set, &context, evaluated_at)
+}
+
+pub fn evaluate_with_context_at(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    context: &RiskContext,
+    evaluated_at: Timestamp,
+) -> RiskEvaluation {
     let rules = rule_set.rules();
     let findings = [
         request_expired(intent, &rules.request_expired, evaluated_at),
         single_amount_cap(intent, &rules.single_amount_cap),
         max_fee_ratio(intent, &rules.max_fee_ratio),
-        vendor_price_deviation(intent, &rules.vendor_price_deviation),
+        vendor_price_deviation(intent, context, &rules.vendor_price_deviation),
         high_risk_network_or_protocol(intent, &rules.high_risk_network_or_protocol),
     ]
     .into_iter()
@@ -78,7 +92,18 @@ pub fn evaluate_with_events_at<'a>(
     events: impl IntoIterator<Item = &'a AuditEvent>,
     evaluated_at: Timestamp,
 ) -> RiskEvaluation {
-    let mut result = evaluate_at(intent, rule_set, evaluated_at);
+    let context = RiskContext::agent_only(intent);
+    evaluate_with_events_and_context_at(intent, rule_set, &context, events, evaluated_at)
+}
+
+pub fn evaluate_with_events_and_context_at<'a>(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    context: &RiskContext,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+    evaluated_at: Timestamp,
+) -> RiskEvaluation {
+    let mut result = evaluate_with_context_at(intent, rule_set, context, evaluated_at);
     result
         .findings
         .extend(history_rules::history_findings_from_events(
@@ -159,25 +184,32 @@ fn max_fee_ratio(
 
 fn vendor_price_deviation(
     intent: &TransactionIntent,
+    context: &RiskContext,
     rule: &crate::rule_set::BasisPointRule,
 ) -> Option<RiskFinding> {
     if !rule.enabled {
         return None;
     }
-    let Some(median) = intent
-        .context
-        .get("historical_vendor_median")
-        .and_then(|value| value.as_str())
-        .and_then(|value| Amount::from_str(value).ok())
-        .map(|amount| amount.as_decimal())
-        .filter(|amount| *amount > Decimal::ZERO)
-    else {
-        return missing_finding(
-            rule.missing_data,
-            rule.severity,
-            "VENDOR_PRICE_DATA_MISSING",
-            "historical_vendor_median is unavailable for the enabled price-deviation rule",
-        );
+    let median = match context.historical_vendor_median(intent) {
+        Ok(amount) => amount.as_decimal(),
+        Err(RiskContextIssue::Missing) => {
+            return missing_finding(
+                rule.missing_data,
+                rule.severity,
+                "VENDOR_PRICE_DATA_MISSING",
+                "trusted historical_vendor_median evidence is unavailable for the enabled price-deviation rule",
+            );
+        }
+        Err(issue) => {
+            return Some(RiskFinding {
+                code: "VENDOR_PRICE_INSUFFICIENT_DATA".into(),
+                severity: rule.severity,
+                message: format!(
+                    "trusted historical_vendor_median evidence was rejected: {}",
+                    issue.code()
+                ),
+            });
+        }
     };
     let amount = intent.transaction.amount.as_decimal();
     let deviation_bps = (((amount - median).abs() / median) * Decimal::from(10_000)).round_dp(2);
@@ -366,22 +398,28 @@ mod tests {
     }
 
     #[test]
-    fn flags_vendor_price_deviation_from_context() {
+    fn rejects_agent_vendor_price_context_as_insufficient_data() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.context = serde_json::json!({"historical_vendor_median": "8.50"});
         // (12.50 - 8.50) / 8.50 = ~47%, over the 30% default threshold.
         let findings = evaluate(&intent, &RiskRuleSet::default());
-        assert!(findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
+        assert!(findings
+            .iter()
+            .any(|f| f.code == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+        assert!(!findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 
     #[test]
-    fn does_not_flag_vendor_price_within_threshold() {
+    fn agent_vendor_price_cannot_silently_suppress_review() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.context = serde_json::json!({"historical_vendor_median": "12.00"});
         // (12.50 - 12.00) / 12.00 = ~4%, well under the 30% default threshold.
         let findings = evaluate(&intent, &RiskRuleSet::default());
+        assert!(findings
+            .iter()
+            .any(|f| f.code == "VENDOR_PRICE_INSUFFICIENT_DATA"));
         assert!(!findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 

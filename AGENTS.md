@@ -52,7 +52,10 @@ If you're asked to "continue" or "keep going through the TODO list":
   migration/schema compatibility, durable per-organization Audit append, and
   atomic admission/finalization repository operations; Gateway cutover is
   complete. `atf-core`/`atf-audit` define the DS-006 lifecycle and typed Audit
-  domain contract; database transition enforcement begins at DS-007.
+  domain contract; database transition enforcement begins at DS-007. DS-022
+  adds the closed Evidence/verification contract in `atf-core` and the
+  privileged Agent-context firewall in `atf-risk`; durable snapshots begin in
+  DS-023.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

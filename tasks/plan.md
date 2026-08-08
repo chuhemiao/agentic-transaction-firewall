@@ -82,7 +82,8 @@ durable Operator/Role lifecycle, configured JWT/JWKS validation, typed
 principals and non-enumerating Decision-read RBAC. DS-019 now provides
 validated Policy Bundle identity, and DS-020 adds signed durable activation
 and rollback. DS-021 now adds the canonical versioned Risk Rule Set and exact
-identity in Risk results/evidence; the next task is DS-022.
+identity in Risk results/evidence. DS-022 adds provenance-bearing Evidence and
+the privileged-context firewall; the next task is DS-023.
 
 ### Present but incomplete or unwired
 
@@ -96,7 +97,10 @@ identity in Risk results/evidence; the next task is DS-022.
   deterministic version/hash, detached Ed25519 signature, immutable archive,
   active pointer and immediate rollback. It is not yet bound into a durable
   Evaluation Context or strongly bound Decision.
-- Risk reads wall-clock time and accepts an Agent-provided vendor median.
+- Risk's versioned entry points use one explicit caller time and accept only
+  verified, provenance-bearing vendor evidence. Legacy convenience entry
+  points still sample the wall clock, and the resulting inputs are not yet
+  pinned into a durable Evaluation Context.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
   intermediate events. Current admissions emit `IdentityVerified`; the old
   `IdentityVerificationSkipped` branch is compatibility-only.
@@ -110,12 +114,14 @@ identity in Risk results/evidence; the next task is DS-022.
 
 ### Missing release controls
 
-- Operator/auditor authentication and deterministic Context-based recovery;
-  the Agent Identity Envelope, durable Agent/Key authority, authenticated
-  Nonce replay protection, exact result return and restrictive request-driven
-  recovery are complete.
+- Deterministic Context-based recovery; Agent and Operator authentication,
+  durable Agent/Key/Operator/Role authority, authenticated Nonce replay
+  protection, exact result return and restrictive request-driven recovery are
+  complete.
 - Supported action profiles; common Rust semantic validation is complete.
-- Tenant authentication/RBAC, Evaluation Context, provenance and Replay.
+- Evaluation Context persistence and Replay; Agent/Operator tenant authority
+  and DS-022 provenance types/firewall are complete, while future Admin/Audit
+  endpoints still require their endpoint-specific role matrices.
 - Audit query, metrics, request limits, background recovery operations and
   security CI gates; request-driven restrictive recovery tests are complete.
 - Simulator, Approval, Adapter execution, reconciliation and SDKs.
@@ -816,23 +822,29 @@ version/hash with every Risk result.
 
 ### DS-022 — Define provenance-bearing evidence `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Add typed evidence with source, source ID, observed/expiry
 times, evidence hash, optional signature/confidence and freshness status.
 Classify Agent context separately and prohibit privileged risk inputs from it.
 
 - **Dependencies:** DS-010, DS-021.
-- **Likely files:** `crates/atf-core/src/evidence.rs`,
+- **Delivered files:** `crates/atf-core/src/evidence.rs`,
   `crates/atf-core/src/lib.rs`, `crates/atf-risk/src/context.rs`,
-  `docs/context-provenance.md`, `crates/atf-risk/tests/provenance.rs`.
+  `schemas/evidence.schema.json`, `docs/context-provenance.md`,
+  `crates/atf-core/tests/evidence.rs` and
+  `crates/atf-risk/tests/provenance.rs`, plus Gateway integration coverage.
 - **Acceptance criteria:**
   1. Price, balance, position, spend, reputation and simulation values require trusted sources.
   2. Hash/signature/freshness failure produces explicit insufficient-data/fail-closed output.
   3. Agent-provided privileged keys cannot overwrite trusted values.
-- **Verification:** source allowlist, stale/tampered and override tests; full DoD.
+- **Verification:** canonical hash/Schema, source/kind allowlist, freshness,
+  strict signature, stale/tampered/unsigned/scope/ambiguity, Agent override,
+  deterministic input-order and real Gateway/PostgreSQL tests; full DoD.
 
 ### DS-023 — Persist immutable Evaluation Context snapshots `[M]`
+
+**Status:** Next.
 
 **Description:** Add `EvaluationContext` with evaluation ID/time, profile,
 Policy/Risk versions and hashes, context/evidence snapshot hash, environment

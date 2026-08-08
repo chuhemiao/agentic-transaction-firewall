@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/evidence.schema.json",
+  "title": "ATF Provenance-Bearing Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_version",
+    "kind",
+    "source",
+    "source_id",
+    "observed_at",
+    "expires_at",
+    "value",
+    "evidence_hash"
+  ],
+  "properties": {
+    "evidence_version": { "const": "1" },
+    "kind": {
+      "enum": [
+        "PRICE",
+        "BALANCE",
+        "POSITION",
+        "LEVERAGE",
+        "CUMULATIVE_SPEND",
+        "PROTOCOL_RISK",
+        "ADDRESS_REPUTATION",
+        "MARKET_DATA_FRESHNESS",
+        "SIMULATION_RESULT"
+      ]
+    },
+    "source": {
+      "enum": [
+        "AGENT_PROVIDED",
+        "ATF_ENRICHED",
+        "ORACLE_PROVIDED",
+        "ADAPTER_PROVIDED",
+        "ADMIN_PROVIDED",
+        "SIGNED_EXTERNAL_EVIDENCE"
+      ]
+    },
+    "source_id": { "$ref": "#/$defs/identifier" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "value": { "$ref": "#/$defs/nonNumericValue" },
+    "confidence_bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "evidence_hash": { "$ref": "#/$defs/sha256" },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_version", "algorithm", "key_id", "signature"],
+      "properties": {
+        "signature_version": { "const": "1" },
+        "algorithm": { "const": "Ed25519" },
+        "key_id": { "$ref": "#/$defs/identifier" },
+        "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+      }
+    },
+    "nonNumericValue": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "boolean" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonNumericValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/nonNumericValue" }
+        }
+      ]
+    }
+  }
+}

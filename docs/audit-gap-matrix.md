@@ -263,12 +263,28 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-CTX-001 — Context Provenance and Freshness
 
 - **module:** `atf-intent`, `atf-risk`, future enrichers
-- **current_state:** `MISSING`
-- **evidence:** arbitrary Agent-provided `context.historical_vendor_median` directly affects `VENDOR_PRICE_DEVIATION`; no source, observation time, expiry, evidence hash, or confidence exists.
-- **security_impact:** the requester controls data used to judge its own risk.
-- **financial_impact:** manipulated price/account/protocol context can suppress review or create false alerts.
+- **current_state:** `PARTIALLY_IMPLEMENTED`
+- **evidence:** DS-022 adds a closed public Evidence Schema and Rust envelope
+  with typed source/kind, source ID, observation/expiry, numeric-free value,
+  confidence, canonical hash, optional strict Ed25519 proof and derived
+  freshness. Exact source/kind allowlists alone construct `VerifiedEvidence`.
+  `RiskContext` binds the exact Intent hash and separates nine privileged Agent
+  input classes; the current vendor rule accepts only a fresh, hash-verified,
+  exact-scope `ATF_ENRICHED` median. Agent overrides, cross-Intent context
+  reuse, stale/tampered/unsigned/ambiguous or wrongly scoped evidence produce
+  explicit restrictive findings. Real Gateway and PostgreSQL coverage proves
+  Agent median cannot preserve Permit.
+- **security_impact:** the requester no longer controls the current vendor
+  comparison input. Evidence trust policy and snapshot persistence are not yet
+  durable deployment authority, and future consumers must use the same typed
+  boundary.
+- **financial_impact:** current price-context manipulation becomes REVIEW;
+  balance/position/spend/reputation/simulation rules remain unimplemented.
 - **severity:** `HIGH`
-- **recommended_change:** typed provenance envelopes and trusted enrichment; reject Agent-provided privileged fields from decision context.
+- **recommended_change:** persist the verified Evidence and trust-policy
+  identity in DS-023 Evaluation Context snapshots, then make every evaluator
+  context-only in DS-024; production enrichers must never reconstruct
+  authority from Agent fields.
 - **required_tests:** source allowlist, stale/missing evidence, hash/signature mismatch, Agent override rejection.
 - **dependencies:** EvaluationContext and persistent context snapshots.
 - **target_release:** Durable Shadow Mode P0.8.
@@ -493,8 +509,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-022` is next: define provenance-bearing evidence and prevent Agent context
-from impersonating trusted financial inputs. DS-021 now supplies the closed
-versioned Risk Rule Set identity; DS-019/DS-020 supply the signed durable
-Policy identity that later `EvaluationContext` and replay work will pin beside
-trusted evidence snapshots.
+`DS-023` is next: persist the exact evaluation time, signed Policy identity,
+versioned Risk identity and DS-022 verified Evidence into one immutable
+hash-checked Evaluation Context snapshot before evaluation.

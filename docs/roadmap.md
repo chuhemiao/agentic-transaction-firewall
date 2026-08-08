@@ -125,7 +125,11 @@ order. The executable order is:
 - [ ] P0.6 Versioned `EvaluationContext`; remove direct wall-clock and
   untrusted context reads from decision-making rules.
 - [ ] P0.7 Original and counterfactual deterministic replay.
-- [ ] P0.8 Context provenance, freshness, and trusted enrichment.
+- [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
+  the closed canonical Evidence contract, exact source/kind trust allowlists,
+  optional strict Ed25519 verification, explicit freshness and the Risk
+  privileged-context firewall. Durable snapshots and production enrichers
+  remain DS-023+ work.
 - [x] P0.9 Versioned, hashed, scoped, signed Policy Bundles. DS-019 provides
   deterministic identity/Cedar Schema validation; DS-020 adds immutable
   archives, strict publisher proof, audited active pointers, authenticated
@@ -135,9 +139,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-022` — define provenance-bearing evidence and a
-privileged-context firewall so Agent-provided financial context cannot silently
-act as trusted Risk input.
+**Immediate next task:** `DS-023` — persist one immutable Evaluation Context
+snapshot that binds the evaluation time, Policy/Risk identities and DS-022
+provenance-bearing Evidence before evaluation.
 
 ## Later releases
 

@@ -33,7 +33,7 @@ real network request path, but no execution path or production secret.
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. Independent checkpoints, retention, and privileged-database threat controls remain later work |
-| 13 | Price oracle manipulation | Exposed: DS-021 now hash-binds the vendor-price rule, threshold and restrictive missing-data behavior, but the value still comes from untrusted Intent context; provenance, freshness and trusted enrichment are DS-022 work |
+| 13 | Price oracle manipulation | Partially mitigated: DS-022 stops reading Agent `historical_vendor_median`, accepts only fresh/hash-verified/allowlisted/exact-scope `ATF_ENRICHED` evidence, and turns stale/tampered/unsigned/ambiguous or Agent-provided inputs into explicit restrictive findings. Durable trust-policy/evidence snapshots and production enrichers remain DS-023+ work |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
 | 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
@@ -95,8 +95,16 @@ secret. The realistic attack surface today includes:
   domain-separates a canonical hash over every decision-affecting field.
   Gateway startup fails if the configured artifact cannot validate, and Risk
   evidence records its exact version/hash. The artifact is still process-local
-  rather than durable/organization-scoped, and external input provenance is
-  not yet enforced.
+  rather than durable/organization-scoped. DS-022 now enforces provenance for
+  the current vendor-price consumer, but the trust policy and evidence are not
+  durably snapshot-bound yet.
+- **Evidence source spoofing and price-context poisoning** — source labels do
+  not grant authority. DS-022 requires an exact deployment-owned source/kind
+  allowlist, canonical hash, explicit evaluation-time freshness and configured
+  strict Ed25519 proof when required. `VerifiedEvidence` cannot be directly
+  constructed. Agent privileged keys are isolated, and an exact trusted value
+  wins regardless of Agent overrides or unrelated-scope evidence. Until
+  DS-023, verified evidence and trust selection are not persisted for replay.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
   restart no longer clears history. The Gateway currently reloads and verifies

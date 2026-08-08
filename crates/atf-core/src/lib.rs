@@ -9,6 +9,7 @@ mod amount;
 mod canonical;
 mod decision;
 mod error;
+mod evidence;
 mod id;
 mod lifecycle;
 mod time;
@@ -17,6 +18,10 @@ pub use amount::Amount;
 pub use canonical::{sha256_hex, sort_json_keys};
 pub use decision::DecisionKind;
 pub use error::CoreError;
+pub use evidence::{
+    EvidenceEnvelope, EvidenceError, EvidenceFreshness, EvidenceKind, EvidenceSignature,
+    EvidenceSource, EvidenceTrustPolicy, TrustedEvidenceSource, VerifiedEvidence,
+};
 pub use id::new_ulid;
 pub use lifecycle::{
     validate_lifecycle_transition, IntentLifecycleState, LifecycleTransitionError,

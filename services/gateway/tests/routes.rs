@@ -19,8 +19,9 @@ use tower::ServiceExt;
 
 use common::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
-    operator_authorization, post_intent_request, sample_intent_json, test_durable_policy_state,
-    test_state, test_state_with_forbid_all_policy, TestDatabase,
+    operator_authorization, post_intent_request, post_intent_value_request, sample_intent_json,
+    test_durable_policy_state, test_risk_rule_set, test_state, test_state_with_default_risk,
+    test_state_with_forbid_all_policy, TestDatabase,
 };
 
 #[tokio::test]
@@ -110,6 +111,7 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
 ) -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("permit").await?;
     let store = database.connect().await?;
+    let expected_risk = test_risk_rule_set();
     let app = build_router(test_state(store.clone()));
 
     let response = app
@@ -170,11 +172,11 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
     );
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        "risk-rules-1.0.0"
+        expected_risk.version()
     );
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_hash"],
-        "f16a028c749c061753cee5876d8325dbfb7e01fec3d6642ed08181d025dacbb5"
+        expected_risk.rule_set_hash()
     );
     assert_eq!(
         finalized.evaluation.evidence["simulation"]["outcome"]["status"],
@@ -185,6 +187,44 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         IntentLifecycleState::DecidedPermit
     );
     assert_eq!(finalized.lifecycle.version, 6);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("agent_price_context").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state_with_default_risk(store.clone()));
+    let mut intent = sample_intent_json("01J0000000000000000000PV00", "12.50");
+    intent["context"]["historical_vendor_median"] = serde_json::json!("12.50");
+
+    let response = app.oneshot(post_intent_value_request(intent)).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let decision = body_json(response).await?;
+    assert_eq!(decision["decision"], "REVIEW");
+    assert!(decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+    let finalized = store
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000PV00")
+        .await?
+        .expect("restrictive Decision must be durable");
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
+        "risk-rules-1.0.0"
+    );
+    assert!(finalized.evaluation.evidence["risk"]["outcome"]["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|finding| finding["code"] == "VENDOR_PRICE_INSUFFICIENT_DATA"));
 
     store.close().await;
     database.destroy().await?;
@@ -218,7 +258,7 @@ async fn posting_an_over_budget_intent_denies_and_records_risk_as_not_run(
     );
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        "risk-rules-1.0.0"
+        common::TEST_RISK_RULE_SET_VERSION
     );
 
     store.close().await;

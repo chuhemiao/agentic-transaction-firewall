@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-021 authenticated lifecycle plus versioned Policy/Risk evidence
+Status: DS-022 authenticated lifecycle plus typed provenance boundaries
 
 Version: 6
 
-Authority: `docs/PRD.md` §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020/DS-021
+Authority: `docs/PRD.md` §12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-022
 
 ## Objective
 
@@ -164,7 +164,7 @@ Every row below also carries `schema_version: 1`.
 | Intent received | organization, Agent, idempotency key, Intent hash, amount, resource |
 | Identity verified/rejected/skipped | organization, Agent, key/envelope evidence, stable rejection code, or stable skip code |
 | Replay detected | organization, Agent, exact Key ID, hashed Nonce, attempted/bound Intent IDs and hashes, stable reason code; never raw Nonce/Envelope/signature |
-| Context enriched | context hash and source IDs |
+| Context enriched | context hash and source IDs; DS-022 Evidence is typed and verified in memory, while DS-023 will persist its exact snapshot before producing this event |
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |

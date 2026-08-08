@@ -60,7 +60,8 @@ the reference file. Gateway evaluates stateless and history rules at one
 caller-selected evaluation time, then persists the version/hash in canonical
 Evaluation and Audit evidence.
 
-DS-021 does not yet make the artifact durable or organization-scoped, and it
-does not make external context trustworthy. DS-022 adds provenance and the
-privileged-context firewall; DS-023 persists the exact Evaluation Context;
+DS-021 does not yet make the artifact durable or organization-scoped. DS-022
+now supplies provenance-bearing Evidence and the privileged-context firewall:
+the vendor rule no longer reads Agent context and requires fresh verified,
+scope-bound ATF evidence. DS-023 persists the exact Evaluation Context;
 DS-024 removes the remaining convenience APIs that sample wall-clock time.

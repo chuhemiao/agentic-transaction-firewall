@@ -42,7 +42,10 @@ and observability before any real execution work begins (PRD §31–32).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
-  and the fail-closed pure transition validator.
+  the fail-closed pure transition validator, and DS-022 provenance-bearing
+  Evidence envelopes. Evidence uses closed typed source/kind enums, bounded
+  numeric-free values, canonical hashes, explicit freshness, source/kind
+  allowlists and optional strict Ed25519 verification.
 - `crates/atf-intent` — canonical Transaction Intent type, closed JSON Schema
   and matching fail-closed Serde shape, supported `spec_version` set (`1.0`),
   canonical serialization and hashing, plus deterministic common semantic
@@ -78,7 +81,12 @@ Only the following crates are implemented so far:
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol and duplicate purchase. Gateway evaluates the latter over
   the verified PostgreSQL Audit chain using the artifact's explicit
-  `PERMITTED` boundary.
+  `PERMITTED` boundary. DS-022 adds `RiskContext`: raw Intent context is always
+  `AGENT_PROVIDED`; price, balance, position, spend, reputation, freshness and
+  simulation keys cannot become trusted inputs. Each `RiskContext` is bound to
+  the exact Intent hash and cannot be reused across requests. Vendor median now
+  requires fresh, hash-verified, allowlisted, scope-bound `ATF_ENRICHED`
+  evidence or returns an explicit restrictive finding.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only tamper detection (`verify_chain`), and version-1 typed payloads
   for all canonical PRD lifecycle/administrative events. Event-to-state
@@ -211,6 +219,9 @@ pointers, authorized install/activation/rollback, and per-request Gateway
 resolution of the exact current signed version. `DS-021` adds the closed
 versioned Risk Rule Set, stable canonical hash, executable missing-data and
 accounting-boundary semantics, and Rule Set identity in durable Risk evidence.
+`DS-022` adds the closed Evidence contract, canonical hash/freshness/signature
+verification and the Risk privileged-context firewall; the Gateway no longer
+uses Agent-provided vendor median as trusted financial data.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -218,6 +229,7 @@ Rust profile validator),
 `policy-bundle.schema.json` (enforced by `atf-policy` while loading manifests),
 `policy-bundle-signature.schema.json` (the detached Ed25519 proof contract),
 `risk-rule-set.schema.json` (the closed DS-021 Risk artifact contract),
+`evidence.schema.json` (the closed DS-022 provenance envelope contract),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -360,9 +372,15 @@ semantics (evaluate only, never execute).
     deny lists, missing-data behavior and all four lifecycle accounting
     boundaries into a deterministic domain-separated hash. Every Risk result
     and current Gateway Risk evidence names the exact Rule Set version/hash.
-22. **NEXT — Provenance-bearing evidence:** separate Agent context from
-    trusted financial evidence and fail closed on stale, tampered or
-    unauthorized privileged inputs.
+22. ~~Provenance-bearing evidence.~~ Done in DS-022: the closed numeric-free
+    envelope binds typed source/kind, source ID, observation/expiry times,
+    value and confidence into a canonical hash; exact trust allowlists,
+    optional strict Ed25519 proof and explicit freshness produce only
+    `VerifiedEvidence`. Risk rejects Agent privileged context, stale/tampered/
+    unsigned/wrong-scope evidence and ambiguous matching values fail closed.
+23. **NEXT — Immutable Evaluation Context:** persist the exact evaluation
+    time, Policy/Risk identities and provenance-bearing evidence snapshot
+    before any evaluation runs.
 
 ### Remaining before Phase 2 can close out
 
@@ -422,7 +440,7 @@ semantics (evaluate only, never execute).
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
 - Versioned `EvaluationContext` that durably pins the completed Policy/Risk
-  identities, Context Provenance, and Original/Counterfactual Replay.
+  identities and DS-022 Evidence snapshot, plus Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
@@ -439,8 +457,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  durable signed Policy activation, deterministic replay, provenance, Risk
-  versioning, Audit query/metrics, and security re-audit.
+  immutable Evaluation Context persistence, deterministic replay, stateful
+  Risk, Audit query/metrics, operational hardening, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

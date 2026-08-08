@@ -7,6 +7,7 @@
 //! implemented, and why.
 
 mod config;
+mod context;
 mod finding;
 mod history_rules;
 mod rule_set;
@@ -14,12 +15,14 @@ mod rules;
 mod severity;
 
 pub use config::RiskConfig;
+pub use context::{RiskContext, RiskContextIssue};
 pub use finding::RiskFinding;
 pub use rule_set::{
     AccountingBoundary, MissingDataBehavior, RiskEvaluation, RiskRuleSet, RiskRuleSetError,
 };
 pub use rules::{
-    evaluate, evaluate_at, evaluate_with_events, evaluate_with_events_at, evaluate_with_history,
+    evaluate, evaluate_at, evaluate_with_context_at, evaluate_with_events,
+    evaluate_with_events_and_context_at, evaluate_with_events_at, evaluate_with_history,
     evaluate_with_history_at,
 };
 pub use severity::Severity;

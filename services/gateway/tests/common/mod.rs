@@ -35,6 +35,7 @@ pub const KEY_ID: &str = "identity-key-01";
 pub const OPERATOR_ISSUER: &str = "https://issuer.example.test";
 pub const OPERATOR_AUDIENCE: &str = "https://atf.example.test";
 pub const OPERATOR_SUBJECT: &str = "operator-subject-1";
+pub const TEST_RISK_RULE_SET_VERSION: &str = "risk-rules-test-permissive-1";
 
 const SIGNING_KEY_SEED: [u8; 32] = [42; 32];
 
@@ -43,12 +44,21 @@ pub fn test_state(store: Store) -> AppState {
 }
 
 #[allow(dead_code)]
+pub fn test_state_with_default_risk(store: Store) -> AppState {
+    test_state_with_policy_dir_and_risk(
+        store,
+        Path::new("../../policies/examples"),
+        RiskRuleSet::default(),
+    )
+}
+
+#[allow(dead_code)]
 pub fn test_durable_policy_state(store: Store) -> AppState {
     AppState::new_durable(
         "alpha-lab".into(),
         "development".into(),
         "atf-example-payments".into(),
-        RiskRuleSet::default(),
+        test_risk_rule_set(),
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
             .expect("test identity context is canonical"),
@@ -62,6 +72,14 @@ pub fn test_state_with_forbid_all_policy(store: Store) -> AppState {
 }
 
 fn test_state_with_policy_dir(store: Store, relative_dir: &Path) -> AppState {
+    test_state_with_policy_dir_and_risk(store, relative_dir, test_risk_rule_set())
+}
+
+fn test_state_with_policy_dir_and_risk(
+    store: Store,
+    relative_dir: &Path,
+    risk_rule_set: RiskRuleSet,
+) -> AppState {
     let evaluated_at = Timestamp::now();
     let bundle_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_dir);
     AppState::new(
@@ -79,12 +97,22 @@ fn test_state_with_policy_dir(store: Store, relative_dir: &Path) -> AppState {
                 bundle_dir.display()
             )
         }),
-        RiskRuleSet::default(),
+        risk_rule_set,
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
             .expect("test identity context is canonical"),
         test_operator_authenticator(),
     )
+}
+
+pub fn test_risk_rule_set() -> RiskRuleSet {
+    let mut document: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../risk-rules/default.json"))
+            .expect("default Risk Rule Set is JSON");
+    document["rule_set_version"] = serde_json::json!(TEST_RISK_RULE_SET_VERSION);
+    document["rules"]["vendor_price_deviation"]["missing_data"] =
+        serde_json::json!("NOT_APPLICABLE");
+    RiskRuleSet::from_json(&document.to_string()).expect("test Risk Rule Set is valid")
 }
 
 fn test_operator_authenticator() -> OperatorAuthenticator {
@@ -144,7 +172,7 @@ pub fn sample_intent_json(intent_id: &str, amount: &str) -> serde_json::Value {
             "destination": "eip155:8453:0x1111111111111111111111111111111111111111",
             "max_fee": "0.10"
         },
-        "context": { "historical_vendor_median": amount }
+        "context": {}
     })
 }
 

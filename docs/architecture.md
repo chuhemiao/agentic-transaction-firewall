@@ -27,7 +27,10 @@ Agent Intent
 
 - **`atf-core`** — shared domain primitives: fixed-point `Amount`, `Timestamp`
   (RFC 3339), shared Decision kind, 22 stable Intent lifecycle states, and an
-  exhaustive fail-closed transition validator. *Implemented.*
+  exhaustive fail-closed transition validator. DS-022 adds the closed
+  `EvidenceEnvelope`, typed source/kind/freshness, numeric-free bounded values,
+  domain-separated canonical hash, optional strict Ed25519 proof, exact trust
+  allowlists and non-constructible `VerifiedEvidence`. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -75,7 +78,12 @@ Agent Intent
   and high-risk network/protocol. Duplicate purchase reads verified durable
   Audit history using an explicit `PERMITTED` boundary; the engine can select
   `REQUESTED`, `PERMITTED`, `EXECUTED`, or `SETTLED` lifecycle facts.
-  *Implemented (partial — artifact persistence/scope, provenance, durable
+  DS-022 adds a typed `RiskContext` that accepts only core-verified evidence,
+  binds itself to the exact Intent hash, classifies raw Intent context as
+  Agent-provided, and requires exact organization/resource/asset-bound ATF
+  evidence for vendor median. Agent overrides, cross-Intent context reuse and
+  invalid/stale/ambiguous evidence produce explicit restrictive findings.
+  *Implemented (partial — artifact/evidence persistence, durable
   snapshots, daily cumulative spend, first-time destination and frequency
   rules remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 37 canonical version-1 typed
@@ -329,7 +337,9 @@ implementation order are in ADR-0002.
    history-aware variant when the caller has verified events — see step 10)
    runs one validated Rule Set and returns its exact version/hash plus
    findings. A denied request never reaches Risk scoring, but its durable
-   `NOT_RUN` evidence still names the selected Rule Set.
+   `NOT_RUN` evidence still names the selected Rule Set. DS-022 prevents raw
+   Agent context from supplying privileged Risk inputs; the current vendor
+   median consumes only fresh verified, scope-bound `ATF_ENRICHED` evidence.
 6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
    (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.1/§10.2: Cedar `forbid` (or
    default-deny) -> `DENY`; otherwise a `Critical` Risk Finding -> `DENY`, a
@@ -405,7 +415,9 @@ complete Decision Engine:
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
-  that time/history still needs a durable DS-023 snapshot identity.
+  DS-022 removes the current vendor rule's untrusted Agent-context read. That
+  time, verified Evidence and history still need a durable DS-023 snapshot
+  identity.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

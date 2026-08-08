@@ -52,6 +52,16 @@ unknown configuration fails before serving. Both executed and Policy-skipped
 Risk evidence record `risk_rule_set_version` and `risk_rule_set_hash`. See
 [`risk-rule-sets.md`](risk-rule-sets.md).
 
+DS-022 does not add an Agent evidence HTTP field. Intent `context` remains
+`AGENT_PROVIDED`; price, balance, position, spend, reputation, freshness and
+simulation keys cannot grant trusted Risk authority. The current Gateway has
+no production enricher, so the reference Rule Set returns a restrictive
+vendor-price insufficient-data finding rather than using
+`context.historical_vendor_median`. Trusted integrations construct the closed
+`evidence.schema.json` envelope, apply an exact local trust policy, and pass
+only `VerifiedEvidence` through `RiskContext`; DS-023 will persist that
+snapshot. See [`context-provenance.md`](context-provenance.md).
+
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
 `ATF_OPERATOR_DISCOVERY_URL` and `ATF_OPERATOR_JWKS_URL`, plus an asymmetric

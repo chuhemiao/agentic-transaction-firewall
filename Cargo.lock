@@ -174,7 +174,9 @@ name = "atf-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ed25519-dalek",
  "hex",
+ "jsonschema",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -270,6 +272,7 @@ dependencies = [
  "atf-core",
  "atf-intent",
  "chrono",
+ "ed25519-dalek",
  "jsonschema",
  "rust_decimal",
  "serde",
