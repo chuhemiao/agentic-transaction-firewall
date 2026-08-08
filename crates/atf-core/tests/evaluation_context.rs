@@ -101,6 +101,55 @@ fn context_hash_is_canonical_and_persisted_round_trip_is_verified() {
 }
 
 #[test]
+fn counterfactual_derivation_changes_only_evaluation_and_selected_artifacts() {
+    let original = context(serde_json::json!({"request_origin": "agent"}));
+    let selected_policy =
+        VersionedArtifactReference::available("atf-example-payments", "1.1.0", hash('e')).unwrap();
+    let selected_risk =
+        VersionedArtifactReference::available("atf-risk-engine-v1", "risk-rules-2.0.0", hash('f'))
+            .unwrap();
+
+    let derived = original
+        .derive_counterfactual(
+            "01J0000000000000000000EC01",
+            selected_policy.clone(),
+            selected_risk.clone(),
+        )
+        .unwrap();
+
+    assert_eq!(derived.evaluation_id(), "01J0000000000000000000EC01");
+    assert_eq!(derived.policy(), &selected_policy);
+    assert_eq!(derived.risk(), &selected_risk);
+    assert_eq!(derived.intent_id(), original.intent_id());
+    assert_eq!(derived.intent_hash(), original.intent_hash());
+    assert_eq!(derived.evaluation_time(), original.evaluation_time());
+    assert_eq!(derived.environment(), original.environment());
+    assert_eq!(derived.profile_id(), original.profile_id());
+    assert_eq!(derived.profile_version(), original.profile_version());
+    assert_eq!(
+        derived.context_snapshot_id(),
+        original.context_snapshot_id()
+    );
+    assert_eq!(
+        derived.context_snapshot_hash(),
+        original.context_snapshot_hash()
+    );
+    assert_eq!(derived.history(), original.history());
+    assert_eq!(derived.market_data(), original.market_data());
+    assert_eq!(derived.simulation(), original.simulation());
+    assert_ne!(
+        derived.evaluation_context_hash(),
+        original.evaluation_context_hash()
+    );
+    assert!(!derived.is_newly_constructed());
+    assert!(EvaluationContext::from_persisted(
+        derived.canonical_bytes(),
+        derived.evaluation_context_hash()
+    )
+    .is_ok());
+}
+
+#[test]
 fn verified_evidence_is_bound_and_freshness_is_rechecked_at_snapshot_time() {
     let envelope = EvidenceEnvelope::new(
         EvidenceKind::Price,

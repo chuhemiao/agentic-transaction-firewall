@@ -68,7 +68,9 @@ Context, verifies the supplied Audit prefix and returns the version/hash in
 canonical Evaluation and Audit evidence.
 
 DS-026 makes the artifact durable and organization/environment-scoped so
-Original Replay never substitutes a process default. DS-022 supplies
+Original Replay never substitutes a process default. DS-027 requires the same
+exact archive identity for explicit Counterfactual selection and stores a
+foreign-key-bound non-authoritative result. DS-022 supplies
 provenance-bearing Evidence and the privileged-context firewall:
 the vendor rule no longer reads Agent context and requires fresh verified,
 scope-bound ATF evidence. DS-023 persists the exact Evaluation Context;

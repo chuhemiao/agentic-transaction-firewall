@@ -50,6 +50,7 @@ pub enum EventType {
     OperatorRoleRevoked,
     RiskRuleSetStored,
     OriginalReplayCompleted,
+    CounterfactualReplayCompleted,
     IntentExpired,
     IntentCancelled,
 }
@@ -88,6 +89,7 @@ impl EventType {
                 | Self::OperatorRoleRevoked
                 | Self::RiskRuleSetStored
                 | Self::OriginalReplayCompleted
+                | Self::CounterfactualReplayCompleted
                 | Self::ApprovalGranted
                 | Self::ExecutionRequested
         )
@@ -110,6 +112,7 @@ impl EventType {
                     | Self::PolicyChanged
                     | Self::RiskRuleSetStored
                     | Self::OriginalReplayCompleted
+                    | Self::CounterfactualReplayCompleted
             )
     }
 }

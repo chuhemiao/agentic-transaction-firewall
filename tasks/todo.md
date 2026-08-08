@@ -120,13 +120,15 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-026:** implemented authorized Original Replay with exact immutable
   artifacts/history, Decision-hash reproduction, stable fail-closed codes and
   non-authoritative Audit evidence. Depends: DS-025.
-- [ ] **NEXT — DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.
-- [ ] **Checkpoint C3:** every Decision names immutable inputs and supports
+- [x] **DS-027:** implemented isolated, authorized Counterfactual Replay with
+  explicit replacement artifacts, immutable new lineage, changed-outcome
+  reporting and non-overwrite/restart/tamper evidence. Depends: DS-026.
+- [x] **Checkpoint C3:** every Decision names immutable inputs and supports
   both exact Original and isolated Counterfactual Replay.
 
 ### C4 Release hardening
 
-- [ ] **DS-028:** move duplicate-purchase history to durable snapshot queries. Depends: DS-024, DS-025.
+- [ ] **NEXT — DS-028:** move duplicate-purchase history to durable snapshot queries. Depends: DS-024, DS-025.
 - [ ] **DS-029:** add asset-aware daily cumulative spend risk. Depends: DS-028.
 - [ ] **DS-030:** add normalized first-time destination risk. Depends: DS-028.
 - [ ] **DS-031:** add business request/order frequency risk. Depends: DS-028.

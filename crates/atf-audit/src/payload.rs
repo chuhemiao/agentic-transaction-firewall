@@ -421,6 +421,32 @@ pub struct OriginalReplayCompletedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct CounterfactualReplayCompletedPayload {
+    pub organization_id: String,
+    pub replay_id: String,
+    pub original_evaluation_id: String,
+    pub original_decision_id: String,
+    pub original_decision_hash: String,
+    pub counterfactual_evaluation_id: String,
+    pub evaluation_context_hash: String,
+    pub counterfactual_evaluation_hash: String,
+    pub counterfactual_decision_id: String,
+    pub counterfactual_decision_hash: String,
+    pub policy_bundle_id: String,
+    pub policy_version: String,
+    pub policy_bundle_hash: String,
+    pub risk_engine_version: String,
+    pub risk_rule_set_version: String,
+    pub risk_rule_set_hash: String,
+    pub original_outcome: DecisionKind,
+    pub counterfactual_outcome: DecisionKind,
+    pub outcome_changed: bool,
+    pub authoritative: bool,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KillSwitchPayload {
     pub scope: String,
     pub actor_id: String,
@@ -479,6 +505,7 @@ pub enum AuditPayload {
     OperatorRoleRevoked(OperatorRoleChangedPayload),
     RiskRuleSetStored(RiskRuleSetStoredPayload),
     OriginalReplayCompleted(OriginalReplayCompletedPayload),
+    CounterfactualReplayCompleted(CounterfactualReplayCompletedPayload),
     KillSwitchEnabled(KillSwitchPayload),
     KillSwitchDisabled(KillSwitchPayload),
     IntentExpired(IntentExpiredPayload),
@@ -523,6 +550,7 @@ impl AuditPayload {
             Self::OperatorRoleRevoked(_) => EventType::OperatorRoleRevoked,
             Self::RiskRuleSetStored(_) => EventType::RiskRuleSetStored,
             Self::OriginalReplayCompleted(_) => EventType::OriginalReplayCompleted,
+            Self::CounterfactualReplayCompleted(_) => EventType::CounterfactualReplayCompleted,
             Self::KillSwitchEnabled(_) => EventType::KillSwitchEnabled,
             Self::KillSwitchDisabled(_) => EventType::KillSwitchDisabled,
             Self::IntentExpired(_) => EventType::IntentExpired,
@@ -566,6 +594,7 @@ impl AuditPayload {
             Self::OperatorRoleGranted(value) | Self::OperatorRoleRevoked(value) => encode(value),
             Self::RiskRuleSetStored(value) => encode(value),
             Self::OriginalReplayCompleted(value) => encode(value),
+            Self::CounterfactualReplayCompleted(value) => encode(value),
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => encode(value),
             Self::IntentExpired(value) => encode(value),
             Self::IntentCancelled(value) => encode(value),
@@ -628,6 +657,9 @@ impl AuditPayload {
             EventType::RiskRuleSetStored => Self::RiskRuleSetStored(decode(event_type, fields)?),
             EventType::OriginalReplayCompleted => {
                 Self::OriginalReplayCompleted(decode(event_type, fields)?)
+            }
+            EventType::CounterfactualReplayCompleted => {
+                Self::CounterfactualReplayCompleted(decode(event_type, fields)?)
             }
             EventType::KillSwitchEnabled => Self::KillSwitchEnabled(decode(event_type, fields)?),
             EventType::KillSwitchDisabled => Self::KillSwitchDisabled(decode(event_type, fields)?),
@@ -1117,6 +1149,57 @@ impl AuditPayload {
                     ));
                 }
             }
+            Self::CounterfactualReplayCompleted(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("replay_id", &value.replay_id),
+                        ("original_evaluation_id", &value.original_evaluation_id),
+                        ("original_decision_id", &value.original_decision_id),
+                        (
+                            "counterfactual_evaluation_id",
+                            &value.counterfactual_evaluation_id,
+                        ),
+                        (
+                            "counterfactual_decision_id",
+                            &value.counterfactual_decision_id,
+                        ),
+                        ("policy_bundle_id", &value.policy_bundle_id),
+                        ("policy_version", &value.policy_version),
+                        ("risk_engine_version", &value.risk_engine_version),
+                        ("risk_rule_set_version", &value.risk_rule_set_version),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                for (field, hash) in [
+                    ("original_decision_hash", &value.original_decision_hash),
+                    (
+                        "counterfactual_decision_hash",
+                        &value.counterfactual_decision_hash,
+                    ),
+                    ("evaluation_context_hash", &value.evaluation_context_hash),
+                    (
+                        "counterfactual_evaluation_hash",
+                        &value.counterfactual_evaluation_hash,
+                    ),
+                    ("policy_bundle_hash", &value.policy_bundle_hash),
+                    ("risk_rule_set_hash", &value.risk_rule_set_hash),
+                ] {
+                    sha256(event_type, field, hash)?;
+                }
+                if value.original_evaluation_id == value.counterfactual_evaluation_id
+                    || value.original_decision_id == value.counterfactual_decision_id
+                    || value.authoritative
+                    || value.outcome_changed
+                        != (value.original_outcome != value.counterfactual_outcome)
+                {
+                    return Err(invalid(
+                        event_type,
+                        "Counterfactual Replay evidence must use new identities, be non-authoritative, and report the exact outcome relation",
+                    ));
+                }
+            }
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => strings(
                 event_type,
                 &[
@@ -1237,6 +1320,7 @@ impl AuditPayload {
             | Self::OperatorRoleRevoked(_)
             | Self::RiskRuleSetStored(_)
             | Self::OriginalReplayCompleted(_)
+            | Self::CounterfactualReplayCompleted(_)
             | Self::ReplayDetected(_)
             | Self::KillSwitchEnabled(_)
             | Self::KillSwitchDisabled(_) => return Ok(current),

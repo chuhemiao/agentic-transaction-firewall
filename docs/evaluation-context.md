@@ -74,7 +74,10 @@ DS-023 does not yet recompute an unfinished Evaluation. A reclaimed request
 reuses an already persisted context when present; otherwise it persists one
 whose Policy/Risk/market-data fields explicitly record unavailability. It then
 emits `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` without executing
-current Policy/Risk. Deterministic Original Replay begins in DS-026.
+current Policy/Risk. DS-026 Original Replay uses the exact persisted Context;
+DS-027 derives a non-authoritative Counterfactual Context that preserves its
+snapshot/time/Evidence/history while changing only the new Evaluation ID and
+explicit selected Policy/Risk references.
 
 ## Required verification
 

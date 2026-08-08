@@ -76,6 +76,15 @@ current Policy-change authority and a same-transaction typed
 Original Replay can load the exact Risk behavior named by an Evaluation
 Context after restart.
 
+Migration 0010 adds DS-027 immutable Counterfactual Replay records outside the
+authoritative Evaluation/Decision tables. Each row binds new Context,
+Evaluation and Decision IDs plus exact canonical bytes/hashes to the original
+Evaluation/Decision, explicitly selected signed Policy/Risk artifacts, current
+Operator and one same-transaction `CounterfactualReplayCompleted` event.
+Foreign keys, closed outcome checks and mutation/delete/truncate guards enforce
+tenant isolation, `authoritative = false`, exact changed-outcome reporting and
+non-overwrite semantics.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

@@ -95,7 +95,7 @@ Agent Intent
   *Implemented (partial — production enrichment, durable bounded history
   queries, daily cumulative spend, first-time destination and frequency rules
   remain later work).*
-- **`atf-audit`** — `AuditEvent`/`EventType`, 39 canonical version-1 typed
+- **`atf-audit`** — `AuditEvent`/`EventType`, 40 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
   `AuditLedger` with hash-chain verification (PRD §16.3). Its closed JSON
@@ -155,12 +155,18 @@ Agent Intent
   immutable input and exact history prefix, recomputes typed module evidence
   and canonical Decision bytes, and appends only a referenced
   `OriginalReplayCompleted` event after current Decision-read authorization.
+  Migration 0010 stores Counterfactual Replay in a separate immutable table:
+  original lineage, new Context/Evaluation/Decision IDs and canonical hashes,
+  exact selected Policy/Risk foreign keys, changed-outcome relation and the
+  authorized `CounterfactualReplayCompleted` event are verified together.
+  These rows are permanently non-authoritative and never enter the one-per-
+  Intent Evaluation/Decision authority path.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test/install/activate/rollback`, `atf risk install`,
-  `atf replay original`, plus offline `atf identity` Agent/public-key
+  `atf replay original/counterfactual`, plus offline `atf identity` Agent/public-key
   provision/status/revoke and `atf operator` subject/status/role commands.
   *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -471,10 +477,10 @@ complete Decision Engine:
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
-- Original Replay is complete through DS-026, including immutable Risk
-  archives and restart/missing/tamper conformance. Counterfactual Replay
-  remains DS-027 and must create explicitly linked non-authoritative output
-  under selected replacement artifacts.
+- Original and Counterfactual Replay are complete through DS-027. Exact
+  Original reproduction and isolated selected-artifact lineage have restart,
+  missing/tamper/authorization/non-overwrite tests; broader property/fuzz
+  conformance remains DS-037.
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.

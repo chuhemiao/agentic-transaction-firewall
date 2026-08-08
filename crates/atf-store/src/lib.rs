@@ -37,12 +37,16 @@ pub use operator::{
     OperatorRole, OperatorRoleBinding, OperatorStatus, StoredOperator,
 };
 pub use policy::{ActivePolicyBundle, StoredPolicyBundle};
-pub use replay::{OriginalReplayRequest, OriginalReplayResult, ReplayError};
+pub use replay::{
+    CounterfactualEvaluation, CounterfactualReplayRequest, CounterfactualReplayResult,
+    OriginalReplayRequest, OriginalReplayResult, PolicyReplaySelection, ReplayError,
+    RiskReplaySelection,
+};
 pub use risk::StoredRiskRuleSet;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 9;
+pub const CURRENT_SCHEMA_VERSION: i32 = 10;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

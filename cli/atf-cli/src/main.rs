@@ -108,6 +108,38 @@ enum ReplayCommand {
         #[arg(long)]
         replay_id: Option<String>,
     },
+    /// Re-evaluate an original snapshot with explicitly selected artifacts.
+    Counterfactual {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        intent_id: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+        #[arg(long)]
+        policy_bundle_id: String,
+        #[arg(long)]
+        policy_version: String,
+        #[arg(long)]
+        policy_bundle_hash: String,
+        #[arg(long)]
+        risk_engine_version: String,
+        #[arg(long)]
+        risk_rule_set_version: String,
+        #[arg(long)]
+        risk_rule_set_hash: String,
+        /// Caller-supplied replay correlation ID; defaults to a fresh ULID.
+        #[arg(long)]
+        replay_id: Option<String>,
+        /// New non-authoritative Evaluation ID; defaults to a fresh ULID.
+        #[arg(long)]
+        evaluation_id: Option<String>,
+        /// New non-authoritative Decision ID; defaults to a fresh ULID.
+        #[arg(long)]
+        decision_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -374,33 +406,119 @@ async fn run_replay(command: ReplayCommand) -> Result<()> {
     let store = atf_store::Store::connect(&database_url)
         .await
         .context("connecting to the ATF durable-state database")?;
-    let ReplayCommand::Original {
-        organization_id,
-        intent_id,
-        actor_id,
-        occurred_at,
-        replay_id,
-    } = command;
-    let replay_id = replay_id.unwrap_or_else(atf_core::new_ulid);
-    let result = store
-        .replay_original(atf_store::OriginalReplayRequest {
-            replay_id,
+    match command {
+        ReplayCommand::Original {
             organization_id,
             intent_id,
             actor_id,
             occurred_at,
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("{}: {error}", error.code()))?;
-    println!("replay_id: {}", result.replay_id);
-    println!("original_evaluation_id: {}", result.original_evaluation_id);
-    println!("original_decision_id: {}", result.original_decision_id);
-    println!("original_decision_hash: {}", result.original_decision_hash);
-    println!("replayed_decision_hash: {}", result.replayed_decision_hash);
-    println!("matched: {}", result.matched);
-    println!("audit_event_id: {}", result.audit_event.event.event_id);
+            replay_id,
+        } => {
+            let result = store
+                .replay_original(atf_store::OriginalReplayRequest {
+                    replay_id: replay_id.unwrap_or_else(atf_core::new_ulid),
+                    organization_id,
+                    intent_id,
+                    actor_id,
+                    occurred_at,
+                })
+                .await
+                .map_err(|error| anyhow::anyhow!("{}: {error}", error.code()))?;
+            println!("replay_id: {}", result.replay_id);
+            println!("original_evaluation_id: {}", result.original_evaluation_id);
+            println!("original_decision_id: {}", result.original_decision_id);
+            println!("original_decision_hash: {}", result.original_decision_hash);
+            println!("replayed_decision_hash: {}", result.replayed_decision_hash);
+            println!("matched: {}", result.matched);
+            println!("audit_event_id: {}", result.audit_event.event.event_id);
+        }
+        ReplayCommand::Counterfactual {
+            organization_id,
+            intent_id,
+            actor_id,
+            occurred_at,
+            policy_bundle_id,
+            policy_version,
+            policy_bundle_hash,
+            risk_engine_version,
+            risk_rule_set_version,
+            risk_rule_set_hash,
+            replay_id,
+            evaluation_id,
+            decision_id,
+        } => {
+            let result = store
+                .replay_counterfactual(atf_store::CounterfactualReplayRequest {
+                    replay_id: replay_id.unwrap_or_else(atf_core::new_ulid),
+                    organization_id,
+                    intent_id,
+                    counterfactual_evaluation_id: evaluation_id.unwrap_or_else(atf_core::new_ulid),
+                    counterfactual_decision_id: decision_id.unwrap_or_else(atf_core::new_ulid),
+                    selected_policy: atf_store::PolicyReplaySelection {
+                        bundle_id: policy_bundle_id,
+                        policy_version,
+                        bundle_hash: policy_bundle_hash,
+                    },
+                    selected_risk: atf_store::RiskReplaySelection {
+                        engine_version: risk_engine_version,
+                        rule_set_version: risk_rule_set_version,
+                        rule_set_hash: risk_rule_set_hash,
+                    },
+                    actor_id,
+                    occurred_at,
+                })
+                .await
+                .map_err(|error| anyhow::anyhow!("{}: {error}", error.code()))?;
+            println!("replay_id: {}", result.replay_id);
+            println!("authoritative: {}", result.authoritative);
+            println!("original_evaluation_id: {}", result.original_evaluation_id);
+            println!("original_decision_id: {}", result.original_decision_id);
+            println!("original_decision_hash: {}", result.original_decision_hash);
+            println!(
+                "original_outcome: {}",
+                decision_kind_name(result.original_outcome)
+            );
+            println!(
+                "counterfactual_evaluation_id: {}",
+                result.evaluation.evaluation_id
+            );
+            println!("counterfactual_evaluation_hash: {}", result.evaluation_hash);
+            println!(
+                "counterfactual_decision_id: {}",
+                result.decision.decision_id
+            );
+            println!("counterfactual_decision_hash: {}", result.decision_hash);
+            println!(
+                "counterfactual_outcome: {}",
+                decision_kind_name(result.decision.decision)
+            );
+            println!("outcome_changed: {}", result.outcome_changed);
+            println!("policy_bundle_id: {}", result.selected_policy.bundle_id);
+            println!("policy_version: {}", result.selected_policy.policy_version);
+            println!("policy_bundle_hash: {}", result.selected_policy.bundle_hash);
+            println!(
+                "risk_engine_version: {}",
+                result.selected_risk.engine_version
+            );
+            println!(
+                "risk_rule_set_version: {}",
+                result.selected_risk.rule_set_version
+            );
+            println!("risk_rule_set_hash: {}", result.selected_risk.rule_set_hash);
+            println!("audit_event_id: {}", result.audit_event.event.event_id);
+        }
+    }
     store.close().await;
     Ok(())
+}
+
+const fn decision_kind_name(kind: atf_core::DecisionKind) -> &'static str {
+    match kind {
+        atf_core::DecisionKind::Permit => "PERMIT",
+        atf_core::DecisionKind::Review => "REVIEW",
+        atf_core::DecisionKind::Deny => "DENY",
+        atf_core::DecisionKind::Error => "ERROR",
+    }
 }
 
 async fn run_policy(command: PolicyCommand) -> Result<()> {

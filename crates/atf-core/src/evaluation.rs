@@ -181,6 +181,7 @@ struct EvaluationContextHashPayload<'a> {
 enum ContextOrigin {
     ConstructedFromVerifiedInputs,
     LoadedFromPersistence,
+    DerivedCounterfactual,
 }
 
 /// Immutable, hash-verified input snapshot for one Evaluation.
@@ -497,6 +498,37 @@ impl EvaluationContext {
         };
         context.validate_document()?;
         context.verify_hash(expected_hash)?;
+        context.canonical_bytes = context.document_canonical_bytes();
+        Ok(context)
+    }
+
+    /// Derive a non-authoritative evaluation boundary over the exact same
+    /// immutable facts while selecting a new Evaluation identity and exact
+    /// Policy/Risk artifacts.
+    ///
+    /// The snapshot identity/hash, evaluation time, verified Evidence and
+    /// repository-history boundary are retained byte-for-byte. The returned
+    /// value is deliberately not marked as newly constructed, so it cannot be
+    /// inserted into the one-per-Intent authoritative Context repository.
+    pub fn derive_counterfactual(
+        &self,
+        evaluation_id: impl Into<String>,
+        policy: VersionedArtifactReference,
+        risk: VersionedArtifactReference,
+    ) -> Result<Self, EvaluationContextError> {
+        let mut document = self.document.clone();
+        document.evaluation_id = evaluation_id.into();
+        document.policy = policy;
+        document.risk = risk;
+        document.evaluation_context_hash = "0".repeat(64);
+        let mut context = Self {
+            document,
+            canonical_bytes: Vec::new(),
+            origin: ContextOrigin::DerivedCounterfactual,
+        };
+        context.validate_document()?;
+        context.document.evaluation_context_hash = context.expected_hash()?;
+        context.validate_size()?;
         context.canonical_bytes = context.document_canonical_bytes();
         Ok(context)
     }

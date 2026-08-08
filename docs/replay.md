@@ -1,14 +1,14 @@
 # Deterministic Replay
 
-DS-026 implements **Original Replay** as a PostgreSQL-backed verification
-operation. It does not create, replace, or update an authoritative Evaluation
-or Decision.
+DS-026 implements **Original Replay** and DS-027 implements isolated
+**Counterfactual Replay**. Neither operation can create, replace, or update an
+authoritative Evaluation or Decision.
 
 ## Authority and inputs
 
-`atf replay original` requires the current Operator to hold `auditor` or
+Both Replay commands require the current Operator to hold `auditor` or
 `org_admin` for the requested organization. Authorization is checked before
-input discovery and checked again in the final Audit append transaction.
+input discovery and checked again in the final atomic record/Audit transaction.
 
 Replay loads and verifies:
 
@@ -48,9 +48,37 @@ Stable public CLI codes include:
 - `REPLAY_EVALUATION_MISMATCH`
 - `REPLAY_DECISION_MISMATCH`
 
-Counterfactual Replay is deliberately separate: DS-027 will create new,
-non-authoritative Evaluation/Decision identities with explicit lineage and
-selected replacement artifact versions.
+## Counterfactual contract
+
+Counterfactual Replay starts from the verified original Intent and immutable
+Context snapshot. It retains the original evaluation time, Context snapshot
+hash, verified Evidence, external availability facts and exact Audit-history
+prefix, while the caller explicitly selects a Policy Bundle ID/version/hash
+and Risk engine/Rule Set version/hash. At least one selected artifact must
+differ from the original, and a selected Policy Bundle must be valid for the
+original evaluation time; missing, incompatible or modified artifacts fail
+closed without fallback to a process default.
+
+The caller supplies or the CLI creates fresh Replay, Evaluation and Decision
+IDs. Migration 0010 stores the derived Context, Counterfactual Evaluation and
+Decision canonical bytes/hashes in `counterfactual_replays`, linked by foreign
+keys to the original authoritative Evaluation/Decision and exact archived
+artifacts. Database constraints and triggers enforce new identities,
+`authoritative: false`, the exact changed-outcome relation, and rejection of
+update/delete/truncate. The authoritative `evaluation_contexts`, `evaluations`
+and `decisions` tables are never written.
+
+Success atomically appends `CounterfactualReplayCompleted`. Its typed payload
+binds original and Counterfactual lineage, Context/Evaluation/Decision hashes,
+selected artifact identities, both outcomes, `outcome_changed`, actor and
+`authoritative: false`. Restart reads reparse and recanonicalize all three
+documents, verify their hashes and Decision binding, reload the selected
+signed Policy/Risk archives, and require the matching Audit evidence.
+
+Additional stable codes are:
+
+- `REPLAY_SELECTED_ARTIFACT_MISSING`
+- `REPLAY_COUNTERFACTUAL_CONFLICT`
 
 ## CLI
 
@@ -62,8 +90,22 @@ DATABASE_URL=postgres://... atf risk install risk-rules/default.json \
 DATABASE_URL=postgres://... atf replay original \
   --organization-id alpha-lab --intent-id 01J... \
   --actor-id auditor-1 --occurred-at 2026-08-08T12:05:00Z
+
+DATABASE_URL=postgres://... atf replay counterfactual \
+  --organization-id alpha-lab --intent-id 01J... \
+  --actor-id auditor-1 --occurred-at 2026-08-08T12:06:00Z \
+  --policy-bundle-id atf-example-payments --policy-version 1.1.0 \
+  --policy-bundle-hash 0123...cdef \
+  --risk-engine-version atf-risk-engine-v1 \
+  --risk-rule-set-version risk-rules-2.0.0 \
+  --risk-rule-set-hash fedc...3210
 ```
 
+Counterfactual CLI output explicitly includes original/new Evaluation and
+Decision IDs/hashes, exact selected versions/hashes, both outcomes,
+`outcome_changed`, `authoritative: false`, and the Audit event ID.
+
 The executable relation fixture and fail-closed cases are in
-`conformance/replay-tests/original.json` and
+`conformance/replay-tests/original.json`,
+`conformance/replay-tests/counterfactual.json`, and
 `crates/atf-store/tests/replay.rs`.

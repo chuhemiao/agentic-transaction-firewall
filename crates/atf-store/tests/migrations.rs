@@ -54,15 +54,15 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 9);
-    assert_eq!(schema.minimum_writer_version, 9);
+    assert_eq!(schema.minimum_reader_version, 10);
+    assert_eq!(schema.minimum_writer_version, 10);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 9);
+    assert_eq!(migration_count, 10);
 
     let lifecycle_columns: i64 = sqlx::query_scalar(
         r#"
@@ -105,13 +105,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
               'operator_roles',
               'policy_bundles',
               'active_policy_bundles',
-              'risk_rule_sets'
+              'risk_rule_sets',
+              'counterfactual_replays'
           )
         "#,
     )
     .fetch_one(&pool)
     .await?;
-    assert_eq!(table_count, 17);
+    assert_eq!(table_count, 18);
 
     let nonce_guard_count: i64 = sqlx::query_scalar(
         r#"
@@ -197,13 +198,29 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     .await?;
     assert_eq!(risk_rule_set_guard_count, 2);
 
+    let counterfactual_guard_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM information_schema.triggers
+        WHERE event_object_schema = 'public'
+          AND event_object_table = 'counterfactual_replays'
+          AND trigger_name IN (
+              'counterfactual_replays_protect_mutation',
+              'counterfactual_replays_reject_truncate'
+          )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(counterfactual_guard_count, 2);
+
     let store = atf_store::Store::connect(&database_url).await?;
     assert_eq!(store.schema(), schema);
     assert!(!store.is_closed());
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 10 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 11 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -213,14 +230,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 9,
-            database_version: 10,
-            minimum_reader_version: 9,
-            minimum_writer_version: 9,
+            binary_version: 10,
+            database_version: 11,
+            minimum_reader_version: 10,
+            minimum_writer_version: 10,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 9 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 10 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -570,7 +587,15 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
                 .expect("migration 0009 is embedded"),
         )
         .await?;
-    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 9);
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 10)
+                .expect("migration 0010 is embedded"),
+        )
+        .await?;
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 10);
     let nonce_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM identity_nonces")
         .fetch_one(&pool)
         .await?;

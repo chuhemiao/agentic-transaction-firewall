@@ -172,6 +172,7 @@ Every row below also carries `schema_version: 1`.
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
 | Risk Rule Set stored | organization/environment, engine/Rule Set versions, Rule Set/artifact hashes and authorized installer; never mutable process defaults |
 | Original Replay completed | replay/original Evaluation/original Decision IDs, original/replayed Decision hashes, actor, `matched: true`, and `authoritative: false` |
+| Counterfactual Replay completed | replay/original/new Evaluation and Decision IDs, original/Context/new Evaluation/new Decision hashes, selected Policy/Risk identities, both outcomes, exact changed relation, actor and `authoritative: false` |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |
 | Decision recorded | organization, Agent, Intent/Evaluation/Decision IDs and hashes, Decision kind, action/resource/amount evidence; current producers additionally mirror the complete Decision v1 Profile/artifact/Context/snapshot/Simulation/time/expiry/Approval/Obligation/execution-constraint binding while pre-DS-025 immutable events remain decodable without it |
 | Approval | approval/Decision IDs, required roles or approver plus stable rejection code |
@@ -321,6 +322,13 @@ archive row and event commit together. `OriginalReplayCompleted` can only be
 emitted by the authorized exact-input reproduction path; its hashes must be
 equal, `matched` must be true, and `authoritative` must be false. Generic Audit
 append cannot fabricate either event.
+
+DS-027 likewise emits `CounterfactualReplayCompleted` only in the transaction
+that inserts the immutable non-authoritative Replay row. The typed payload
+requires different original/new identities, binds all selected artifact and
+derived Context/Evaluation/Decision hashes, and requires `outcome_changed` to
+equal the actual Decision-kind comparison. It has no lifecycle effect and can
+never substitute for `DecisionRecorded` authority.
 
 Threats addressed are Audit payload confusion/tampering, backward or
 post-terminal state advancement, stale-writer races, state/event split brain,

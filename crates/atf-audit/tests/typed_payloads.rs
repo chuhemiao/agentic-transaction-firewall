@@ -2,12 +2,12 @@ use std::str::FromStr;
 
 use atf_audit::{
     AgentRegisteredPayload, AgentStatusChangedPayload, ApprovalRequestedPayload, AuditPayload,
-    ContextEnrichedPayload, DecisionRecordedPayload, EventType, IdentityKeyRegisteredPayload,
-    IdentityKeyRevokedPayload, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
-    IdentityVerifiedPayload, IntentReceivedPayload, KillSwitchPayload, NewAuditEvent,
-    OptionalModuleOutcome, OriginalReplayCompletedPayload, PolicyEvaluatedPayload, PolicyOutcome,
-    ReplayDetectedPayload, RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence,
-    RiskSeverity, SimulationCompletedPayload,
+    ContextEnrichedPayload, CounterfactualReplayCompletedPayload, DecisionRecordedPayload,
+    EventType, IdentityKeyRegisteredPayload, IdentityKeyRevokedPayload, IdentityRejectedPayload,
+    IdentityVerificationSkippedPayload, IdentityVerifiedPayload, IntentReceivedPayload,
+    KillSwitchPayload, NewAuditEvent, OptionalModuleOutcome, OriginalReplayCompletedPayload,
+    PolicyEvaluatedPayload, PolicyOutcome, ReplayDetectedPayload, RequiredModuleOutcome,
+    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
 };
 use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, Timestamp};
 
@@ -253,6 +253,7 @@ fn non_state_evidence_preserves_state_and_invalid_advancement_fails_closed() {
     for event_type in [
         EventType::RiskRuleSetStored,
         EventType::OriginalReplayCompleted,
+        EventType::CounterfactualReplayCompleted,
     ] {
         assert!(!event_type.has_lifecycle_effect());
         assert!(event_type.requires_atomic_state_transaction());
@@ -315,6 +316,37 @@ fn malformed_identifiers_and_hashes_are_rejected_before_event_creation() {
         Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
         Some("intent-1".into()),
         mismatched_replay,
+    )
+    .is_err());
+
+    let inconsistent_counterfactual =
+        AuditPayload::CounterfactualReplayCompleted(CounterfactualReplayCompletedPayload {
+            organization_id: "alpha-lab".into(),
+            replay_id: "replay-2".into(),
+            original_evaluation_id: "evaluation-1".into(),
+            original_decision_id: "decision-1".into(),
+            original_decision_hash: hash('a'),
+            counterfactual_evaluation_id: "evaluation-2".into(),
+            evaluation_context_hash: hash('e'),
+            counterfactual_evaluation_hash: hash('f'),
+            counterfactual_decision_id: "decision-2".into(),
+            counterfactual_decision_hash: hash('b'),
+            policy_bundle_id: "payments".into(),
+            policy_version: "2.0.0".into(),
+            policy_bundle_hash: hash('c'),
+            risk_engine_version: "atf-risk-engine-v1".into(),
+            risk_rule_set_version: "2.0.0".into(),
+            risk_rule_set_hash: hash('d'),
+            original_outcome: DecisionKind::Review,
+            counterfactual_outcome: DecisionKind::Deny,
+            outcome_changed: false,
+            authoritative: false,
+            actor_id: "operator-1".into(),
+        });
+    assert!(NewAuditEvent::from_payload(
+        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
+        Some("intent-1".into()),
+        inconsistent_counterfactual,
     )
     .is_err());
 }

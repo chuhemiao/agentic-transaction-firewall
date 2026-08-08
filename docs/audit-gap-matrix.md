@@ -221,8 +221,8 @@ principals and non-enumerating Decision-read RBAC.
   exact-byte archive/public-key evidence, unique version enforcement,
   monotonic active pointers, atomic rollback and typed `PolicyChanged`. JWT
   Admin routes and the Store both recheck current Policy roles; Gateway reloads
-  and verifies the active artifact per request. Multi-Bundle resolution and
-  multi-Bundle resolution remains open. DS-023 pins the resolved Bundle in
+  and verifies the active artifact per request. Multi-Bundle resolution
+  remains open. DS-023 pins the resolved Bundle in
   immutable Evaluation Context and final Evaluation input; DS-025 carries the
   same exact identity into canonical Decision/Audit evidence.
 - **security_impact:** the selected Bundle is now provenance-checked and
@@ -232,11 +232,13 @@ principals and non-enumerating Decision-read RBAC.
   authorized Bundle; future multi-Bundle resolution still needs explicit
   composition evidence.
 - **severity:** `MEDIUM`
-- **recommended_change:** retain DS-019/DS-020/DS-023/DS-025 invariants and
-  add replay verification plus explicit future multi-Bundle composition.
+- **recommended_change:** retain DS-019/DS-020/DS-023/DS-025..DS-027
+  persistence, Decision and Replay invariants; add explicit future
+  multi-Bundle composition.
 - **required_tests:** implemented for bad signature/schema/scope/version/
   expiry, duplicate/conflict, concurrent activation, restart, rollback,
-  privileged tamper, authenticated RBAC API and real CLI.
+  privileged tamper, authenticated RBAC API, exact/counterfactual Replay and
+  real CLI.
 - **dependencies:** Admin RBAC, persistence, canonical hashing.
 - **target_release:** Durable Shadow Mode P0.9.
 - **acceptance_criteria:** bundle load failures are fail-closed and every Decision/Audit event names the exact validated bundle hash/version.
@@ -249,8 +251,8 @@ principals and non-enumerating Decision-read RBAC.
   under a closed DS-021 artifact whose version/hash binds enabled state,
   severity, thresholds, deny lists, explicit missing-data behavior and all
   lifecycle accounting-boundary choices. Gateway evidence records that exact
-  identity. Most PRD §12 rules, durable Rule Set selection and trusted inputs
-  do not exist.
+  identity. Most PRD §12 rules, dynamic active Rule Set selection and
+  production trusted inputs do not exist.
 - **security_impact:** common split-order, allowance, withdrawal, leverage, concentration, and velocity threats are unchecked.
 - **financial_impact:** budget, market, protocol, and execution-risk losses are not bounded.
 - **severity:** `HIGH`
@@ -299,16 +301,25 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-RPY-001 — Deterministic Replay
 
 - **module:** Core evaluation pipeline and replay conformance
-- **current_state:** `MISSING`
-- **evidence:** DS-023 now records the exact Policy/Risk identities, evaluation
-  time, verified Evidence and history snapshot before evaluation. Legacy
-  Policy/Risk convenience APIs still sample `Timestamp::now()` or accept
-  separately supplied inputs; replay conformance remains a README only.
-- **security_impact:** original decisions cannot be independently reproduced or investigated.
-- **financial_impact:** disputes and regressions cannot prove which inputs caused an authorization.
-- **severity:** `HIGH`
-- **recommended_change:** versioned `EvaluationContext`, immutable snapshots, original/counterfactual replay APIs, and non-overwriting results.
-- **required_tests:** same-input repeatability, wall-clock independence, missing-version fail-closed, counterfactual isolation.
+- **current_state:** `IMPLEMENTED`
+- **evidence:** DS-023/DS-024 persist and exclusively consume the exact Context
+  time, artifact identities, verified Evidence and history snapshot. DS-026
+  reloads exact archived inputs and reproduces canonical original Decision
+  bytes/hash. DS-027 migration 0010 stores distinct non-authoritative Context/
+  Evaluation/Decision lineage under explicit selected Policy/Risk artifacts,
+  binds it to typed Audit evidence and never writes authoritative rows.
+- **security_impact:** authorized replay now detects missing/tampered inputs,
+  denies resource discovery before RBAC, and keeps investigative output from
+  becoming transaction authority.
+- **financial_impact:** original decisions and alternative-rule outcomes have
+  immutable, restart-verifiable provenance without changing the recorded
+  authorization.
+- **severity:** `CLOSED` (formerly `HIGH`)
+- **recommended_change:** retain exact-input, non-overwrite and typed lineage
+  invariants; expand property/fuzz and operational conformance in DS-037.
+- **required_tests:** implemented same-input/wall-clock repeatability,
+  missing/tampered artifact fail-closed, restart, authorization-before-
+  discovery, identity conflict rollback and counterfactual isolation.
 - **dependencies:** persistence, policy/risk versioning, provenance.
 - **target_release:** Durable Shadow Mode P0.6-P0.7.
 - **acceptance_criteria:** original replay reproduces the Decision hash exactly; counterfactual replay creates a distinct evaluation.
@@ -356,9 +367,10 @@ principals and non-enumerating Decision-read RBAC.
 - **financial_impact:** a future execution grant can bind one exact immutable
   Decision instead of trusting a mutable ID or stale module selection.
 - **severity:** `CLOSED` (formerly `HIGH`)
-- **recommended_change:** retain DS-025/DS-026 invariants; Original Replay now
-  reproduces the exact hash, and future Counterfactual/Simulator/Approval work
-  must create explicit lineage or a new version rather than weakening v1.
+- **recommended_change:** retain DS-025..DS-027 invariants; Original Replay
+  reproduces the exact hash and Counterfactual Replay creates explicit
+  non-authoritative lineage. Future Simulator/Approval work must create a new
+  version rather than weakening Decision v1.
 - **required_tests:** implemented mutation sensitivity, deterministic bytes,
   all-four-outcome closed Schema, module mismatch, PostgreSQL persistence/
   Audit equality, Gateway integration and live API smoke.
@@ -529,6 +541,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-027` is next: use explicitly selected replacement Policy/Risk artifacts to
-create separately identified, non-authoritative Counterfactual Evaluation/
-Decision lineage without overwriting the original records.
+`DS-028` is next: replace full-chain duplicate-purchase scans with bounded,
+organization-scoped durable history snapshots.

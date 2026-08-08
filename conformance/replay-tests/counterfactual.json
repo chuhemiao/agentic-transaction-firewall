@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "fixture_id": "ds027-counterfactual-replay-v1",
+  "authoritative": false,
+  "expected_lineage": "LINKED_TO_ORIGINAL",
+  "expected_outcome_relation": "CHANGED",
+  "stable_errors": {
+    "authorization_denied": "REPLAY_AUTHORIZATION_DENIED",
+    "missing_selected_artifact": "REPLAY_SELECTED_ARTIFACT_MISSING",
+    "identity_conflict": "REPLAY_COUNTERFACTUAL_CONFLICT"
+  }
+}

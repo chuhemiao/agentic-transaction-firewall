@@ -44,7 +44,8 @@ Only the following crates are implemented so far:
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
   the fail-closed pure transition validator, DS-022 provenance-bearing
   Evidence envelopes, the DS-023/DS-024 immutable `EvaluationContext`
-  evaluator boundary, and DS-025 shared Decision-binding types. Evidence uses
+  evaluator boundary, DS-025 shared Decision-binding types, and DS-027's
+  non-authoritative same-snapshot Counterfactual Context derivation. Evidence uses
   closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
@@ -162,10 +163,14 @@ Only the following crates are implemented so far:
   `RiskRuleSetStored` evidence. Original Replay reloads the exact Intent,
   Context, signed Policy, Risk archive and Context-bound Audit prefix,
   reproduces canonical Decision bytes/hash, and appends only
-  non-authoritative `OriginalReplayCompleted` evidence.
+  non-authoritative `OriginalReplayCompleted` evidence. Migration 0010 adds
+  immutable `counterfactual_replays`: new Context/Evaluation/Decision IDs and
+  canonical bytes/hashes are linked to the original authority, exact selected
+  Policy/Risk artifacts and `CounterfactualReplayCompleted`, always with
+  `authoritative=false`; authoritative tables are never written.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
-  `atf risk install`, `atf replay original`,
+  `atf risk install`, `atf replay original/counterfactual`,
   offline `atf identity` provision/register/status/revoke commands, and
   offline `atf operator` subject/status/role commands. Lifecycle commands read
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
@@ -258,6 +263,9 @@ accounting-boundary semantics, and Rule Set identity in durable Risk evidence.
 `DS-022` adds the closed Evidence contract, canonical hash/freshness/signature
 verification and the Risk privileged-context firewall; the Gateway no longer
 uses Agent-provided vendor median as trusted financial data.
+`DS-027` adds authorized Counterfactual Replay with explicit replacement
+artifact selection, independent non-authoritative lineage, changed-outcome
+reporting and immutable restart verification without overwriting authority.
 `DS-023` adds the closed Evaluation Context schema/type, migration 0008
 immutable snapshot store and typed Audit evidence. Gateway pins the resolved
 Policy, Risk Rule Set, evaluation time, Agent-context hash, verified Evidence
@@ -458,9 +466,11 @@ semantics (evaluate only, never execute).
     Risk archive and exact Audit prefix, reproduces byte-identical Decision
     hash output after restart, and appends non-authoritative typed evidence
     without changing the original Evaluation/Decision.
-27. **NEXT — Counterfactual Replay:** create a separate non-authoritative
-    Evaluation/Decision lineage under explicitly selected newer Policy/Risk
-    artifacts without changing the original records.
+27. ~~Counterfactual Replay.~~ Done in DS-027: migration 0010 stores an
+    immutable, separately identified non-authoritative Context/Evaluation/
+    Decision lineage linked to the original; current `auditor`/`org_admin`
+    authority gates exact replacement Policy/Risk selection, CLI output names
+    both versions/outcomes and original authoritative rows remain byte-identical.
 
 ### Remaining before Phase 2 can close out
 
@@ -483,9 +493,10 @@ semantics (evaluate only, never execute).
   DS-007 extends the active contract to 22 states/28 events with a retained
   Shadow-only `IDENTITY_UNVERIFIED` compatibility branch; DS-015 adds four
   typed Agent/Key operator events, DS-016 adds `ReplayDetected`, and DS-018 adds
-  four Operator subject/role events, and DS-026 adds `RiskRuleSetStored` plus
-  `OriginalReplayCompleted`, for 39 typed events without changing the state
-  set.
+  four Operator subject/role events, DS-026 adds `RiskRuleSetStored` plus
+  `OriginalReplayCompleted`, and DS-027 adds
+  `CounterfactualReplayCompleted`, for 40 typed events without changing the
+  state set.
 - ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
@@ -521,8 +532,9 @@ semantics (evaluate only, never execute).
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
 - ~~Make Policy/Risk consume only the persisted `EvaluationContext`, strongly
-  bind canonical Decisions, and reproduce the original result.~~ Done in
-  DS-024..DS-026. Counterfactual Replay is next.
+  bind canonical Decisions, and support exact/isolated Replay.~~ Done in
+  DS-024..DS-027 with byte-identical Original reproduction and immutable
+  non-authoritative Counterfactual lineage.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
@@ -539,9 +551,9 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  Counterfactual Replay, stateful Risk, Audit query/metrics, operational
-  hardening, and security re-audit. Strongly bound Decisions and Original
-  Replay are complete through DS-026.
+  stateful Risk, Audit query/metrics, operational hardening, and security
+  re-audit. Strongly bound Decisions plus Original/Counterfactual Replay are
+  complete through DS-027.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

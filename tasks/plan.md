@@ -956,6 +956,8 @@ original Decision without overwriting it.
 
 ### DS-027 — Implement Counterfactual Replay `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Re-evaluate an original Intent/snapshot under explicitly
 selected newer Policy/Risk artifacts, creating a separate Evaluation linked to
 the original and clearly marked non-authoritative.
@@ -964,6 +966,12 @@ the original and clearly marked non-authoritative.
 - **Likely files:** `crates/atf-store/src/replay.rs`,
   `cli/atf-cli/src/replay.rs`, `conformance/replay-tests/counterfactual.json`,
   `crates/atf-store/tests/replay.rs`, `docs/replay.md`.
+- **Delivered boundary:** migration 0010 stores immutable, non-authoritative
+  Counterfactual Context/Evaluation/Decision bytes and hashes under new IDs,
+  exact original lineage and selected signed Policy/Risk foreign keys. Current
+  Decision-read authority is checked before discovery and again in the atomic
+  `CounterfactualReplayCompleted` append/record transaction; restart loaders
+  verify every canonical representation and its Audit-bound hashes.
 - **Acceptance criteria:**
   1. Counterfactual output has a new Evaluation/Decision identity and lineage.
   2. Original records/hashes remain unchanged.
