@@ -154,7 +154,8 @@ async fn create_intent(
         admitted.admitted.identity.envelope_hash
     );
 
-    let policy_result = state.policy_bundle.evaluate(&intent);
+    let evaluated_at = Timestamp::now();
+    let policy_result = state.policy_bundle.evaluate_at(&intent, evaluated_at);
     let policy_evidence = match &policy_result {
         Ok(outcome) => PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -254,7 +255,6 @@ async fn create_intent(
     };
 
     let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
-    let evaluated_at = Timestamp::now();
     let finalized = match state
         .store
         .finalize_decision(FinalizationInput {

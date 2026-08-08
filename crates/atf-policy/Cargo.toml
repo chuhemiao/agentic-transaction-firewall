@@ -14,5 +14,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 cedar-policy = { workspace = true }
+jsonschema = { workspace = true }
 
 [dev-dependencies]

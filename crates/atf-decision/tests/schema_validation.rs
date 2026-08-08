@@ -3,27 +3,16 @@
 //! the schema can't silently drift from the Rust type it's meant to
 //! describe.
 
+use std::path::Path;
 use std::str::FromStr;
 
 use atf_core::{Amount, Timestamp};
 use atf_decision::{decide, DecisionKind};
 use atf_intent::{Action, Mandate, Principal, Resource, Transaction, TransactionIntent};
-use atf_policy::PolicyBundle;
+use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
 use atf_risk::{RiskFinding, Severity};
 
 const SCHEMA_STR: &str = include_str!("../../../schemas/decision.schema.json");
-
-const POLICY: &str = r#"
-    permit (
-        principal,
-        action == Action::"payment/purchase_api_resource",
-        resource
-    )
-    when {
-        context.organization_id == "alpha-lab" &&
-        context.amount.lessThanOrEqual(decimal("20.0000"))
-    };
-"#;
 
 fn sample_intent(amount: &str) -> TransactionIntent {
     TransactionIntent {
@@ -89,9 +78,9 @@ fn assert_valid_against_schema(decision: &atf_decision::Decision) {
 
 #[test]
 fn a_permit_decision_matches_the_schema() {
-    let bundle: PolicyBundle = POLICY.parse().unwrap();
+    let bundle = policy_bundle();
     let intent = sample_intent("12.50");
-    let policy = bundle.evaluate(&intent);
+    let policy = bundle.evaluate_at(&intent, evaluation_time());
     let decision = decide(&intent, policy, &[]);
     assert_eq!(decision.decision, DecisionKind::Permit);
     assert_valid_against_schema(&decision);
@@ -99,9 +88,9 @@ fn a_permit_decision_matches_the_schema() {
 
 #[test]
 fn a_deny_decision_matches_the_schema() {
-    let bundle: PolicyBundle = POLICY.parse().unwrap();
+    let bundle = policy_bundle();
     let intent = sample_intent("999.00");
-    let policy = bundle.evaluate(&intent);
+    let policy = bundle.evaluate_at(&intent, evaluation_time());
     let decision = decide(&intent, policy, &[]);
     assert_eq!(decision.decision, DecisionKind::Deny);
     assert_valid_against_schema(&decision);
@@ -109,9 +98,9 @@ fn a_deny_decision_matches_the_schema() {
 
 #[test]
 fn a_review_decision_matches_the_schema() {
-    let bundle: PolicyBundle = POLICY.parse().unwrap();
+    let bundle = policy_bundle();
     let intent = sample_intent("12.50");
-    let policy = bundle.evaluate(&intent);
+    let policy = bundle.evaluate_at(&intent, evaluation_time());
     let finding = RiskFinding {
         code: "TEST_FINDING".to_string(),
         severity: Severity::High,
@@ -124,11 +113,28 @@ fn a_review_decision_matches_the_schema() {
 
 #[test]
 fn an_error_decision_matches_the_schema() {
-    let bundle: PolicyBundle = POLICY.parse().unwrap();
+    let bundle = policy_bundle();
     // Cedar's `decimal` extension supports at most 4 fractional digits.
     let intent = sample_intent("12.123456");
-    let policy = bundle.evaluate(&intent);
+    let policy = bundle.evaluate_at(&intent, evaluation_time());
     let decision = decide(&intent, policy, &[]);
     assert_eq!(decision.decision, DecisionKind::Error);
     assert_valid_against_schema(&decision);
+}
+
+fn policy_bundle() -> PolicyBundle {
+    let evaluated_at = evaluation_time();
+    PolicyBundle::from_dir(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/examples"),
+        &PolicyBundleLoadContext {
+            organization_id: "alpha-lab".into(),
+            environment: "development".into(),
+            evaluated_at,
+        },
+    )
+    .unwrap()
+}
+
+fn evaluation_time() -> Timestamp {
+    Timestamp::from_str("2026-08-08T12:00:00Z").unwrap()
 }

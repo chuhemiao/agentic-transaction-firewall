@@ -1,0 +1,22 @@
+{
+  "manifest_version": "1",
+  "bundle_id": "atf-schema-invalid-test",
+  "policy_version": "1.0.0",
+  "scope": {
+    "organization_id": "alpha-lab",
+    "environment": "development"
+  },
+  "activates_at": "2026-01-01T00:00:00.000Z",
+  "expires_at": "2100-01-01T00:00:00.000Z",
+  "cedar_schema": {
+    "path": "cedar-schema.json",
+    "sha256": "d80eb6d17d90e521894aec19ff17d190a22a9e9ed6bb9eab5138c9b05eb25ba6"
+  },
+  "policy_files": [
+    {
+      "path": "invalid.cedar",
+      "sha256": "2cafbd6709283b29d71c38e30ed30a1ca38bf1b4b0f33e79ed62b6b661c21b96"
+    }
+  ],
+  "bundle_hash": "33695304bd9c4b6a2109424d9d0d68e42c1e312073b4649637b5bc2e34d47629"
+}

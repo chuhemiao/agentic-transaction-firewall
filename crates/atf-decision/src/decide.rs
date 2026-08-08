@@ -91,7 +91,8 @@ mod tests {
     use super::*;
     use atf_core::{Amount, Timestamp};
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
-    use atf_policy::PolicyBundle;
+    use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
+    use std::path::Path;
     use std::str::FromStr;
 
     fn sample_intent(amount: &str) -> TransactionIntent {
@@ -141,18 +142,6 @@ mod tests {
         }
     }
 
-    const POLICY: &str = r#"
-        permit (
-            principal,
-            action == Action::"payment/purchase_api_resource",
-            resource
-        )
-        when {
-            context.organization_id == "alpha-lab" &&
-            context.amount.lessThanOrEqual(decimal("20.0000"))
-        };
-    "#;
-
     fn finding(severity: Severity) -> RiskFinding {
         RiskFinding {
             code: "TEST_FINDING".to_string(),
@@ -163,9 +152,9 @@ mod tests {
 
     #[test]
     fn permit_with_no_findings_maps_to_permit() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(&intent, policy, &[]);
         assert_eq!(decision.decision, DecisionKind::Permit);
         assert!(!decision.reasons.is_empty());
@@ -173,9 +162,9 @@ mod tests {
 
     #[test]
     fn default_deny_maps_to_deny_regardless_of_risk() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("999.00");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         // Even a critical finding must not matter once Policy already denied
         // (PRD §10.1.2: "终止合并，不再评估Risk").
         let decision = decide(&intent, policy, &[finding(Severity::Critical)]);
@@ -184,27 +173,27 @@ mod tests {
 
     #[test]
     fn critical_risk_finding_overrides_policy_permit_to_deny() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(&intent, policy, &[finding(Severity::Critical)]);
         assert_eq!(decision.decision, DecisionKind::Deny);
     }
 
     #[test]
     fn high_risk_finding_sends_a_permit_to_review() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(&intent, policy, &[finding(Severity::High)]);
         assert_eq!(decision.decision, DecisionKind::Review);
     }
 
     #[test]
     fn info_and_medium_findings_do_not_block_permit() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(
             &intent,
             policy,
@@ -215,12 +204,12 @@ mod tests {
 
     #[test]
     fn policy_evaluation_error_fails_closed_to_error_not_permit() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         // Cedar's `decimal` extension supports at most 4 fractional digits
         // (see atf-policy::mapping::decimal_value); an amount with finer
         // precision can't be turned into a Cedar context at all.
         let intent = sample_intent("12.123456");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(&intent, policy, &[]);
         assert_eq!(decision.decision, DecisionKind::Error);
         assert_ne!(decision.decision, DecisionKind::Permit);
@@ -234,10 +223,27 @@ mod tests {
 
     #[test]
     fn decision_is_bound_to_the_intent_id() {
-        let bundle: PolicyBundle = POLICY.parse().unwrap();
+        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate(&intent);
+        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(&intent, policy, &[]);
         assert_eq!(decision.intent_id, intent.intent_id);
+    }
+
+    fn policy_bundle() -> PolicyBundle {
+        let evaluated_at = evaluation_time();
+        PolicyBundle::from_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/examples"),
+            &PolicyBundleLoadContext {
+                organization_id: "alpha-lab".into(),
+                environment: "development".into(),
+                evaluated_at,
+            },
+        )
+        .unwrap()
+    }
+
+    fn evaluation_time() -> Timestamp {
+        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap()
     }
 }

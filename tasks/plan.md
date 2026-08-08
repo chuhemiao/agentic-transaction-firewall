@@ -79,7 +79,8 @@ Gateway identity Headers/configuration, current durable exact-Key verification,
 atomic hashed-Nonce admission and typed rejection/replay evidence. ADR-0003 was
 explicitly accepted on 2026-08-08 as DS-017; DS-018 now implements it with
 durable Operator/Role lifecycle, configured JWT/JWKS validation, typed
-principals and non-enumerating Decision-read RBAC. The next task is DS-019.
+principals and non-enumerating Decision-read RBAC. DS-019 now provides
+validated Policy Bundle identity; the next task is DS-020.
 
 ### Present but incomplete or unwired
 
@@ -741,33 +742,42 @@ explicit capability matrix.
 
 ### DS-019 — Add validated Policy Bundle manifests and hashes `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Load Cedar through a manifest binding bundle ID/version,
 organization/environment scope, Cedar schema, policy file digests, activation
 and expiry. Hash canonical manifest plus file bytes and fail startup/activation
 closed on mismatch.
 
 - **Dependencies:** DS-018.
-- **Likely files:** `crates/atf-policy/src/bundle.rs`,
+- **Delivered files:** `crates/atf-policy/src/bundle.rs`,
   `crates/atf-policy/src/error.rs`, `schemas/policy-bundle.schema.json`,
-  `policies/examples/manifest.json`, `crates/atf-policy/tests/bundle.rs`.
+  `policies/examples/manifest.json`, `policies/examples/cedar-schema.json`,
+  `crates/atf-policy/tests/bundle.rs`, Gateway/CLI callers and
+  `docs/policy-bundles.md`.
 - **Acceptance criteria:**
-  1. Hash, schema, scope, duplicate-version or expiry failure prevents evaluation.
+  1. Hash, Schema, file/path, scope or expiry failure prevents evaluation.
   2. Bundle version/hash are deterministic and returned with Policy output.
   3. Cedar entities/actions validate against the declared Cedar schema.
-- **Verification:** tampered bundle/scope/expiry fixtures and deterministic hash tests; full DoD.
+- **Verification:** tampered bundle/scope/expiry/precision/unlisted-file,
+  nested-path and oversized-input fixtures; deterministic golden hash; invalid
+  Policy/Request Schema tests; CLI/Gateway runtime smoke and full DoD.
 
 ### DS-020 — Persist signed Policy activation and rollback `[M]`
+
+**Status:** Next.
 
 **Description:** Store immutable bundles and explicit active pointers per
 organization/environment. Add signature verification and authenticated CLI/API
 activation/rollback with `PolicyChanged` Audit evidence; never mutate a version.
 
 - **Dependencies:** DS-019.
-- **Likely files:** `migrations/0006_policy_bundles.sql`,
+- **Likely files:** `migrations/0007_policy_bundles.sql`,
   `crates/atf-store/src/policy.rs`, `cli/atf-cli/src/main.rs`,
   `crates/atf-policy/tests/activation.rs`, `docs/policy-model.md`.
 - **Acceptance criteria:**
-  1. Unsigned/untrusted/tampered bundles cannot activate.
+  1. Unsigned/untrusted/tampered or duplicate identity/version bundles cannot
+     activate.
   2. Activation is atomic and rollback selects an immutable prior version.
   3. Every change records actor, old/new hashes and scope.
 - **Verification:** install/activate/rollback integration and CLI smoke; full DoD.

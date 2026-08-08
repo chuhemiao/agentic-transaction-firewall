@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
+use atf_core::Timestamp;
 use atf_gateway::{
     build_router, AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator,
 };
-use atf_policy::PolicyBundle;
+use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
 use atf_risk::RiskConfig;
 use atf_store::Store;
 use std::time::Duration;
@@ -15,12 +16,30 @@ async fn main() {
     let policies_dir: PathBuf = std::env::var("ATF_POLICIES_DIR")
         .unwrap_or_else(|_| "policies/examples".to_string())
         .into();
-    let policy_bundle = PolicyBundle::from_dir(&policies_dir).unwrap_or_else(|err| {
+    let deployment_environment = std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
+        .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification");
+    let policy_organization_id = std::env::var("ATF_POLICY_ORGANIZATION_ID")
+        .expect("ATF_POLICY_ORGANIZATION_ID is required for Policy Bundle scope validation");
+    let policy_bundle = PolicyBundle::from_dir(
+        &policies_dir,
+        &PolicyBundleLoadContext {
+            organization_id: policy_organization_id,
+            environment: deployment_environment.clone(),
+            evaluated_at: Timestamp::now(),
+        },
+    )
+    .unwrap_or_else(|err| {
         panic!(
             "failed to load policy bundle from {}: {err}",
             policies_dir.display()
         )
     });
+    tracing::info!(
+        bundle_id = policy_bundle.bundle_id(),
+        policy_version = policy_bundle.policy_version(),
+        bundle_hash = policy_bundle.bundle_hash(),
+        "validated Policy Bundle loaded"
+    );
 
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL is required; run atf-store-migrate before starting the Gateway");
@@ -30,8 +49,7 @@ async fn main() {
     let identity = IdentityGatewayConfig::new(
         std::env::var("ATF_IDENTITY_AUDIENCE")
             .expect("ATF_IDENTITY_AUDIENCE is required for signed Intent verification"),
-        std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
-            .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification"),
+        deployment_environment,
     )
     .expect("Gateway identity audience/environment are invalid");
     let ca_certificate_pem = std::env::var("ATF_OPERATOR_CA_CERT_PATH")

@@ -28,7 +28,7 @@
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle，重复购买读取同组织的已验证持久化 Audit 链。
-3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018 将类型化 Audit Payload 扩展到 37 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、确定性 Replay、Context Provenance、Policy Bundle Versioning、Admin/Audit HTTP Role Matrix 和 Metrics 仍未完成。
+3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018 将类型化 Audit Payload 扩展到 37 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。DS-019 以闭合 Manifest、Cedar Schema、文件摘要、组织/环境作用域和激活窗口构造 Domain-separated Canonical Policy Bundle Hash；加载与每次请求均 Fail Closed，Policy Output 返回精确 Bundle ID/Version/Hash。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、确定性 Replay、Context Provenance、Policy 签名/持久化激活/回滚、Admin/Audit HTTP Role Matrix 和 Metrics 仍未完成。
 4. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 5. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
@@ -689,7 +689,11 @@ Decision 必须绑定产生它的全部决定性输入：
 
 ## 11. Policy Kernel
 
-当前实现只加载本地 Cedar `PolicySet` 并执行基础授权；Cedar Schema、Bundle Manifest/Version/Hash/Signature/Scope、回滚和多 Bundle 冲突管理尚未实现。
+当前实现通过 DS-019 只加载已验证的本地 Policy Bundle：闭合 Manifest
+绑定 Bundle ID/Version、Organization/Environment Scope、激活窗口、Cedar
+Schema 与精确文件摘要，并生成 Domain-separated Canonical Bundle Hash；
+Cedar Policy 与每个 Request 均按同一 Schema 验证，任何 Runtime Diagnostic
+Fail Closed。签名、持久化激活/回滚和多 Bundle 冲突管理尚未实现。
 
 ### 11.1 技术选择
 
@@ -1823,7 +1827,9 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 6. **P0.6 EvaluationContext**：时间、版本、Snapshot 和证据显式化。
 7. **P0.7 Deterministic Replay**：Original 与 Counterfactual Replay。
 8. **P0.8 Context Provenance**：可信来源、Freshness 和不可覆盖规则。
-9. **P0.9 Policy Bundle Versioning**：Manifest、Hash、Scope、签名、激活与回滚。
+9. **P0.9 Policy Bundle Versioning（DS-019 Identity 已完成）**：Manifest、
+   Hash、Scope 与 Cedar Schema 验证已落地；签名、持久化激活与回滚由
+   DS-020 完成。
 10. **P0.10 Metrics & Audit Query API**：组织隔离查询、Trace/Correlation 和安全指标。
 
 **Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。未通过 Gate 不启动真实 Adapter 或执行权限集成。

@@ -122,17 +122,19 @@ order. The executable order is:
   untrusted context reads from decision-making rules.
 - [ ] P0.7 Original and counterfactual deterministic replay.
 - [ ] P0.8 Context provenance, freshness, and trusted enrichment.
-- [ ] P0.9 Versioned, hashed, scoped, validated Policy Bundles.
+- [~] P0.9 Versioned, hashed, scoped, validated Policy Bundles. DS-019 local
+  Bundle identity and Cedar Schema validation are complete; DS-020 still owns
+  trusted signatures, durable installation, activation and rollback.
 - [ ] P0.10 Metrics and organization-scoped Audit query API.
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-019` — add a Cedar Schema-backed Policy Bundle
-manifest with deterministic version/hash and explicit organization/environment
-scope. This starts the dependency chain that later pins the bundle in immutable
-`EvaluationContext` snapshots. Decision reads are protected by DS-018; future
-Audit/Admin routes must define and test their own role matrices before exposure.
+**Immediate next task:** `DS-020` — persist immutable Policy Bundle artifacts,
+verify trusted publisher signatures, and atomically activate or roll back one
+organization/environment pointer with `PolicyChanged` Audit evidence. DS-019
+now supplies the validated deterministic Bundle identity this durable boundary
+must preserve.
 
 ## Later releases
 

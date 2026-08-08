@@ -27,6 +27,13 @@ return the same `404 DECISION_NOT_FOUND` response.
 bytes plus one exact Ed25519 signature. Trusted audience/environment come from
 required Gateway startup configuration, not the request.
 
+DS-019 additionally requires `ATF_POLICIES_DIR` to contain one validated
+Policy Bundle and `ATF_POLICY_ORGANIZATION_ID` to match its exact organization
+scope. The manifest environment must equal `ATF_DEPLOYMENT_ENVIRONMENT`.
+Startup fails on manifest/Schema/digest/hash/scope/time errors, and scope plus
+expiry are rechecked on every Policy evaluation. This single configured active
+Bundle is transitional until DS-020 provides durable signed active pointers.
+
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
 `ATF_OPERATOR_DISCOVERY_URL` and `ATF_OPERATOR_JWKS_URL`, plus an asymmetric

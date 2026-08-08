@@ -1,0 +1,23 @@
+{
+  "": {
+    "entityTypes": {
+      "Agent": {},
+      "Resource": {}
+    },
+    "actions": {
+      "payment/purchase_api_resource": {
+        "appliesTo": {
+          "principalTypes": ["Agent"],
+          "resourceTypes": ["Resource"],
+          "context": {
+            "type": "Record",
+            "attributes": {
+              "organization_id": { "type": "String" },
+              "amount": { "type": "Extension", "name": "decimal" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

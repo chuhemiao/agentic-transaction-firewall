@@ -62,8 +62,13 @@ Only the following crates are implemented so far:
   validated key activation/expiry/revocation metadata; PostgreSQL is now the
   durable Agent/Key authority. DS-016 wires the same verifier into Gateway
   admission and makes PostgreSQL the atomic, immutable Nonce authority.
-- `crates/atf-policy` — minimal Cedar policy evaluation over a Transaction
-  Intent.
+- `crates/atf-policy` — validated Policy Bundles: a closed manifest binds
+  bundle ID/version, exact organization/environment scope, activation/expiry,
+  Cedar Schema and every policy-file digest into a domain-separated canonical
+  hash. Strict Cedar policy validation happens at load; Schema-backed request
+  validation, scope/expiry rechecks and runtime-diagnostic rejection happen
+  on every evaluation. Successful Policy output names the exact bundle
+  ID/version/hash. Signature, durable activation and rollback remain DS-020.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
   stateless MVP rules (request expiry, single-transaction cap, fee ratio,
   vendor price deviation, high-risk network/protocol), plus one
@@ -185,11 +190,14 @@ provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
 complete. `DS-017` accepted the operator authentication trust boundary in
 ADR-0003 on 2026-08-08. `DS-018` implements that boundary with migration 0006,
 offline Operator/role lifecycle, typed principals, Gateway JWT/JWKS validation,
-and organization-scoped non-enumerating Decision-read RBAC.
+and organization-scoped non-enumerating Decision-read RBAC. `DS-019` replaces
+raw Cedar directory loading with Schema-backed, scoped, time-bounded Policy
+Bundle manifests and deterministic file-bound bundle identities.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
 Rust profile validator),
+`policy-bundle.schema.json` (enforced by `atf-policy` while loading manifests),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -313,10 +321,14 @@ semantics (evaluate only, never execute).
     `auditor`/`org_admin` role for non-enumerating Decision reads. Revocation,
     disable, restart, cross-tenant, confused-deputy, redaction and real HTTP/
     PostgreSQL paths are covered.
-19. **Validated Policy Bundle identity.** **Next:** add a Cedar Schema-backed
-    manifest that deterministically binds bundle ID/version/hash, policy-file
-    digests, organization/environment scope, activation and expiry. This is the
-    first dependency for immutable Evaluation Context and exact replay.
+19. ~~Validated Policy Bundle identity.~~ Done in DS-019: the closed manifest,
+    Cedar Schema, exact file digests, organization/environment scope and active
+    window are domain-separated into one deterministic Bundle hash; load and
+    per-request validation fail closed, and Policy output carries the exact
+    bundle ID/version/hash.
+20. **Signed durable Policy activation and rollback. Next:** persist immutable
+    Bundle artifacts and organization/environment active pointers, verify a
+    trusted publisher signature, and atomically Audit activation/rollback.
 
 ### Remaining before Phase 2 can close out
 
@@ -393,8 +405,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  operator authorization, deterministic replay, provenance, versioned bundles,
-  Audit query/metrics, and security re-audit.
+  durable signed Policy activation, deterministic replay, provenance, Risk
+  versioning, Audit query/metrics, and security re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -420,6 +432,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   ATF_POLICIES_DIR=policies/examples \
   ATF_IDENTITY_AUDIENCE=atf-gateway \
   ATF_DEPLOYMENT_ENVIRONMENT=development \
+  ATF_POLICY_ORGANIZATION_ID=alpha-lab \
   PORT=8080 cargo run -p atf-gateway
 
 # Provision Agent/public-key authority first; see docs/identity.md. POST then
@@ -429,7 +442,8 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 
 # Evaluate an intent against an example Cedar policy bundle
-cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --policies policies/examples
+cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json \
+  --policies policies/examples --environment development
 ```
 
 ## Repository layout

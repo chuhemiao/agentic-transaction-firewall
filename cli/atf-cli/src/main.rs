@@ -34,6 +34,12 @@ enum Command {
         /// Directory of `.cedar` policy files to load as one bundle.
         #[arg(long, default_value = "policies/examples")]
         policies: PathBuf,
+        /// Deployment environment that must match the Policy Bundle scope.
+        #[arg(long, default_value = "development")]
+        environment: String,
+        /// Explicit evaluation time; defaults to the current time.
+        #[arg(long)]
+        evaluated_at: Option<Timestamp>,
     },
     /// Policy Bundle commands.
     Policy {
@@ -203,7 +209,9 @@ async fn main() -> std::process::ExitCode {
         Command::Evaluate {
             intent_path,
             policies,
-        } => run_evaluate(&intent_path, &policies),
+            environment,
+            evaluated_at,
+        } => run_evaluate(&intent_path, &policies, &environment, evaluated_at),
         Command::Policy { action } => match action {
             PolicyCommand::Test { dir } => conformance::run(&dir),
         },
@@ -516,12 +524,25 @@ fn run_validate_intent(intent_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn run_evaluate(intent_path: &Path, policies_dir: &Path) -> Result<()> {
+fn run_evaluate(
+    intent_path: &Path,
+    policies_dir: &Path,
+    environment: &str,
+    evaluated_at: Option<Timestamp>,
+) -> Result<()> {
     let intent = read_intent(intent_path)?;
-    let bundle = atf_policy::PolicyBundle::from_dir(policies_dir)
-        .with_context(|| format!("loading policy bundle from {}", policies_dir.display()))?;
+    let evaluated_at = evaluated_at.unwrap_or_else(Timestamp::now);
+    let bundle = atf_policy::PolicyBundle::from_dir(
+        policies_dir,
+        &atf_policy::PolicyBundleLoadContext {
+            organization_id: intent.principal.organization_id.clone(),
+            environment: environment.to_owned(),
+            evaluated_at,
+        },
+    )
+    .with_context(|| format!("loading policy bundle from {}", policies_dir.display()))?;
 
-    let policy_result = bundle.evaluate(&intent);
+    let policy_result = bundle.evaluate_at(&intent, evaluated_at);
     // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
     // forbidden request terminates the merge before Risk is consulted.
     let risk_findings = match &policy_result {

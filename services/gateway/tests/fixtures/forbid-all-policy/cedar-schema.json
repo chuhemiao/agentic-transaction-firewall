@@ -1,0 +1,41 @@
+{
+  "": {
+    "entityTypes": {
+      "Agent": {},
+      "Resource": {}
+    },
+    "actions": {
+      "payment/purchase_api_resource": {
+        "appliesTo": {
+          "principalTypes": ["Agent"],
+          "resourceTypes": ["Resource"],
+          "context": {
+            "type": "Record",
+            "attributes": {
+              "organization_id": { "type": "String" },
+              "user_id": { "type": "String", "required": false },
+              "agent_version": { "type": "String", "required": false },
+              "strategy_id": { "type": "String", "required": false },
+              "mandate_id": { "type": "String" },
+              "task_id": { "type": "String", "required": false },
+              "purpose": { "type": "String" },
+              "budget_id": { "type": "String", "required": false },
+              "human_authorized": { "type": "Boolean" },
+              "protocol": { "type": "String" },
+              "venue": { "type": "String", "required": false },
+              "resource_type": { "type": "String", "required": false },
+              "network": { "type": "String" },
+              "asset": { "type": "String" },
+              "amount": { "type": "Extension", "name": "decimal" },
+              "destination": { "type": "String", "required": false },
+              "contract": { "type": "String", "required": false },
+              "max_fee": { "type": "Extension", "name": "decimal", "required": false },
+              "slippage_bps": { "type": "Long", "required": false },
+              "leverage": { "type": "Extension", "name": "decimal", "required": false }
+            }
+          }
+        }
+      }
+    }
+  }
+}

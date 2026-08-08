@@ -1,7 +1,9 @@
 # policies/examples
 
-Minimal example Cedar policies exercised by `atf-cli evaluate` and by
-`atf-policy`'s own tests. These are intentionally simple — they exist to
+Validated example Policy Bundle exercised by `atf-cli evaluate` and by
+`atf-policy`'s own tests. `manifest.json` binds the exact Cedar Schema, policy
+file digests, `alpha-lab`/`development` scope, active window and canonical
+Bundle hash. These policies are intentionally simple — they exist to
 demonstrate the Intent -> Cedar mapping, not to be a production policy pack
 (see `policies/trading`, `policies/treasury`, `policies/agent-payments` for
 the not-yet-implemented per-scenario bundles from PRD §24).
@@ -25,11 +27,15 @@ the not-yet-implemented per-scenario bundles from PRD §24).
 
 ## Files
 
+- `manifest.json` — closed ATF Policy Bundle v1 manifest.
+- `cedar-schema.json` — Cedar request/context contract used for strict policy
+  and per-request validation.
 - `payment-budget.cedar` — permits `payment/purchase_api_resource` up to a
   fixed per-request cap for one example organization.
 - `require-human-authorization.cedar` — forbids anything where the intent's
   mandate was not human-authorized, regardless of what else permits it
   (Cedar's `forbid` always overrides `permit` — PRD §11.3.1).
 
-Load an entire directory as one bundle with `atf-cli evaluate --policies
-policies/examples`.
+Load the validated bundle with `atf-cli evaluate --policies policies/examples
+--environment development`. See `docs/policy-bundles.md` for hashing and
+validation details.

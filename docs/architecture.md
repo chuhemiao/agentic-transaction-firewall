@@ -53,9 +53,16 @@ Agent Intent
   revocation. *Implemented with DS-015 durable authority and wired into
   Gateway admission by DS-016 before Policy/Risk; PostgreSQL atomically binds
   and consumes hashed Nonces.*
-- **`atf-policy`** — Cedar `PolicySet` parsing + minimal
-  `evaluate(intent) -> cedar_policy::Response`. *Partially implemented: no
-  Cedar Schema or versioned Bundle manifest yet.*
+- **`atf-policy`** — DS-019 loads only closed v1 Policy Bundle manifests. The
+  manifest binds bundle ID/version, organization/environment, active window,
+  Cedar Schema and exact policy files into a domain-separated canonical hash.
+  Loader checks JSON Schema, safe/sorted paths, file digests, unlisted Cedar
+  files, Bundle hash and strict Cedar policy validation. `evaluate_at` rechecks
+  organization/expiry, validates the request against the same Cedar Schema,
+  rejects runtime diagnostics and returns the exact bundle identity.
+  *Implemented for immutable local Bundle identity; trusted signatures,
+  durable activation/rollback and multi-bundle conflict resolution remain
+  DS-020 and later work.*
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol) via `evaluate`, plus one history-dependent rule
@@ -298,9 +305,11 @@ implementation order are in ADR-0002.
    canonical (sorted-key, fixed-point) serialization — this is the value that
    will later bind Decisions and Approvals to a specific Intent (PRD §9.1,
    §14.2).
-4. `atf-policy::evaluate` loads a Cedar policy set + schema and evaluates the
-   Intent's principal/action/resource/context against it, returning a Cedar
-   `Decision` (Allow/Deny) plus the policy IDs that fired.
+4. `atf-policy::PolicyBundle::from_dir` validates the scoped, time-bounded
+   manifest, exact files, Bundle hash, Cedar Schema and policies before use.
+   `evaluate_at` Schema-validates the Intent's principal/action/resource/
+   context, then returns Cedar Permit/Forbid plus policy IDs and the exact
+   bundle ID/version/hash.
 5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or a
    history-aware variant when the caller has verified events — see step 10) runs
    the MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
@@ -380,8 +389,9 @@ complete Decision Engine:
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields, but each rule still needs an explicit
   lifecycle accounting boundary and deterministic evaluation time.
-- Policy Bundle versioning/rollback and multi-bundle conflict resolution
-  (PRD §11.3).
+- Policy Bundle signature trust, durable activation/rollback and multi-bundle
+  conflict resolution (PRD §11.3). Local manifest/version/hash/scope/Schema
+  validation is implemented by DS-019.
 - Budget model and atomic reserve/commit/release (PRD §9.4).
 - Agent Envelope verification, exact durable Key selection and atomic hashed
   Nonce consumption are wired before Policy/Risk. Process memory is not
@@ -401,8 +411,7 @@ complete Decision Engine:
   DS-013 recovery. Operator authentication, deterministic Context-based
   recovery and operational scanning remain later gaps, not reasons to
   reintroduce process-local state.
-- `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent` and
-  `atf-audit`'s canonical hashing; any future crate that needs a
-  deterministic hash over JSON (e.g. a Policy Bundle hash for §11.3
-  versioning) should reuse these rather than re-deriving the
-  `preserve_order`-feature fix a second time.
+- `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent`,
+  `atf-audit` and DS-019 Policy Bundle hashing. Any future deterministic JSON
+  hash must reuse them rather than re-deriving the `preserve_order`-feature
+  fix again.

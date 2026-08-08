@@ -16,12 +16,8 @@ use tower::ServiceExt;
 use common::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
     operator_authorization, post_intent_request, sample_intent_json, test_state,
-    test_state_with_policy, TestDatabase,
+    test_state_with_forbid_all_policy, TestDatabase,
 };
-
-const FORBID_ALL_POLICY: &str = r#"
-    forbid (principal, action, resource);
-"#;
 
 #[tokio::test]
 async fn healthz_and_readyz_report_ok() -> Result<(), Box<dyn Error>> {
@@ -825,10 +821,8 @@ async fn completed_same_hash_retry_returns_the_original_decision_without_new_evi
     first_store.close().await;
 
     let restarted_store = database.connect().await?;
-    let restarted_gateway = build_router(test_state_with_policy(
-        restarted_store.clone(),
-        FORBID_ALL_POLICY,
-    ));
+    let restarted_gateway =
+        build_router(test_state_with_forbid_all_policy(restarted_store.clone()));
     let retry_response = restarted_gateway
         .oneshot(post_intent_request(intent_id, "12.50"))
         .await?;
@@ -966,10 +960,8 @@ async fn expired_admission_is_recovered_after_restart_as_one_fail_closed_decisio
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let restarted_store = database.connect().await?;
-    let restarted_gateway = build_router(test_state_with_policy(
-        restarted_store.clone(),
-        FORBID_ALL_POLICY,
-    ));
+    let restarted_gateway =
+        build_router(test_state_with_forbid_all_policy(restarted_store.clone()));
     let response = restarted_gateway
         .clone()
         .oneshot(post_intent_request(intent_id, "12.50"))

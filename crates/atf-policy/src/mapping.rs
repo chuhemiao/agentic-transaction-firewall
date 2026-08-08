@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use atf_core::Amount;
 use atf_intent::TransactionIntent;
-use cedar_policy::{Context, EntityId, EntityTypeName, EntityUid, Request};
+use cedar_policy::{Context, EntityId, EntityTypeName, EntityUid, Request, Schema};
 use serde_json::{json, Map, Value};
 
 use crate::error::PolicyError;
@@ -18,14 +18,20 @@ use crate::error::PolicyError;
 /// Principal is `Agent::"<agent_id>"`, action is
 /// `Action::"<category>/<operation>"`, resource is
 /// `Resource::"<resource_id>"`.
-pub(crate) fn build_request(intent: &TransactionIntent) -> Result<Request, PolicyError> {
+pub(crate) fn build_request(
+    intent: &TransactionIntent,
+    schema: &Schema,
+) -> Result<Request, PolicyError> {
     let principal = entity_uid("Agent", &intent.principal.agent_id)?;
     let action_id = format!("{}/{}", intent.action.category, intent.action.operation);
     let action = entity_uid("Action", &action_id)?;
     let resource = entity_uid("Resource", &intent.resource.resource_id)?;
     let context = build_context(intent)?;
 
-    Request::new(principal, action, resource, context, None)
+    // Passing the Schema asks Cedar 4.11.2 to validate the request's
+    // principal/action/resource/context contract before authorization.
+    // Source: https://docs.rs/cedar-policy/4.11.2/cedar_policy/struct.Request.html#method.new
+    Request::new(principal, action, resource, context, Some(schema))
         .map_err(|e| PolicyError::RequestBuild(e.to_string()))
 }
 

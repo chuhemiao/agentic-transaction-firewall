@@ -94,9 +94,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ### C3 Reproducible decisions
 
-- [ ] **NEXT — DS-019:** add Cedar Schema-backed Policy Bundle
-  manifest/version/hash/scope. Depends: DS-018.
-- [ ] **DS-020:** persist signed Policy activation and rollback with Audit. Depends: DS-019.
+- [x] **DS-019:** added the closed Cedar Schema-backed Policy Bundle manifest,
+  deterministic file-bound hash, exact scope/time checks and bundle identity in
+  every Policy output. Depends: DS-018.
+- [ ] **NEXT — DS-020:** persist signed Policy activation and rollback with
+  Audit. Depends: DS-019.
 - [ ] **DS-021:** version/hash Risk Rule Sets and accounting boundaries. Depends: DS-019.
 - [ ] **DS-022:** define provenance-bearing evidence and privileged-context firewall. Depends: DS-010, DS-021.
 - [ ] **DS-023:** persist immutable Evaluation Context snapshots. Depends: DS-020..DS-022.

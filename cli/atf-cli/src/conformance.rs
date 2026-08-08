@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use atf_policy::{PolicyBundle, PolicyDecision};
+use atf_policy::{PolicyBundle, PolicyBundleLoadContext, PolicyDecision};
 use serde::Deserialize;
 
 /// The Cedar-level decision a conformance case expects (PRD §11, §11.3.1) —
@@ -92,10 +92,18 @@ fn run_case_inner(path: &Path) -> Result<CaseOutcome> {
     let intent = atf_intent::validate(&intent_json)
         .map_err(|e| anyhow::anyhow!("intent in {}: {e}", path.display()))?;
 
-    let bundle = PolicyBundle::from_dir(&case.policies)
-        .with_context(|| format!("loading policy bundle {}", case.policies.display()))?;
+    let evaluated_at = intent.created_at;
+    let bundle = PolicyBundle::from_dir(
+        &case.policies,
+        &PolicyBundleLoadContext {
+            organization_id: intent.principal.organization_id.clone(),
+            environment: "development".into(),
+            evaluated_at,
+        },
+    )
+    .with_context(|| format!("loading policy bundle {}", case.policies.display()))?;
     let outcome = bundle
-        .evaluate(&intent)
+        .evaluate_at(&intent, evaluated_at)
         .map_err(|e| anyhow::anyhow!("evaluating {}: {e}", path.display()))?;
 
     let passed = matches!(
@@ -142,19 +150,12 @@ mod tests {
         }
     }"#;
 
-    const POLICY: &str = r#"
-        permit (principal, action, resource);
-    "#;
-
-    /// Sets up `<tmp>/policies/permit-all.cedar` and returns the tmp root.
     fn setup(tag: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "atf-cli-conformance-test-{tag}-{}",
             std::process::id()
         ));
-        let policies_dir = root.join("policies");
-        std::fs::create_dir_all(&policies_dir).unwrap();
-        std::fs::write(policies_dir.join("permit-all.cedar"), POLICY).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
         root
     }
 
@@ -162,7 +163,7 @@ mod tests {
         let intent: serde_json::Value = serde_json::from_str(INTENT).unwrap();
         let case = serde_json::json!({
             "name": file_name,
-            "policies": root.join("policies"),
+            "policies": Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/examples"),
             "expect": expect,
             "intent": intent,
         });
@@ -184,7 +185,7 @@ mod tests {
     #[test]
     fn run_fails_when_a_case_does_not_match_its_expectation() {
         let root = setup("one-fail");
-        write_case(&root, "a.json", "forbid"); // permit-all.cedar always permits
+        write_case(&root, "a.json", "forbid"); // the example bundle permits this Intent
         assert!(run(&root).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }

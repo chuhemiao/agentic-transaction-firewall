@@ -212,11 +212,19 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** `atf-policy`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** files are concatenated and parsed as `PolicySet`; there is no Cedar Schema, manifest, version/hash/signature, organization/environment scope, expiry, rollback, or multi-bundle resolution.
+- **evidence:** DS-019 replaces raw concatenation with a closed manifest that
+  binds bundle ID/version, organization/environment, millisecond active window,
+  Cedar Schema and exact file digests into a domain-separated canonical hash.
+  Strict Cedar policy validation runs at load; Schema-backed request validation,
+  scope/expiry rechecks and runtime-diagnostic rejection run per evaluation.
+  Trusted signature, durable activation/rollback and multi-bundle resolution do
+  not yet exist.
 - **security_impact:** stale, malformed-scope, or unauthorized policy bundles can be loaded without provenance.
 - **financial_impact:** transactions may be evaluated under the wrong organization or policy version.
 - **severity:** `HIGH`
-- **recommended_change:** signed manifest plus Cedar Schema validation, immutable bundle hash/version, activation/rollback, and change audit.
+- **recommended_change:** build DS-020 trusted signature verification,
+  immutable persistence, active pointers, activation/rollback and change Audit
+  on the DS-019 identity contract.
 - **required_tests:** bad signature/schema/scope/version/expiry, conflict, rollback, deterministic bundle hash.
 - **dependencies:** Admin RBAC, persistence, canonical hashing.
 - **target_release:** Durable Shadow Mode P0.9.
@@ -469,8 +477,7 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-019` is next: add the validated, scoped, deterministic Cedar Policy Bundle
-manifest/hash that later immutable `EvaluationContext` and replay work depend
-on. DS-018 has closed the current Operator Decision-read principal/RBAC gap;
-future Admin/Audit routes remain unavailable until their capability matrices
-and security tests exist.
+`DS-020` is next: persist signed immutable Policy Bundles and audited active
+pointers with rollback. DS-019 now provides the validated, scoped,
+deterministic Cedar Bundle identity later `EvaluationContext` and replay work
+will pin.

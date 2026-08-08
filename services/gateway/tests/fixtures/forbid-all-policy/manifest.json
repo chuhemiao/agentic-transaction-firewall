@@ -1,0 +1,22 @@
+{
+  "manifest_version": "1",
+  "bundle_id": "atf-test-forbid-all",
+  "policy_version": "1.0.0",
+  "scope": {
+    "organization_id": "alpha-lab",
+    "environment": "development"
+  },
+  "activates_at": "2026-01-01T00:00:00.000Z",
+  "expires_at": "2100-01-01T00:00:00.000Z",
+  "cedar_schema": {
+    "path": "cedar-schema.json",
+    "sha256": "40dafe373e90c0ab22eee5c9f0d5f9080b67f053a4e79e0beea800e2d4d5aa06"
+  },
+  "policy_files": [
+    {
+      "path": "forbid-all.cedar",
+      "sha256": "f3a38d9e3ae611c924b60352ba1cb1fbd37c9a32a9f154f86321062cbace0a12"
+    }
+  ],
+  "bundle_hash": "2742a7bb059f7990602a578ecf973cbe754952e66c2c8de1aebf347a473b44ca"
+}

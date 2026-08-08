@@ -2,7 +2,7 @@ use atf_core::Timestamp;
 use atf_gateway::{AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::TransactionIntent;
-use atf_policy::PolicyBundle;
+use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
 use atf_risk::RiskConfig;
 use atf_store::{
     operator_subject_fingerprint, AuthenticatedAdmissionInput, OperatorKind, OperatorRegistration,
@@ -20,6 +20,7 @@ use sqlx::{
 use std::{
     env,
     error::Error,
+    path::Path,
     process,
     str::FromStr,
     sync::OnceLock,
@@ -37,25 +38,33 @@ pub const OPERATOR_SUBJECT: &str = "operator-subject-1";
 
 const SIGNING_KEY_SEED: [u8; 32] = [42; 32];
 
-const POLICY: &str = r#"
-    permit (
-        principal,
-        action == Action::"payment/purchase_api_resource",
-        resource
-    )
-    when {
-        context.organization_id == "alpha-lab" &&
-        context.amount.lessThanOrEqual(decimal("20.0000"))
-    };
-"#;
-
 pub fn test_state(store: Store) -> AppState {
-    test_state_with_policy(store, POLICY)
+    test_state_with_policy_dir(store, Path::new("../../policies/examples"))
 }
 
-pub fn test_state_with_policy(store: Store, policy: &str) -> AppState {
+#[allow(dead_code)]
+pub fn test_state_with_forbid_all_policy(store: Store) -> AppState {
+    test_state_with_policy_dir(store, Path::new("tests/fixtures/forbid-all-policy"))
+}
+
+fn test_state_with_policy_dir(store: Store, relative_dir: &Path) -> AppState {
+    let evaluated_at = Timestamp::now();
+    let bundle_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_dir);
     AppState::new(
-        policy.parse::<PolicyBundle>().expect("policy is valid"),
+        PolicyBundle::from_dir(
+            &bundle_dir,
+            &PolicyBundleLoadContext {
+                organization_id: "alpha-lab".into(),
+                environment: "development".into(),
+                evaluated_at,
+            },
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "test Policy Bundle {} must be valid: {error}",
+                bundle_dir.display()
+            )
+        }),
         RiskConfig::default(),
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)

@@ -24,7 +24,7 @@ real network request path, but no execution path or production secret.
 | 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by authenticated Agent identity, common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported and execution enforcement remains absent |
 | 2 | Agent tool-call parameters tampered with | Addressed at current Shadow admission: `atf-intent` supplies a tamper-evident canonical hash; DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519; DS-015 persists exact public-key lifecycle; DS-016 requires and reverifies that proof before Policy/Risk |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
-| 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. DS-018 protects Decision reads with current durable Operator roles; Policy bundle provenance and production edge controls are still absent, so this is not yet a deployable enforcement boundary |
+| 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. DS-019 rejects unmanifested, mis-scoped, inactive, hash/digest-mismatched or Cedar-Schema-invalid local Bundles and returns their exact identity. Trusted publisher signatures, durable activation/rollback and production edge controls remain absent, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
 | 7 | Nonce replay | Mitigated for Gateway Agent admission: DS-016 atomically stores an organization/Agent-scoped Nonce hash bound to the exact Key, Envelope, Intent and idempotency tuple. Exact retry adds nothing; fresh valid retry consumes a new Nonce; conflicting concurrent or post-restart reuse emits `ReplayDetected` and fails 409. Raw Nonces/signatures are not stored and privileged row tampering is detected on verified reads |
@@ -77,9 +77,15 @@ secret. The realistic attack surface today includes:
   not cross the HTTP response boundary. PostgreSQL tests prove all validation
   rejection classes leave Idempotency Reservation, Intent, Evaluation,
   Decision and Audit counts at zero.
-- **Malicious or malformed Cedar policy files** fed to `atf-policy` —
-  Cedar syntax parsing failures stop bundle loading, but Cedar Schema and
-  signed Bundle validation are still missing.
+- **Malicious or malformed Cedar Policy Bundles** fed to `atf-policy` — DS-019
+  closes the manifest shape, direct filenames and file counts; bounds Manifest,
+  per-file and total bytes; rejects traversal/symlinks/unlisted files; verifies
+  exact digests plus a domain-separated Bundle hash; and validates both Policy
+  and Request against one Cedar Schema. Scope/expiry and Cedar runtime
+  diagnostics fail closed on every evaluation. The startup directory is still
+  a local configuration trust boundary and must not be concurrently writable
+  by an untrusted user; publisher signature trust and durable immutable
+  activation/rollback are DS-020.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
   restart no longer clears history. The Gateway currently reloads and verifies
