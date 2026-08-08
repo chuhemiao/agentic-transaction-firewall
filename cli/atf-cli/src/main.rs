@@ -1,5 +1,6 @@
 mod conformance;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -43,6 +44,11 @@ enum Command {
     Identity {
         #[command(subcommand)]
         action: IdentityCommand,
+    },
+    /// Offline Operator subject and organization-role lifecycle commands.
+    Operator {
+        #[command(subcommand)]
+        action: OperatorCommand,
     },
 }
 
@@ -120,6 +126,75 @@ enum IdentityCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum OperatorCommand {
+    /// Bind one external issuer subject read from stdin to an internal Operator.
+    ProvisionSubject {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        operator_id: String,
+        #[arg(long)]
+        issuer_id: String,
+        #[arg(long)]
+        issuer_url: String,
+        /// HUMAN or SERVICE.
+        #[arg(long)]
+        principal_kind: String,
+        #[arg(long)]
+        created_at: Timestamp,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+    /// Grant one explicit organization role.
+    GrantRole {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        operator_id: String,
+        /// org_admin, policy_author, approver, or auditor.
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        reason_code: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+    /// Revoke one exact organization role binding.
+    RevokeRole {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        operator_id: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        reason_code: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+    /// Enable or disable one local Operator subject binding.
+    SetStatus {
+        #[arg(long)]
+        operator_id: String,
+        /// ACTIVE or DISABLED.
+        #[arg(long)]
+        status: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        reason_code: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+}
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -133,6 +208,7 @@ async fn main() -> std::process::ExitCode {
             PolicyCommand::Test { dir } => conformance::run(&dir),
         },
         Command::Identity { action } => run_identity(action).await,
+        Command::Operator { action } => run_operator(action).await,
     };
 
     match result {
@@ -141,6 +217,157 @@ async fn main() -> std::process::ExitCode {
             eprintln!("error: {err:#}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+async fn run_operator(command: OperatorCommand) -> Result<()> {
+    let database_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL is required for Operator lifecycle commands")?;
+    let store = atf_store::Store::connect(&database_url)
+        .await
+        .context("connecting to the ATF durable-state database")?;
+    let result = match command {
+        OperatorCommand::ProvisionSubject {
+            organization_id,
+            operator_id,
+            issuer_id,
+            issuer_url,
+            principal_kind,
+            created_at,
+            actor_id,
+            occurred_at,
+        } => {
+            let subject = read_subject_from_stdin()?;
+            let stored = store
+                .provision_operator(
+                    atf_store::OperatorRegistration {
+                        operator_id,
+                        issuer_id,
+                        subject_fingerprint: atf_store::operator_subject_fingerprint(
+                            &issuer_url,
+                            &subject,
+                        )?,
+                        principal_kind: parse_operator_kind(&principal_kind)?,
+                        audit_organization_id: organization_id,
+                        created_at,
+                    },
+                    &actor_id,
+                    occurred_at,
+                )
+                .await?;
+            println!("operator_id: {}", stored.operator_id);
+            print_mutation_evidence(stored.lifecycle_version, &stored.last_event_id);
+            Ok(())
+        }
+        OperatorCommand::GrantRole {
+            organization_id,
+            operator_id,
+            role,
+            actor_id,
+            reason_code,
+            occurred_at,
+        } => {
+            let stored = store
+                .grant_operator_role(
+                    &operator_id,
+                    &organization_id,
+                    parse_operator_role(&role)?,
+                    &actor_id,
+                    &reason_code,
+                    occurred_at,
+                )
+                .await?;
+            println!("operator_id: {}", stored.operator_id);
+            println!("role: {role}");
+            print_mutation_evidence(stored.lifecycle_version, &stored.last_event_id);
+            Ok(())
+        }
+        OperatorCommand::RevokeRole {
+            organization_id,
+            operator_id,
+            role,
+            actor_id,
+            reason_code,
+            occurred_at,
+        } => {
+            let stored = store
+                .revoke_operator_role(
+                    &operator_id,
+                    &organization_id,
+                    parse_operator_role(&role)?,
+                    &actor_id,
+                    &reason_code,
+                    occurred_at,
+                )
+                .await?;
+            println!("operator_id: {}", stored.operator_id);
+            println!("role: {role}");
+            print_mutation_evidence(stored.lifecycle_version, &stored.last_event_id);
+            Ok(())
+        }
+        OperatorCommand::SetStatus {
+            operator_id,
+            status,
+            actor_id,
+            reason_code,
+            occurred_at,
+        } => {
+            let stored = store
+                .set_operator_status(
+                    &operator_id,
+                    parse_operator_status(&status)?,
+                    &actor_id,
+                    &reason_code,
+                    occurred_at,
+                )
+                .await?;
+            println!("operator_id: {}", stored.operator_id);
+            print_mutation_evidence(stored.lifecycle_version, &stored.last_event_id);
+            Ok(())
+        }
+    };
+    store.close().await;
+    result
+}
+
+fn read_subject_from_stdin() -> Result<String> {
+    let mut subject = String::new();
+    std::io::stdin()
+        .take(513)
+        .read_to_string(&mut subject)
+        .context("reading external subject from stdin")?;
+    while subject.ends_with('\r') || subject.ends_with('\n') {
+        subject.pop();
+    }
+    if subject.contains('\r') || subject.contains('\n') {
+        bail!("external subject stdin must contain exactly one line");
+    }
+    Ok(subject)
+}
+
+fn parse_operator_kind(value: &str) -> Result<atf_store::OperatorKind> {
+    match value {
+        "HUMAN" => Ok(atf_store::OperatorKind::Human),
+        "SERVICE" => Ok(atf_store::OperatorKind::Service),
+        _ => bail!("invalid Operator principal kind `{value}`"),
+    }
+}
+
+fn parse_operator_status(value: &str) -> Result<atf_store::OperatorStatus> {
+    match value {
+        "ACTIVE" => Ok(atf_store::OperatorStatus::Active),
+        "DISABLED" => Ok(atf_store::OperatorStatus::Disabled),
+        _ => bail!("invalid Operator status `{value}`"),
+    }
+}
+
+fn parse_operator_role(value: &str) -> Result<atf_store::OperatorRole> {
+    match value {
+        "org_admin" => Ok(atf_store::OperatorRole::OrgAdmin),
+        "policy_author" => Ok(atf_store::OperatorRole::PolicyAuthor),
+        "approver" => Ok(atf_store::OperatorRole::Approver),
+        "auditor" => Ok(atf_store::OperatorRole::Auditor),
+        _ => bail!("invalid Operator role `{value}`"),
     }
 }
 

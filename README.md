@@ -111,27 +111,36 @@ Only the following crates are implemented so far:
   Migration 0005 adds immutable organization/Agent-scoped Nonce hashes bound
   by composite foreign keys to the exact Key, Intent, idempotency reservation
   and `IdentityVerified` evidence. Reads reverify those bindings and their
-  historical Agent/Key lifecycle facts.
+  historical Agent/Key lifecycle facts. Migration 0006 adds immutable external
+  Operator subject fingerprints and explicit organization-role lifecycle rows;
+  their canonical records, versions, status and last-event pointers are bound
+  to typed Audit evidence and protected against rebinding/deletion/truncate.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
-  and offline `atf identity` provision/register/status/revoke commands. The
-  identity commands read `DATABASE_URL` from the environment and accept only
-  public key material.
+  offline `atf identity` provision/register/status/revoke commands, and
+  offline `atf operator` subject/status/role commands. Lifecycle commands read
+  `DATABASE_URL`; Operator provisioning reads the raw external subject only
+  from stdin and persists only its domain-separated fingerprint.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
   Audit into one request path: `POST /v1/intents` and
   `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. PostgreSQL is
-  required at startup, `/readyz` verifies live storage/schema compatibility,
-  and restart/second-instance reads return the committed Decision. GET uses
-  `X-ATF-Organization-ID` to select the tenant record, but that GET header is
-  not operator authentication. POST requires one canonical detached
+  required at startup, `/readyz` verifies live storage/schema compatibility
+  and fresh usable configured JWKS, and restart/second-instance reads return
+  the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
+  a current PostgreSQL `auditor` or `org_admin` role for the canonical
+  `X-ATF-Organization-ID` selector. JWT role/organization/email claims and the
+  selector itself grant no authority. POST requires one canonical detached
   `X-ATF-Identity-Envelope` and exact Ed25519 signature, rechecks the current
   durable Agent/Key, and consumes the Nonce before Policy/Risk. Rejections and
   conflicting replay produce typed durable evidence without admitting an
-  Intent. Operator authentication and organization authorization are still
-  missing. Accepted
-  [`ADR-0003`](docs/decisions/0003-operator-authentication.md) defines the
-  OAuth/JWT plus durable-role trust boundary, but DS-018 implementation and
-  executable tests are still required before changing that runtime status.
+  Intent. Agent and Operator credentials form disjoint typed principals:
+  either credential on the wrong business route fails generically. The
+  configured HTTPS issuer/discovery/JWKS boundary uses exact issuer/audience,
+  asymmetric algorithm and `at+jwt` checks with bounded key refresh; every
+  protected read reloads current local subject status and roles so disable or
+  revoke takes effect on the next request. Missing/invalid credentials return
+  one safe 401 challenge; absent, cross-tenant and wrong-role Decision reads
+  are indistinguishable 404 responses.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -174,7 +183,9 @@ domain-separated Identity Envelope and exact-key verification. `DS-015` adds
 durable Agent/key lifecycle, atomic operator Audit evidence and offline
 provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
 complete. `DS-017` accepted the operator authentication trust boundary in
-ADR-0003 on 2026-08-08; `DS-018` operator RBAC is the next implementation task.
+ADR-0003 on 2026-08-08. `DS-018` implements that boundary with migration 0006,
+offline Operator/role lifecycle, typed principals, Gateway JWT/JWKS validation,
+and organization-scoped non-enumerating Decision-read RBAC.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -237,8 +248,8 @@ semantics (evaluate only, never execute).
    `GET /v1/intents/{id}/decision`. Policy/Risk/Simulation outcomes are typed
    in canonical Evaluation evidence and the durable Audit chain. Verified across two
    real Gateway processes sharing one PostgreSQL database, not just in-process
-   tests. **Not** wired in: operator/auditor authentication and RBAC,
-   Simulation, Approval, or an Admin HTTP API. Agent identity is wired on POST;
+   tests. **Not** wired in: Simulation, Approval, or an Admin HTTP API. Agent
+   identity is wired on POST and Operator RBAC is wired on Decision GET;
    lifecycle provisioning intentionally remains an offline CLI until the Admin
    boundary is implemented.
 9. ~~Common Transaction Intent semantic validation.~~ Done in DS-009:
@@ -294,10 +305,18 @@ semantics (evaluate only, never execute).
     external subject to current organization roles. Agent and operator
     principals are disjoint; selectors and proxy Headers grant no authority.
     Acceptance closes DS-017 only; it does not claim runtime protection.
-18. **Organization-scoped operator RBAC.** **Next:** implement the accepted
-    credential verifier, durable operator/role lifecycle, typed principals,
-    non-enumerating Decision reads, offline provisioning, and real HTTP/
-    PostgreSQL tests in DS-018.
+18. ~~Organization-scoped operator RBAC.~~ Done in DS-018: migration 0006 and
+    `atf-store` persist immutable external-subject fingerprints plus explicit
+    organization roles with typed Audit; offline CLI provisioning never stores
+    the raw subject; the Gateway validates configured HTTPS issuer/JWKS RFC
+    9068 tokens into disjoint typed principals and requires a freshly loaded
+    `auditor`/`org_admin` role for non-enumerating Decision reads. Revocation,
+    disable, restart, cross-tenant, confused-deputy, redaction and real HTTP/
+    PostgreSQL paths are covered.
+19. **Validated Policy Bundle identity.** **Next:** add a Cedar Schema-backed
+    manifest that deterministically binds bundle ID/version/hash, policy-file
+    digests, organization/environment scope, activation and expiry. This is the
+    first dependency for immutable Evaluation Context and exact replay.
 
 ### Remaining before Phase 2 can close out
 
@@ -305,8 +324,9 @@ semantics (evaluate only, never execute).
   allowed the two new permissive transitive licenses, exact-versioned every
   local workspace dependency, retained wildcard/source denial, and pinned CI
   to the official cargo-deny 0.20.2 Action release commit. BL-002 closes the
-  remaining warning-only hole: all new duplicates are denied, the 23 current
-  duplicate families are represented by exact-versioned, reasoned exceptions,
+  remaining warning-only hole: all new duplicates are denied, and the current
+  duplicate families (including the reviewed SQLx/reqwest trust-anchor split)
+  are represented by exact-versioned, reasoned exceptions,
   and local/CI checks use `-D warnings` so stale exceptions also fail.
 - ~~PostgreSQL request-path persistence and restart/second-instance Decision
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
@@ -318,8 +338,9 @@ semantics (evaluate only, never execute).
   outcomes, 27 canonical typed payloads, and a strict version-1 JSON Schema.
   DS-007 extends the active contract to 22 states/28 events with a retained
   Shadow-only `IDENTITY_UNVERIFIED` compatibility branch; DS-015 adds four
-  typed Agent/Key operator events and DS-016 adds `ReplayDetected`, for 33
-  typed events without changing the state set.
+  typed Agent/Key operator events, DS-016 adds `ReplayDetected`, and DS-018 adds
+  four Operator subject/role events, for 37 typed events without changing the
+  state set.
 - ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
@@ -351,8 +372,9 @@ semantics (evaluate only, never execute).
   storage.
 - ~~Wire `atf-identity` into Gateway admission before Policy/Risk.~~ Done in
   DS-016 with atomic Nonce consumption and request Identity/replay evidence.
-- Organization-scoped operator authentication/RBAC following accepted
-  ADR-0003; Decision reads remain unauthenticated until DS-018 lands.
+- ~~Organization-scoped operator authentication/RBAC following accepted
+  ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
+  matrices remain future endpoint-specific work.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
   Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API

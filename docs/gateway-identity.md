@@ -171,10 +171,10 @@ behavior starts with a failing test, then becomes green before the next slice.
 - Always: validate before allocation where practical, use parameterized SQL,
   lock/recheck current Agent/Key state, hash Nonces explicitly, commit evidence
   atomically, verify durable rows before reuse, and fail closed.
-- Accepted but not implemented: ADR-0003 defines operator/auditor
-  authentication and Decision-read RBAC; DS-018 remains required. Rate
-  limiting, general trace/metrics propagation and execution credentials remain
-  later work.
+- Implemented separately: ADR-0003/DS-018 defines Operator authentication and
+  Decision-read RBAC without weakening this Agent boundary. Rate limiting,
+  general trace/metrics propagation and execution credentials remain later
+  work.
 - Never: accept an unsigned fallback, try multiple Keys, trust caller audience
   or environment, persist raw Nonces/signatures/private keys, log credential
   Headers, consume a Nonce only in memory, or run Policy/Risk after identity
@@ -192,6 +192,6 @@ signed HTTP smoke works; and every workspace gate is clean.
 
 ## Open questions
 
-None for DS-016. Operator identity/RBAC and public-network hardening remain
-explicit DS-018/DS-034 work. Accepted ADR-0003 deliberately keeps its
-operator principal disjoint from this Agent-authentication boundary.
+None for DS-016. DS-018 Operator identity/RBAC is now implemented; public-
+network hardening remains explicit DS-034 work. ADR-0003 deliberately keeps
+its Operator principal disjoint from this Agent-authentication boundary.

@@ -125,6 +125,11 @@ pub(crate) fn parse_identity_assertion(
     })
 }
 
+pub(crate) fn has_identity_headers(headers: &HeaderMap) -> bool {
+    headers.contains_key(&IDENTITY_ENVELOPE_HEADER)
+        || headers.contains_key(&IDENTITY_SIGNATURE_HEADER)
+}
+
 fn exactly_one<'a>(
     headers: &'a HeaderMap,
     name: &HeaderName,

@@ -2,14 +2,16 @@ use std::{
     env,
     error::Error,
     fs,
+    io::Write,
     path::PathBuf,
-    process::{self, Command, Output},
+    process::{self, Command, Output, Stdio},
     str::FromStr,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use atf_identity::{AgentRecord, AgentStatus};
-use atf_store::Store;
+use atf_store::{OperatorStatus, Store};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Executor, PgConnection, PgPool,
@@ -147,12 +149,148 @@ async fn real_cli_provisions_pauses_and_revokes_durable_identity() -> Result<(),
     Ok(())
 }
 
+#[tokio::test]
+async fn real_cli_provisions_and_revokes_operator_access_without_persisting_subject(
+) -> Result<(), Box<dyn Error>> {
+    let database = TestDatabase::create().await?;
+    database.seed_organization("alpha-lab").await?;
+    let raw_subject = "external-subject-must-remain-private";
+    let provision = run_atf_with_stdin(
+        &database.url,
+        &[
+            "operator",
+            "provision-subject",
+            "--organization-id",
+            "alpha-lab",
+            "--operator-id",
+            "operator-1",
+            "--issuer-id",
+            "corp-idp",
+            "--issuer-url",
+            "https://issuer.example.test",
+            "--principal-kind",
+            "HUMAN",
+            "--created-at",
+            "2026-08-08T09:00:00.000Z",
+            "--actor-id",
+            "db-admin-1",
+            "--occurred-at",
+            "2026-08-08T10:00:00.000Z",
+        ],
+        raw_subject,
+    );
+    assert_success(&provision);
+    assert_output_contract(&provision, "operator-1", 1);
+    assert!(!String::from_utf8_lossy(&provision.stdout).contains(raw_subject));
+
+    for (action, reason, occurred_at, version) in [
+        (
+            "grant-role",
+            "INITIAL_ACCESS",
+            "2026-08-08T11:00:00.000Z",
+            1,
+        ),
+        (
+            "revoke-role",
+            "ACCESS_REMOVED",
+            "2026-08-08T12:00:00.000Z",
+            2,
+        ),
+    ] {
+        let output = run_atf(
+            &database.url,
+            &[
+                "operator",
+                action,
+                "--organization-id",
+                "alpha-lab",
+                "--operator-id",
+                "operator-1",
+                "--role",
+                "auditor",
+                "--actor-id",
+                "db-admin-1",
+                "--reason-code",
+                reason,
+                "--occurred-at",
+                occurred_at,
+            ],
+        );
+        assert_success(&output);
+        assert_output_contract(&output, "operator-1", version);
+    }
+
+    let disable = run_atf(
+        &database.url,
+        &[
+            "operator",
+            "set-status",
+            "--operator-id",
+            "operator-1",
+            "--status",
+            "DISABLED",
+            "--actor-id",
+            "db-admin-1",
+            "--reason-code",
+            "INCIDENT_RESPONSE",
+            "--occurred-at",
+            "2026-08-08T13:00:00.000Z",
+        ],
+    );
+    assert_success(&disable);
+    assert_output_contract(&disable, "operator-1", 2);
+
+    let store = Store::connect(&database.url).await?;
+    assert_eq!(
+        store.load_operator("operator-1").await?.status,
+        OperatorStatus::Disabled
+    );
+    assert_eq!(store.load_verified_audit_chain("alpha-lab").await?.len(), 4);
+    store.close().await;
+    let subject_persisted: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM operator_subjects
+            WHERE canonical_record::text LIKE '%' || $1 || '%'
+        ) OR EXISTS (
+            SELECT 1 FROM audit_events
+            WHERE canonical_event::text LIKE '%' || $1 || '%'
+        )
+        "#,
+    )
+    .bind(raw_subject)
+    .fetch_one(&database.pool)
+    .await?;
+    assert!(!subject_persisted);
+
+    database.destroy().await?;
+    Ok(())
+}
+
 fn run_atf(database_url: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_atf"))
         .env("DATABASE_URL", database_url)
         .args(args)
         .output()
         .expect("real atf binary must start")
+}
+
+fn run_atf_with_stdin(database_url: &str, args: &[&str], stdin: &str) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_atf"))
+        .env("DATABASE_URL", database_url)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("real atf binary must start");
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(stdin.as_bytes())
+        .expect("subject can be written to stdin");
+    child.wait_with_output().expect("atf CLI must exit")
 }
 
 fn assert_success(output: &Output) {
@@ -256,11 +394,16 @@ impl TestDatabase {
 }
 
 fn unique_suffix() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after Unix epoch")
         .as_nanos();
-    format!("{}_{nanos}", process::id())
+    format!(
+        "{}_{nanos}_{}",
+        process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn quote_identifier(identifier: &str) -> String {

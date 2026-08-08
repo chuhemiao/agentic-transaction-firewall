@@ -315,6 +315,46 @@ pub struct IdentityKeyRevokedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct OperatorRegisteredPayload {
+    pub organization_id: String,
+    pub operator_id: String,
+    pub issuer_id: String,
+    pub subject_fingerprint: String,
+    pub principal_kind: String,
+    pub status: String,
+    pub record_hash: String,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperatorStatusChangedPayload {
+    pub organization_id: String,
+    pub operator_id: String,
+    pub previous_status: String,
+    pub status: String,
+    pub record_hash: String,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperatorRoleChangedPayload {
+    pub organization_id: String,
+    pub operator_id: String,
+    pub role: String,
+    pub binding_status: String,
+    pub binding_hash: String,
+    pub lifecycle_version: u64,
+    pub actor_id: String,
+    pub reason_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KillSwitchPayload {
     pub scope: String,
     pub actor_id: String,
@@ -367,6 +407,10 @@ pub enum AuditPayload {
     AgentStatusChanged(AgentStatusChangedPayload),
     IdentityKeyRegistered(IdentityKeyRegisteredPayload),
     IdentityKeyRevoked(IdentityKeyRevokedPayload),
+    OperatorRegistered(OperatorRegisteredPayload),
+    OperatorStatusChanged(OperatorStatusChangedPayload),
+    OperatorRoleGranted(OperatorRoleChangedPayload),
+    OperatorRoleRevoked(OperatorRoleChangedPayload),
     KillSwitchEnabled(KillSwitchPayload),
     KillSwitchDisabled(KillSwitchPayload),
     IntentExpired(IntentExpiredPayload),
@@ -405,6 +449,10 @@ impl AuditPayload {
             Self::AgentStatusChanged(_) => EventType::AgentStatusChanged,
             Self::IdentityKeyRegistered(_) => EventType::IdentityKeyRegistered,
             Self::IdentityKeyRevoked(_) => EventType::IdentityKeyRevoked,
+            Self::OperatorRegistered(_) => EventType::OperatorRegistered,
+            Self::OperatorStatusChanged(_) => EventType::OperatorStatusChanged,
+            Self::OperatorRoleGranted(_) => EventType::OperatorRoleGranted,
+            Self::OperatorRoleRevoked(_) => EventType::OperatorRoleRevoked,
             Self::KillSwitchEnabled(_) => EventType::KillSwitchEnabled,
             Self::KillSwitchDisabled(_) => EventType::KillSwitchDisabled,
             Self::IntentExpired(_) => EventType::IntentExpired,
@@ -443,6 +491,9 @@ impl AuditPayload {
             Self::AgentStatusChanged(value) => encode(value),
             Self::IdentityKeyRegistered(value) => encode(value),
             Self::IdentityKeyRevoked(value) => encode(value),
+            Self::OperatorRegistered(value) => encode(value),
+            Self::OperatorStatusChanged(value) => encode(value),
+            Self::OperatorRoleGranted(value) | Self::OperatorRoleRevoked(value) => encode(value),
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => encode(value),
             Self::IntentExpired(value) => encode(value),
             Self::IntentCancelled(value) => encode(value),
@@ -492,6 +543,16 @@ impl AuditPayload {
                 Self::IdentityKeyRegistered(decode(event_type, fields)?)
             }
             EventType::IdentityKeyRevoked => Self::IdentityKeyRevoked(decode(event_type, fields)?),
+            EventType::OperatorRegistered => Self::OperatorRegistered(decode(event_type, fields)?),
+            EventType::OperatorStatusChanged => {
+                Self::OperatorStatusChanged(decode(event_type, fields)?)
+            }
+            EventType::OperatorRoleGranted => {
+                Self::OperatorRoleGranted(decode(event_type, fields)?)
+            }
+            EventType::OperatorRoleRevoked => {
+                Self::OperatorRoleRevoked(decode(event_type, fields)?)
+            }
             EventType::KillSwitchEnabled => Self::KillSwitchEnabled(decode(event_type, fields)?),
             EventType::KillSwitchDisabled => Self::KillSwitchDisabled(decode(event_type, fields)?),
             EventType::IntentExpired => Self::IntentExpired(decode(event_type, fields)?),
@@ -790,6 +851,73 @@ impl AuditPayload {
                 sha256(event_type, "key_record_hash", &value.key_record_hash)?;
                 positive_version(event_type, value.lifecycle_version)?;
             }
+            Self::OperatorRegistered(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("operator_id", &value.operator_id),
+                        ("issuer_id", &value.issuer_id),
+                        ("principal_kind", &value.principal_kind),
+                        ("status", &value.status),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                sha256(
+                    event_type,
+                    "subject_fingerprint",
+                    &value.subject_fingerprint,
+                )?;
+                sha256(event_type, "record_hash", &value.record_hash)?;
+                operator_kind(event_type, &value.principal_kind)?;
+                operator_status(event_type, "status", &value.status)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
+            Self::OperatorStatusChanged(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("operator_id", &value.operator_id),
+                        ("previous_status", &value.previous_status),
+                        ("status", &value.status),
+                        ("actor_id", &value.actor_id),
+                        ("reason_code", &value.reason_code),
+                    ],
+                )?;
+                operator_status(event_type, "previous_status", &value.previous_status)?;
+                operator_status(event_type, "status", &value.status)?;
+                sha256(event_type, "record_hash", &value.record_hash)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
+            Self::OperatorRoleGranted(value) | Self::OperatorRoleRevoked(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("operator_id", &value.operator_id),
+                        ("role", &value.role),
+                        ("binding_status", &value.binding_status),
+                        ("actor_id", &value.actor_id),
+                        ("reason_code", &value.reason_code),
+                    ],
+                )?;
+                operator_role(event_type, &value.role)?;
+                role_binding_status(event_type, &value.binding_status)?;
+                let expected_status = if matches!(self, Self::OperatorRoleGranted(_)) {
+                    "ACTIVE"
+                } else {
+                    "REVOKED"
+                };
+                if value.binding_status != expected_status {
+                    return Err(invalid(
+                        event_type,
+                        format!("binding_status must be {expected_status}"),
+                    ));
+                }
+                sha256(event_type, "binding_hash", &value.binding_hash)?;
+                positive_version(event_type, value.lifecycle_version)?;
+            }
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => strings(
                 event_type,
                 &[
@@ -821,6 +949,10 @@ impl AuditPayload {
                 | Self::AgentStatusChanged(_)
                 | Self::IdentityKeyRegistered(_)
                 | Self::IdentityKeyRevoked(_)
+                | Self::OperatorRegistered(_)
+                | Self::OperatorStatusChanged(_)
+                | Self::OperatorRoleGranted(_)
+                | Self::OperatorRoleRevoked(_)
                 | Self::ReplayDetected(_)
                 | Self::KillSwitchEnabled(_)
                 | Self::KillSwitchDisabled(_)
@@ -899,6 +1031,10 @@ impl AuditPayload {
             | Self::AgentStatusChanged(_)
             | Self::IdentityKeyRegistered(_)
             | Self::IdentityKeyRevoked(_)
+            | Self::OperatorRegistered(_)
+            | Self::OperatorStatusChanged(_)
+            | Self::OperatorRoleGranted(_)
+            | Self::OperatorRoleRevoked(_)
             | Self::ReplayDetected(_)
             | Self::KillSwitchEnabled(_)
             | Self::KillSwitchDisabled(_) => return Ok(current),
@@ -1066,6 +1202,51 @@ fn agent_status(
             event_type,
             format!("{field} is not an Agent status"),
         ))
+    }
+}
+
+fn operator_kind(event_type: EventType, value: &str) -> Result<(), AuditPayloadError> {
+    if matches!(value, "HUMAN" | "SERVICE") {
+        Ok(())
+    } else {
+        Err(invalid(
+            event_type,
+            "principal_kind is not an Operator kind",
+        ))
+    }
+}
+
+fn operator_status(
+    event_type: EventType,
+    field: &'static str,
+    value: &str,
+) -> Result<(), AuditPayloadError> {
+    if matches!(value, "ACTIVE" | "DISABLED") {
+        Ok(())
+    } else {
+        Err(invalid(
+            event_type,
+            format!("{field} is not an Operator status"),
+        ))
+    }
+}
+
+fn operator_role(event_type: EventType, value: &str) -> Result<(), AuditPayloadError> {
+    if matches!(
+        value,
+        "org_admin" | "policy_author" | "approver" | "auditor"
+    ) {
+        Ok(())
+    } else {
+        Err(invalid(event_type, "role is not an ATF Operator role"))
+    }
+}
+
+fn role_binding_status(event_type: EventType, value: &str) -> Result<(), AuditPayloadError> {
+    if matches!(value, "ACTIVE" | "REVOKED") {
+        Ok(())
+    } else {
+        Err(invalid(event_type, "binding_status is invalid"))
     }
 }
 

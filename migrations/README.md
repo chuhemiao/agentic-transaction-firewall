@@ -37,6 +37,19 @@ windows are immutable; terminal Agents, revoked Keys, row deletion and table
 truncate are database-guarded. Existing Intent/Decision/Audit bytes are not
 rewritten.
 
+Migration 0005 adds DS-016 immutable hashed Agent Nonce consumption. Each row
+binds the organization, Agent, exact Key, Envelope hash, Intent hash,
+idempotency reservation and `IdentityVerified` event/lifecycle versions.
+Database guards reject rebinding, deletion and truncate; raw Nonces, Envelopes
+and signatures are never stored.
+
+Migration 0006 adds DS-018 PostgreSQL-authoritative Operator subjects and
+organization roles. Only a domain-separated external-subject fingerprint is
+stored. Canonical Operator/role records, exact bytes, hashes, monotonic
+lifecycle versions and typed Audit pointers make registration, status,
+grant/revoke and regrant verifiable after restart. Immutable issuer/subject
+bindings and database guards reject rebinding, deletion and truncate.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

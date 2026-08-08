@@ -15,11 +15,11 @@ records against the durable Audit chain, and then use `atf-identity` to enforce
 their validity at an explicit verification time.
 
 Initial operators use a local CLI with `DATABASE_URL`; DS-015 deliberately
-introduces no Admin HTTP endpoint or network credential model. Operator
-authentication and RBAC remain DS-018 implementation work. Accepted
-[`ADR-0003`](decisions/0003-operator-authentication.md) selects short-lived
-Gateway-validated JWT access tokens plus durable ATF organization-role
-bindings, but the current Gateway still requires implementation.
+introduces no Admin HTTP endpoint or network credential model. DS-018 adds a
+separate offline `atf operator` lifecycle plus the
+[`ADR-0003`](decisions/0003-operator-authentication.md) short-lived
+Gateway-validated JWT and durable ATF organization-role boundary for Decision
+reads; it does not turn Agent keys into Operator credentials.
 
 The two identity systems remain deliberately disjoint. This document's Agent
 Key proves one bounded signed Intent and cannot produce operator authority.
@@ -170,9 +170,10 @@ snapshot.verify_envelope(intent, envelope, signature, &context)?;
 
 - Always: fail closed, use explicit timestamps, parameterize SQL, verify Audit
   before returning identity state, and keep each mutation atomic.
-- Requires later implementation: Admin HTTP and operator credentials/RBAC
-  follow accepted ADR-0003 and DS-018. Nonce consumption and
-  Identity rejection mapping are already implemented for Agent admission.
+- Requires later implementation: Admin HTTP remains absent and must define its
+  own capability matrix. ADR-0003/DS-018 Operator credentials protect current
+  Decision reads; Nonce consumption and Identity rejection mapping protect
+  Agent admission.
 - Never: store private identity/execution keys, infer a Key by trial, revive a
   revoked/expired Agent, un-revoke a Key, trust process memory as authority, or
   bypass Audit when persistence succeeds.

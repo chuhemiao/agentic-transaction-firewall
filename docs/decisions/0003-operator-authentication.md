@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-08
 - **Accepted:** 2026-08-08
+- **Implemented:** DS-018, 2026-08-08
 - **Approval:** Explicit ATF maintainer approval recorded in the project task
 - **Decision owners:** ATF maintainers
 - **Supersedes:** None
@@ -297,11 +298,11 @@ privilege and turns compromise of either credential into broader authority.
 
 The ATF maintainer explicitly approved the reference mechanism and residual
 bearer-token window on 2026-08-08. That approval closes the DS-017 design gate;
-it does not claim that operator authentication or RBAC exists in the current
-Gateway. DS-018 must implement and verify the accepted boundary before any
-business route is considered operator-protected.
+at approval time it did not claim that Operator authentication or RBAC already
+existed. DS-018 subsequently implemented and verified the accepted boundary
+before the Decision route was marked protected.
 
-DS-018 should land one reviewable vertical slice:
+DS-018 landed as one reviewable vertical slice:
 
 1. migration and `atf-store` APIs for immutable operator subjects and
    organization-role lifecycle;
@@ -310,6 +311,13 @@ DS-018 should land one reviewable vertical slice:
 4. typed route principals and the current Decision-read role matrix;
 5. wrong-token, revoked-role, cross-tenant, confused-deputy, restart, redaction,
    and authenticated real-HTTP smoke tests.
+
+The gate is satisfied for the current `GET Decision` surface. Migration 0006,
+`atf-store` Operator/Role verification, offline `atf operator` commands,
+configured HTTPS JWT/JWKS validation, typed principals and the
+`auditor`/`org_admin` non-enumerating role matrix are implemented and covered
+by PostgreSQL/Gateway/CLI tests. DS-034 and future endpoint-specific role
+matrices remain outside this ADR's implementation claim.
 
 ## References
 

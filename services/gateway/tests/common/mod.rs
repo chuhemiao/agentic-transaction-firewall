@@ -1,12 +1,16 @@
 use atf_core::Timestamp;
-use atf_gateway::{AppState, IdentityGatewayConfig};
+use atf_gateway::{AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::TransactionIntent;
 use atf_policy::PolicyBundle;
 use atf_risk::RiskConfig;
-use atf_store::{AuthenticatedAdmissionInput, Store};
+use atf_store::{
+    operator_subject_fingerprint, AuthenticatedAdmissionInput, OperatorKind, OperatorRegistration,
+    OperatorRole, Store,
+};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Duration as ChronoDuration, Timelike, Utc};
 use ed25519_dalek::{Signer, SigningKey};
 use sqlx::{
@@ -27,6 +31,9 @@ pub const AUDIENCE: &str = "atf-gateway";
 pub const ENVIRONMENT: &str = "test";
 pub const AGENT_ID: &str = "research-agent-01";
 pub const KEY_ID: &str = "identity-key-01";
+pub const OPERATOR_ISSUER: &str = "https://issuer.example.test";
+pub const OPERATOR_AUDIENCE: &str = "https://atf.example.test";
+pub const OPERATOR_SUBJECT: &str = "operator-subject-1";
 
 const SIGNING_KEY_SEED: [u8; 32] = [42; 32];
 
@@ -53,7 +60,39 @@ pub fn test_state_with_policy(store: Store, policy: &str) -> AppState {
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
             .expect("test identity context is canonical"),
+        test_operator_authenticator(),
     )
+}
+
+fn test_operator_authenticator() -> OperatorAuthenticator {
+    let signing_key = operator_signing_key();
+    let jwks = serde_json::from_value(serde_json::json!({
+        "keys": [{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": URL_SAFE_NO_PAD.encode(signing_key.verifying_key().as_bytes()),
+            "use": "sig",
+            "key_ops": ["verify"],
+            "alg": "EdDSA",
+            "kid": "operator-key-1"
+        }]
+    }))
+    .expect("test JWKS is valid");
+    let config = OperatorAuthConfig::new(
+        "corp-idp",
+        OPERATOR_ISSUER,
+        OPERATOR_AUDIENCE,
+        "https://issuer.example.test/.well-known/openid-configuration",
+        "https://issuer.example.test/keys",
+        vec![jsonwebtoken::Algorithm::EdDSA],
+        Duration::from_secs(900),
+        Duration::from_secs(120),
+        Duration::from_secs(300),
+        Duration::from_secs(3),
+        None,
+    )
+    .expect("test Operator authentication config is valid");
+    OperatorAuthenticator::from_test_jwks(config, jwks).expect("test JWKS is usable")
 }
 
 pub fn sample_intent_json(intent_id: &str, amount: &str) -> serde_json::Value {
@@ -149,8 +188,48 @@ pub fn get_decision_request(intent_id: &str, organization_id: &str) -> Request<B
     Request::builder()
         .uri(format!("/v1/intents/{intent_id}/decision"))
         .header("x-atf-organization-id", organization_id)
+        .header("authorization", operator_authorization())
         .body(Body::empty())
         .unwrap()
+}
+
+pub fn operator_authorization() -> String {
+    format!("Bearer {}", operator_token())
+}
+
+fn operator_token() -> String {
+    let now = Utc::now().timestamp();
+    let header = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "typ": "at+jwt",
+            "alg": "EdDSA",
+            "kid": "operator-key-1"
+        }))
+        .unwrap(),
+    );
+    let claims = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "iss": OPERATOR_ISSUER,
+            "sub": OPERATOR_SUBJECT,
+            "aud": OPERATOR_AUDIENCE,
+            "iat": now - 30,
+            "nbf": now - 30,
+            "exp": now + 300,
+            "role": "org_admin",
+            "organization_id": "attacker-selected"
+        }))
+        .unwrap(),
+    );
+    let signing_input = format!("{header}.{claims}");
+    let signature = operator_signing_key().sign(signing_input.as_bytes());
+    format!(
+        "{signing_input}.{}",
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    )
+}
+
+fn operator_signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[7; 32])
 }
 
 pub async fn body_json(
@@ -267,6 +346,35 @@ impl TestDatabase {
                 test_time(-3_599),
             )
             .await?;
+        if organization_id == "alpha-lab" {
+            store
+                .provision_operator(
+                    OperatorRegistration {
+                        operator_id: "operator-1".into(),
+                        issuer_id: "corp-idp".into(),
+                        subject_fingerprint: operator_subject_fingerprint(
+                            OPERATOR_ISSUER,
+                            OPERATOR_SUBJECT,
+                        )?,
+                        principal_kind: OperatorKind::Human,
+                        audit_organization_id: organization_id.into(),
+                        created_at: test_time(-7_200),
+                    },
+                    "test-db-admin",
+                    test_time(-3_500),
+                )
+                .await?;
+            store
+                .grant_operator_role(
+                    "operator-1",
+                    organization_id,
+                    OperatorRole::Auditor,
+                    "test-db-admin",
+                    "TEST_ACCESS",
+                    test_time(-3_400),
+                )
+                .await?;
+        }
         store.close().await;
         Ok(())
     }
@@ -284,7 +392,11 @@ impl TestDatabase {
                     'AgentRegistered',
                     'AgentStatusChanged',
                     'IdentityKeyRegistered',
-                    'IdentityKeyRevoked'
+                    'IdentityKeyRevoked',
+                    'OperatorRegistered',
+                    'OperatorStatusChanged',
+                    'OperatorRoleGranted',
+                    'OperatorRoleRevoked'
                  ))
             "#,
         )

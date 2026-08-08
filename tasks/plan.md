@@ -76,15 +76,17 @@ fail-closed recovery. DS-014 added the canonical domain-separated Identity
 Envelope and exact-key verifier. DS-015 added restart-safe Agent/Key lifecycle,
 atomic operator Audit evidence and offline provisioning. DS-016 added strict
 Gateway identity Headers/configuration, current durable exact-Key verification,
-atomic hashed-Nonce admission and typed rejection/replay evidence; the next
-task is DS-018. ADR-0003 was explicitly accepted on 2026-08-08 and closes the
-DS-017 design gate without claiming runtime RBAC.
+atomic hashed-Nonce admission and typed rejection/replay evidence. ADR-0003 was
+explicitly accepted on 2026-08-08 as DS-017; DS-018 now implements it with
+durable Operator/Role lifecycle, configured JWT/JWKS validation, typed
+principals and non-enumerating Decision-read RBAC. The next task is DS-019.
 
 ### Present but incomplete or unwired
 
 - Agent identity is wired before Policy/Risk with PostgreSQL-authoritative
-  Nonce replay protection. Operator/auditor authentication and authorization
-  remain absent.
+  Nonce replay protection. Operator authentication and current Decision-read
+  authorization are wired; future Admin/Audit endpoints still need explicit
+  capability matrices.
 - Decision contains only ID, Intent ID, kind and reasons.
 - Policy has no manifest, schema, scope, version, hash, signature or rollback.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
@@ -334,9 +336,10 @@ readiness reflect dependency health.
 **Delivered boundary:** PostgreSQL is required and pre-migrated at startup;
 organizations are explicitly provisioned. POST uses the DS-004 admission and
 finalization transactions, Risk consumes verified durable Audit events, GET
-requires `X-ATF-Organization-ID`, and readiness checks live schema access. The
-header is only a transitional tenant selector. ADR-0003 fixes the accepted
-authenticated organization boundary; DS-018 must implement it. DS-012 now
+requires a validated Operator JWT, a current durable organization read role,
+and `X-ATF-Organization-ID` as selector; readiness checks live schema and JWKS
+access. ADR-0003's authenticated organization boundary is implemented by
+DS-018. DS-012 now
 supplies atomic reservation,
 lease/fencing and result binding; DS-013 now supplies exact completed retry and
 request-driven admitted-work recovery.
@@ -364,11 +367,12 @@ decision-relevant free-form Audit payloads with typed, schema-validated data.
 events; DS-007 adds the explicit Shadow-only `IDENTITY_UNVERIFIED` state and
 `IdentityVerificationSkipped` event. `atf-core` remains the only pure
 transition table, now exhaustively testing all 484 state pairs and every
-terminal successor. `atf-audit` owns 33 canonical version-1 payload variants,
-tagged required/optional module outcomes, intent-scope validation, and explicit
-event effects. Real typed Rust output is checked against a closed JSON Schema,
-and the store's admission/finalization producers no longer assemble free-form
-Audit JSON.
+terminal successor. `atf-audit` owns 37 canonical version-1 payload variants
+(33 before DS-018), including Operator/Role lifecycle evidence, tagged
+required/optional module outcomes, intent-scope validation, and explicit event
+effects. Real typed Rust output is checked against a closed JSON Schema, and
+the store's admission/finalization/lifecycle producers no longer assemble
+free-form Audit JSON.
 
 ### DS-007 — Enforce lifecycle transitions transactionally `[M]`
 
@@ -714,23 +718,26 @@ map to organizations, and where TLS termination/credential rotation live.
 
 ### DS-018 — Enforce organization-scoped operator RBAC `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Implement the selected auth mechanism and a typed
-`RequestPrincipal`. Protect Decision reads and future Audit queries with
-organization scope and least-privilege roles; health endpoints remain public.
+`RequestPrincipal`. Protect Decision reads with organization scope and least-
+privilege roles; health endpoints remain public and future routes must add an
+explicit capability matrix.
 
 - **Dependencies:** DS-017.
-- **Likely files:** a new PostgreSQL migration,
+- **Delivered files:** migration 0006,
   `crates/atf-store/src/operator.rs`, offline provisioning in `cli/atf-cli`,
-  `services/gateway/src/auth.rs`, `services/gateway/src/routes.rs`,
-  `services/gateway/src/state.rs`, `services/gateway/tests/authorization.rs`,
+  `services/gateway/src/operator_auth.rs`, `services/gateway/src/principal.rs`,
+  `services/gateway/src/routes.rs`, `services/gateway/src/state.rs`, Gateway/
+  Store/CLI integration tests,
   `docs/api.md`.
 - **Acceptance criteria:**
   1. Every non-health route has an Agent or operator principal.
   2. Cross-organization and wrong-role reads return a non-enumerating denial.
-  3. Expired/revoked credentials fail and are safely traced.
-- **Verification:** role matrix and confused-deputy integration tests; real authenticated curl smoke; full DoD.
+  3. Expired/revoked credentials fail without leaking credential diagnostics.
+- **Verification:** role matrix, revocation/restart/tamper/redaction and
+  confused-deputy integration tests; real authenticated curl smoke; full DoD.
 
 ### DS-019 — Add validated Policy Bundle manifests and hashes `[M]`
 

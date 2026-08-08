@@ -21,7 +21,10 @@ atf-risk = { workspace = true }
 atf-decision = { workspace = true }
 atf-store = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 hex = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

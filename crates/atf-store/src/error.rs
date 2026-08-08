@@ -70,6 +70,29 @@ pub enum StoreError {
         reason: String,
     },
 
+    #[error("Operator `{operator_id}` or its immutable issuer/subject binding already exists")]
+    OperatorConflict { operator_id: String },
+
+    #[error("Operator `{operator_id}` does not exist")]
+    OperatorNotFound { operator_id: String },
+
+    #[error("role `{role}` for Operator `{operator_id}` in organization `{organization_id}` has conflicting lifecycle state")]
+    OperatorRoleConflict {
+        operator_id: String,
+        organization_id: String,
+        role: String,
+    },
+
+    #[error("role `{role}` for Operator `{operator_id}` in organization `{organization_id}` does not exist")]
+    OperatorRoleNotFound {
+        operator_id: String,
+        organization_id: String,
+        role: String,
+    },
+
+    #[error("durable Operator state for `{operator_id}` is corrupt: {reason}")]
+    OperatorStateCorrupt { operator_id: String, reason: String },
+
     #[error("request identity was rejected with stable reason `{reason_code}`")]
     IdentityRejected { reason_code: &'static str },
 

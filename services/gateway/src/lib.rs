@@ -9,10 +9,13 @@
 
 mod auth;
 mod error;
+mod operator_auth;
+mod principal;
 mod request_id;
 mod routes;
 mod state;
 
 pub use auth::{IdentityGatewayConfig, IdentityGatewayConfigError};
+pub use operator_auth::{OperatorAuthConfig, OperatorAuthConfigError, OperatorAuthenticator};
 pub use routes::build_router;
 pub use state::AppState;

@@ -90,9 +90,12 @@ order. The executable order is:
   authorization. Agent/operator principals are disjoint and no selector,
   proxy Header, anonymous path, or shared account grants authority. Explicit
   maintainer approval was recorded on 2026-08-08.
-- [ ] DS-018 Implement the accepted verifier, durable operator/role lifecycle,
+- [x] DS-018 Implement the accepted verifier, durable operator/role lifecycle,
   typed principals, organization-scoped Decision-read RBAC, and
-  non-enumerating denial behavior.
+  non-enumerating denial behavior. Migration 0006, offline subject/role
+  commands, configured HTTPS JWT/JWKS validation, per-request local revocation,
+  restart/redaction/confused-deputy coverage and real HTTP/PostgreSQL smoke are
+  complete.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -125,12 +128,11 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-018` — implement accepted
-[`ADR-0003`](decisions/0003-operator-authentication.md) with Gateway-validated
-short-lived JWT access tokens, PostgreSQL-authoritative organization roles,
-typed principals, and non-enumerating Decision reads. Decision reads and
-future Audit queries remain unauthenticated in the current runtime until that
-implementation and its tests land.
+**Immediate next task:** `DS-019` — add a Cedar Schema-backed Policy Bundle
+manifest with deterministic version/hash and explicit organization/environment
+scope. This starts the dependency chain that later pins the bundle in immutable
+`EvaluationContext` snapshots. Decision reads are protected by DS-018; future
+Audit/Admin routes must define and test their own role matrices before exposure.
 
 ## Later releases
 

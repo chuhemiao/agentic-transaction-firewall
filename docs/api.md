@@ -9,25 +9,31 @@ or execution authority.
 | Method | Path | Response |
 |---|---|---|
 | `GET` | `/healthz` | Liveness text (`ok`) |
-| `GET` | `/readyz` | PostgreSQL/schema readiness text (`ready` or `not ready`) |
+| `GET` | `/readyz` | PostgreSQL/schema and Operator-JWKS readiness text (`ready` or `not ready`) |
 | `POST` | `/v1/intents` | A durably recorded Decision |
 | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
 
-The organization header used by the Decision read route is only a temporary
-tenant selector. It is not authentication or authorization; business routes
-must not be exposed to a shared or untrusted network before DS-018.
-
-Accepted [`ADR-0003`](decisions/0003-operator-authentication.md) defines the
-replacement trust boundary but is not implemented: Decision reads will require
-one RFC 9068 `Authorization: Bearer` access token that the Gateway validates,
-then an active PostgreSQL `auditor` or `org_admin` binding for the selected
-organization. Agent Envelopes and operator tokens remain different principal
-types. `X-ATF-Organization-ID` remains a selector and never becomes authority.
+The Decision read route requires exactly one RFC 9068
+`Authorization: Bearer` access token validated by the Gateway and a current
+PostgreSQL `auditor` or `org_admin` binding for the selected organization.
+Agent Envelopes and Operator tokens are disjoint principal types and fail when
+used on the wrong route. `X-ATF-Organization-ID` remains a canonical tenant
+selector; it and JWT organization/role/email claims never become authority.
+Decision absence, cross-organization selection and insufficient read role all
+return the same `404 DECISION_NOT_FOUND` response.
 
 `POST /v1/intents` requires the detached Agent identity Headers defined in
 [`gateway-identity.md`](gateway-identity.md): lowercase-hex canonical Envelope
 bytes plus one exact Ed25519 signature. Trusted audience/environment come from
 required Gateway startup configuration, not the request.
+
+Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
+`ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
+`ATF_OPERATOR_DISCOVERY_URL` and `ATF_OPERATOR_JWKS_URL`, plus an asymmetric
+`ATF_OPERATOR_JWT_ALGORITHMS` allowlist. Token lifetime, clock skew, JWKS
+freshness and HTTP timeout have bounded optional environment settings; a
+private/test CA can be supplied via `ATF_OPERATOR_CA_CERT_PATH`. Startup fails
+closed unless discovery and an initial unique usable key set validate.
 
 ## Request correlation
 
@@ -87,11 +93,12 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 400 | `INTENT_SCHEMA_INVALID` | Common Intent Schema rejected the document |
 | 400 | `INTENT_SHAPE_INVALID` | Typed parsing rejected a Schema/Rust mismatch |
 | 400 | `INTENT_SEMANTIC_INVALID` | Common or Profile semantic rules rejected the Intent |
-| 400 | `ORGANIZATION_HEADER_INVALID` | Temporary tenant-selector header is malformed |
+| 400 | `ORGANIZATION_HEADER_INVALID` | Canonical tenant-selector header is malformed |
 | 400 | `ORGANIZATION_NOT_FOUND` | Declared organization is unavailable |
 | 404 | `DECISION_NOT_FOUND` | No tenant-scoped durable Decision exists |
 | 404 | `ROUTE_NOT_FOUND` | Path is not registered |
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
+| 401 | `AUTHENTICATION_REQUIRED` | Route-appropriate Agent/Operator credential is missing, invalid, disabled, or used on the wrong route |
 | 401 | `IDENTITY_HEADERS_*` / `IDENTITY_*` | Identity Header or signed proof is missing, malformed, expired, mismatched or invalid |
 | 403 | `IDENTITY_AGENT_*` / `IDENTITY_KEY_*` | A known durable Agent/Key lifecycle or deployment restriction denies submission |
 | 409 | `DURABLE_STATE_CONFLICT` | Immutable durable state conflicts with the request |
@@ -103,22 +110,19 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 500 | `INTERNAL_ERROR` | An internal invariant failed safely |
 | 503 | `DURABLE_STATE_UNAVAILABLE` | Required durable state is unavailable/incompatible |
 
-Future operator authentication/authorization and dependency features add codes
-to this one envelope. Changing or removing an existing code
-or field is a compatibility decision and requires an explicit migration.
+Changing or removing an existing code or field is a compatibility decision and
+requires an explicit migration.
 
-## Accepted DS-018 operator error mapping
+## DS-018 Operator error mapping
 
-These values are a prerequisite contract from ADR-0003, not current
-runtime behavior:
+The current Decision-read contract deliberately minimizes credential and
+resource-state disclosure:
 
 | HTTP | Code | Meaning |
 |---:|---|---|
-| 401 | `AUTHENTICATION_REQUIRED` | A protected operator route has no single Bearer credential |
-| 401 | `AUTHENTICATION_INVALID` | Token type, issuer, audience, algorithm, signature, time, subject, or configured key validation failed |
-| 403 | `AUTHORIZATION_DENIED` | An authenticated principal lacks a capability for a non-resource operation |
+| 401 | `AUTHENTICATION_REQUIRED` | No single valid route-appropriate credential, no active mapped Operator, or principal-type mismatch |
 | 404 | `DECISION_NOT_FOUND` | Decision absent, cross-organization, or not readable by the principal; the cases are indistinguishable |
-| 503 | `AUTHENTICATION_UNAVAILABLE` | No fresh usable configured issuer key set is available |
+| 503 | readiness text only | No fresh usable configured issuer key set is available; `/readyz` fails and protected reads fail closed |
 
 401 responses include only a fixed safe `WWW-Authenticate: Bearer` challenge.
 No response distinguishes expired versus revoked subjects, unknown versus

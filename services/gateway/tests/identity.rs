@@ -36,7 +36,7 @@ async fn unsigned_intent_is_rejected_and_audited_before_evaluation() -> Result<(
     .await?;
 
     let chain = store.load_verified_audit_chain("alpha-lab").await?;
-    assert_eq!(chain.len(), 3);
+    assert_eq!(chain.len(), 5);
     let rejected = chain
         .last()
         .expect("rejection follows identity provisioning");

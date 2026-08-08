@@ -52,6 +52,10 @@
         "AgentStatusChanged",
         "IdentityKeyRegistered",
         "IdentityKeyRevoked",
+        "OperatorRegistered",
+        "OperatorStatusChanged",
+        "OperatorRoleGranted",
+        "OperatorRoleRevoked",
         "IntentExpired",
         "IntentCancelled"
       ]
@@ -96,6 +100,10 @@
     { "$ref": "#/$defs/agentStatusChangedEvent" },
     { "$ref": "#/$defs/identityKeyRegisteredEvent" },
     { "$ref": "#/$defs/identityKeyRevokedEvent" },
+    { "$ref": "#/$defs/operatorRegisteredEvent" },
+    { "$ref": "#/$defs/operatorStatusChangedEvent" },
+    { "$ref": "#/$defs/operatorRoleGrantedEvent" },
+    { "$ref": "#/$defs/operatorRoleRevokedEvent" },
     { "$ref": "#/$defs/killSwitchEnabledEvent" },
     { "$ref": "#/$defs/killSwitchDisabledEvent" },
     { "$ref": "#/$defs/intentExpiredEvent" },
@@ -135,6 +143,10 @@
     "agentStatus": {
       "enum": ["ACTIVE", "SHADOW_ONLY", "PAUSED", "REVOKED", "EXPIRED"]
     },
+    "operatorKind": { "enum": ["HUMAN", "SERVICE"] },
+    "operatorStatus": { "enum": ["ACTIVE", "DISABLED"] },
+    "operatorRole": { "enum": ["org_admin", "policy_author", "approver", "auditor"] },
+    "roleBindingStatus": { "enum": ["ACTIVE", "REVOKED"] },
     "policyOutcome": {
       "oneOf": [
         {
@@ -581,6 +593,55 @@
         "reason_code": { "$ref": "#/$defs/nonEmpty" }
       }
     },
+    "operatorRegistered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "operator_id", "issuer_id", "subject_fingerprint", "principal_kind", "status", "record_hash", "lifecycle_version", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "operator_id": { "$ref": "#/$defs/nonEmpty" },
+        "issuer_id": { "$ref": "#/$defs/nonEmpty" },
+        "subject_fingerprint": { "$ref": "#/$defs/sha256" },
+        "principal_kind": { "$ref": "#/$defs/operatorKind" },
+        "status": { "$ref": "#/$defs/operatorStatus" },
+        "record_hash": { "$ref": "#/$defs/sha256" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "operatorStatusChanged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "operator_id", "previous_status", "status", "record_hash", "lifecycle_version", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "operator_id": { "$ref": "#/$defs/nonEmpty" },
+        "previous_status": { "$ref": "#/$defs/operatorStatus" },
+        "status": { "$ref": "#/$defs/operatorStatus" },
+        "record_hash": { "$ref": "#/$defs/sha256" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "operatorRoleChanged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "operator_id", "role", "binding_status", "binding_hash", "lifecycle_version", "actor_id", "reason_code"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "operator_id": { "$ref": "#/$defs/nonEmpty" },
+        "role": { "$ref": "#/$defs/operatorRole" },
+        "binding_status": { "$ref": "#/$defs/roleBindingStatus" },
+        "binding_hash": { "$ref": "#/$defs/sha256" },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" },
+        "reason_code": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
     "killSwitch": {
       "type": "object",
       "additionalProperties": false,
@@ -698,6 +759,18 @@
     },
     "identityKeyRevokedEvent": {
       "properties": { "event_type": { "const": "IdentityKeyRevoked" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/identityKeyRevoked" } }
+    },
+    "operatorRegisteredEvent": {
+      "properties": { "event_type": { "const": "OperatorRegistered" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/operatorRegistered" } }
+    },
+    "operatorStatusChangedEvent": {
+      "properties": { "event_type": { "const": "OperatorStatusChanged" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/operatorStatusChanged" } }
+    },
+    "operatorRoleGrantedEvent": {
+      "properties": { "event_type": { "const": "OperatorRoleGranted" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "allOf": [{ "$ref": "#/$defs/operatorRoleChanged" }, { "properties": { "binding_status": { "const": "ACTIVE" } } }] } }
+    },
+    "operatorRoleRevokedEvent": {
+      "properties": { "event_type": { "const": "OperatorRoleRevoked" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "allOf": [{ "$ref": "#/$defs/operatorRoleChanged" }, { "properties": { "binding_status": { "const": "REVOKED" } } }] } }
     },
     "killSwitchEnabledEvent": {
       "properties": { "event_type": { "const": "KillSwitchEnabled" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/killSwitch" } }

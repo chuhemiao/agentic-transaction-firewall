@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-016 authenticated admission and identity lifecycle contract
+Status: DS-018 authenticated admission plus Agent/Operator lifecycle contract
 
-Version: 4
+Version: 5
 
-Authority: `docs/PRD.md` §16–17, ADR-0002, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016
+Authority: `docs/PRD.md` §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018
 
 ## Objective
 
@@ -30,8 +30,9 @@ contract, append typed evidence, and update the materialized state atomically.
 - `crates/atf-store/src/lifecycle.rs`: transactional replay and persistence
   boundary.
 - `migrations/0002_intent_lifecycle.sql`, `migrations/0004_identity.sql`, and
-  `migrations/0005_nonces.sql`: additive Intent, identity lifecycle, and
-  authenticated Nonce schemas.
+  `migrations/0005_nonces.sql`, plus `migrations/0006_operator_rbac.sql`:
+  additive Intent, Agent identity, authenticated Nonce, and Operator/Role
+  lifecycle schemas.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and

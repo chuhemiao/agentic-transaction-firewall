@@ -85,13 +85,17 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   PostgreSQL-authoritative organization roles, disjoint Agent/operator
   principals, and no proxy/shared-account fallback. Explicit maintainer
   approval recorded 2026-08-08. Depends: DS-015.
-- [ ] **NEXT — DS-018:** protect all non-health routes with Agent/operator auth
-  and org RBAC. Depends: DS-017.
-- [ ] **Checkpoint C2:** invalid, unauthenticated, cross-tenant, duplicate and replay requests cannot reach evaluation incorrectly.
+- [x] **DS-018:** protected current non-health routes with disjoint typed Agent/
+  Operator principals; added durable Operator/Role lifecycle, configured
+  JWT/JWKS validation and non-enumerating organization Decision-read RBAC.
+  Depends: DS-017.
+- [x] **Checkpoint C2:** invalid, unauthenticated, cross-tenant, duplicate and
+  replay requests cannot reach evaluation incorrectly.
 
 ### C3 Reproducible decisions
 
-- [ ] **DS-019:** add Cedar Schema-backed Policy Bundle manifest/version/hash/scope. Depends: DS-018.
+- [ ] **NEXT — DS-019:** add Cedar Schema-backed Policy Bundle
+  manifest/version/hash/scope. Depends: DS-018.
 - [ ] **DS-020:** persist signed Policy activation and rollback with Audit. Depends: DS-019.
 - [ ] **DS-021:** version/hash Risk Rule Sets and accounting boundaries. Depends: DS-019.
 - [ ] **DS-022:** define provenance-bearing evidence and privileged-context firewall. Depends: DS-010, DS-021.

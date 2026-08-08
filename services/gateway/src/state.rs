@@ -4,7 +4,7 @@ use atf_policy::PolicyBundle;
 use atf_risk::RiskConfig;
 use atf_store::Store;
 
-use crate::IdentityGatewayConfig;
+use crate::{IdentityGatewayConfig, OperatorAuthenticator};
 
 /// Everything a request handler needs, shared across connections.
 ///
@@ -16,6 +16,7 @@ pub struct AppState {
     pub risk_config: Arc<RiskConfig>,
     pub store: Store,
     pub identity: Arc<IdentityGatewayConfig>,
+    pub operator_auth: Arc<OperatorAuthenticator>,
 }
 
 impl AppState {
@@ -24,12 +25,14 @@ impl AppState {
         risk_config: RiskConfig,
         store: Store,
         identity: IdentityGatewayConfig,
+        operator_auth: OperatorAuthenticator,
     ) -> Self {
         Self {
             policy_bundle: Arc::new(policy_bundle),
             risk_config: Arc::new(risk_config),
             store,
             identity: Arc::new(identity),
+            operator_auth: Arc::new(operator_auth),
         }
     }
 }

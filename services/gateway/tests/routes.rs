@@ -6,6 +6,7 @@ mod common;
 use atf_audit::EventType;
 use atf_core::IntentLifecycleState;
 use atf_gateway::build_router;
+use atf_store::{OperatorRole, OperatorStatus};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use std::{error::Error, sync::Arc, time::Duration};
@@ -14,7 +15,8 @@ use tower::ServiceExt;
 
 use common::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
-    post_intent_request, sample_intent_json, test_state, test_state_with_policy, TestDatabase,
+    operator_authorization, post_intent_request, sample_intent_json, test_state,
+    test_state_with_policy, TestDatabase,
 };
 
 const FORBID_ALL_POLICY: &str = r#"
@@ -455,6 +457,7 @@ async fn decision_lookup_requires_an_organization_header() -> Result<(), Box<dyn
         .oneshot(
             Request::builder()
                 .uri("/v1/intents/unknown-id/decision")
+                .header("authorization", operator_authorization())
                 .body(Body::empty())?,
         )
         .await?;
@@ -513,6 +516,178 @@ async fn organization_scope_prevents_cross_tenant_decision_reads() -> Result<(),
         .await?
         .iter()
         .all(|stored| stored.event.intent_id.is_none()));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn decision_read_requires_one_operator_bearer_and_rejects_agent_credentials(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("operator_required").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/intents/unknown-id/decision")
+                .header("x-atf-organization-id", "alpha-lab")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(
+        response.headers().get("www-authenticate").unwrap(),
+        "Bearer"
+    );
+    error_json(
+        response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    )
+    .await?;
+
+    let raw_token = "sensitive.header.signature";
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/intents/unknown-id/decision")
+                .header("x-atf-organization-id", "alpha-lab")
+                .header("authorization", format!("Bearer {raw_token}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let error = error_json(
+        response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    )
+    .await?;
+    assert!(!serde_json::to_string(&error)?.contains(raw_token));
+
+    let mut confused = get_decision_request("unknown-id", "alpha-lab");
+    confused
+        .headers_mut()
+        .insert("x-atf-identity-envelope", "00".parse()?);
+    let response = app.oneshot(confused).await?;
+    error_json(
+        response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    )
+    .await?;
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn revoked_role_wrong_role_and_disabled_subject_take_effect_on_the_next_read(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("operator_revocation").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+    let intent_id = "01J0000000000000000000RB10";
+
+    assert_eq!(
+        app.clone()
+            .oneshot(post_intent_request(intent_id, "12.50"))
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(get_decision_request(intent_id, "alpha-lab"))
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+
+    let changed_at = atf_core::Timestamp::now().to_string().parse()?;
+    store
+        .revoke_operator_role(
+            "operator-1",
+            "alpha-lab",
+            OperatorRole::Auditor,
+            "test-db-admin",
+            "ACCESS_REMOVED",
+            changed_at,
+        )
+        .await?;
+    store
+        .grant_operator_role(
+            "operator-1",
+            "alpha-lab",
+            OperatorRole::Approver,
+            "test-db-admin",
+            "APPROVAL_ONLY",
+            changed_at,
+        )
+        .await?;
+    let response = app
+        .clone()
+        .oneshot(get_decision_request(intent_id, "alpha-lab"))
+        .await?;
+    error_json(response, StatusCode::NOT_FOUND, "DECISION_NOT_FOUND").await?;
+
+    store
+        .set_operator_status(
+            "operator-1",
+            OperatorStatus::Disabled,
+            "test-db-admin",
+            "INCIDENT_RESPONSE",
+            changed_at,
+        )
+        .await?;
+    let response = app
+        .oneshot(get_decision_request(intent_id, "alpha-lab"))
+        .await?;
+    error_json(
+        response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    )
+    .await?;
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_bearer_cannot_bypass_agent_admission() -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("operator_not_agent").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+    let mut request = post_intent_request("01J0000000000000000000RB20", "12.50");
+    request
+        .headers_mut()
+        .insert("authorization", operator_authorization().parse()?);
+
+    let response = app.oneshot(request).await?;
+    error_json(
+        response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    )
+    .await?;
+    assert!(store
+        .load_admitted_intent("alpha-lab", "01J0000000000000000000RB20")
+        .await?
+        .is_none());
+    let intent_events: Vec<EventType> = store
+        .load_verified_audit_chain("alpha-lab")
+        .await?
+        .into_iter()
+        .filter(|stored| stored.event.intent_id.is_some())
+        .map(|stored| stored.event.event_type)
+        .collect();
+    assert!(intent_events.is_empty());
 
     store.close().await;
     database.destroy().await?;

@@ -1,7 +1,7 @@
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
 use axum::extract::{Extension, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -21,8 +21,9 @@ use atf_store::{
 };
 use std::time::Duration;
 
-use crate::auth::parse_identity_assertion;
+use crate::auth::{has_identity_headers, parse_identity_assertion};
 use crate::error::ApiError;
+use crate::principal::{AgentPrincipal, RequestPrincipal};
 use crate::request_id::RequestId;
 use crate::state::AppState;
 
@@ -53,9 +54,11 @@ async fn readyz(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
 ) -> Response {
-    match state.store.check_ready().await {
-        Ok(()) => (StatusCode::OK, "ready").into_response(),
-        Err(_) => {
+    let (store_ready, auth_ready) =
+        tokio::join!(state.store.check_ready(), state.operator_auth.check_ready());
+    match (store_ready, auth_ready) {
+        (Ok(()), Ok(())) => (StatusCode::OK, "ready").into_response(),
+        _ => {
             tracing::warn!(
                 request_id = request_id.as_str(),
                 error_code = "DURABLE_STATE_UNAVAILABLE",
@@ -93,6 +96,18 @@ async fn create_intent(
         Err(error) => return ApiError::from_intent(error).into_response(&request_id),
     };
 
+    if headers.contains_key(AUTHORIZATION) {
+        let reason_code = "IDENTITY_PRINCIPAL_TYPE_MISMATCH";
+        if let Err(store_error) = state
+            .store
+            .record_identity_rejection(&intent, reason_code, Timestamp::now())
+            .await
+        {
+            return store_error_response(&request_id, "record identity rejection", store_error);
+        }
+        return ApiError::authentication_required().into_response(&request_id);
+    }
+
     let identity_assertion = match parse_identity_assertion(&headers) {
         Ok(assertion) => assertion,
         Err(error) => {
@@ -123,6 +138,21 @@ async fn create_intent(
         }
         Err(error) => return store_error_response(&request_id, "admit or recover Intent", error),
     };
+    let principal = RequestPrincipal::Agent(AgentPrincipal::from_admission(&admitted));
+    let agent_principal = principal
+        .into_agent()
+        .expect("Agent admission constructs only an Agent Principal");
+    debug_assert_eq!(
+        agent_principal.organization_id,
+        intent.principal.organization_id
+    );
+    debug_assert_eq!(agent_principal.agent_id, intent.principal.agent_id);
+    debug_assert_eq!(agent_principal.intent_hash, admitted.admitted.intent_hash);
+    debug_assert_eq!(agent_principal.key_id, admitted.admitted.identity.key_id);
+    debug_assert_eq!(
+        agent_principal.envelope_hash,
+        admitted.admitted.identity.envelope_hash
+    );
 
     let policy_result = state.policy_bundle.evaluate(&intent);
     let policy_evidence = match &policy_result {
@@ -165,7 +195,7 @@ async fn create_intent(
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
             let chain = match state
                 .store
-                .load_verified_audit_chain(&intent.principal.organization_id)
+                .load_verified_audit_chain(&agent_principal.organization_id)
                 .await
             {
                 Ok(chain) => chain,
@@ -411,8 +441,34 @@ async fn get_decision(
     Path(intent_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Decision>, Response> {
+    if has_identity_headers(&headers) {
+        return Err(ApiError::authentication_required().into_response(&request_id));
+    }
+    let verified = state
+        .operator_auth
+        .verify(&headers)
+        .await
+        .map_err(|_| ApiError::authentication_required().into_response(&request_id))?;
     let organization_id = organization_header(&headers)
         .ok_or_else(|| ApiError::organization_header_invalid().into_response(&request_id))?;
+    let principal = state
+        .store
+        .resolve_operator_principal(
+            &verified.issuer_id,
+            &verified.subject_fingerprint,
+            organization_id,
+        )
+        .await
+        .map_err(|error| store_error_response(&request_id, "resolve Operator", error))?
+        .ok_or_else(|| ApiError::authentication_required().into_response(&request_id))?;
+    let principal = RequestPrincipal::Operator(principal)
+        .into_operator()
+        .expect("Operator authentication constructs only an Operator Principal");
+    if principal.organization_id != organization_id
+        || !principal.roles.iter().any(|role| role.can_read_decisions())
+    {
+        return Err(ApiError::decision_not_found().into_response(&request_id));
+    }
     match state
         .store
         .load_finalized_decision(organization_id, &intent_id)
@@ -428,7 +484,12 @@ fn organization_header(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("x-atf-organization-id")
         .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.is_empty() && value.trim() == *value && value.len() <= 128)
+        .filter(|value| {
+            (1..=128).contains(&value.len())
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-')
+                })
+        })
 }
 
 fn store_error_response(

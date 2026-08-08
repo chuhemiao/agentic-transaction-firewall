@@ -44,6 +44,10 @@ pub enum EventType {
     AgentStatusChanged,
     IdentityKeyRegistered,
     IdentityKeyRevoked,
+    OperatorRegistered,
+    OperatorStatusChanged,
+    OperatorRoleGranted,
+    OperatorRoleRevoked,
     IntentExpired,
     IntentCancelled,
 }
@@ -76,6 +80,10 @@ impl EventType {
                 | Self::AgentStatusChanged
                 | Self::IdentityKeyRegistered
                 | Self::IdentityKeyRevoked
+                | Self::OperatorRegistered
+                | Self::OperatorStatusChanged
+                | Self::OperatorRoleGranted
+                | Self::OperatorRoleRevoked
                 | Self::ApprovalGranted
                 | Self::ExecutionRequested
         )
@@ -91,6 +99,10 @@ impl EventType {
                     | Self::AgentStatusChanged
                     | Self::IdentityKeyRegistered
                     | Self::IdentityKeyRevoked
+                    | Self::OperatorRegistered
+                    | Self::OperatorStatusChanged
+                    | Self::OperatorRoleGranted
+                    | Self::OperatorRoleRevoked
             )
     }
 }

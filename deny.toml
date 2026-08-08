@@ -67,6 +67,10 @@ skip = [
     { crate = "syn@2.0.119", reason = "Clap/Tokio/Cedar macros still require syn 2 while Serde/ref-cast use syn 3" },
     { crate = "unicode-width@0.1.14", reason = "Cedar's miette path requires unicode-width 0.1 while pretty uses 0.2" },
 
+    # SQLx 0.8's Rustls connector retains the compatibility trust-anchor API;
+    # reqwest 0.12's current hyper-rustls client uses webpki-roots 1.x.
+    { crate = "webpki-roots@0.26.11", reason = "SQLx 0.8 requires webpki-roots 0.26 while the DS-018 reqwest/hyper-rustls JWKS client uses 1.x" },
+
     # Cargo-deny checks every resolved target by design. SQLx, Rustls, Home,
     # Tokio and other upstreams deliberately use several windows-sys eras.
     # Keep target coverage and enumerate the older exact versions instead of

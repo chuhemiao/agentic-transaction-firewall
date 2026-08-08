@@ -1,6 +1,7 @@
 use atf_intent::IntentError;
 use atf_store::StoreError;
 use axum::http::StatusCode;
+use axum::http::{header::WWW_AUTHENTICATE, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
@@ -26,6 +27,7 @@ pub(crate) struct ApiError {
     code: &'static str,
     message: &'static str,
     details: Vec<ApiErrorDetail>,
+    bearer_challenge: bool,
 }
 
 impl ApiError {
@@ -82,6 +84,7 @@ impl ApiError {
                         field: violation.field,
                     })
                     .collect(),
+                bearer_challenge: false,
             },
         }
     }
@@ -120,6 +123,16 @@ impl ApiError {
             "DECISION_NOT_FOUND",
             "No decision was found.",
         )
+    }
+
+    pub(crate) fn authentication_required() -> Self {
+        let mut error = Self::new(
+            StatusCode::UNAUTHORIZED,
+            "AUTHENTICATION_REQUIRED",
+            "A valid route-appropriate credential is required.",
+        );
+        error.bearer_challenge = true;
+        error
     }
 
     pub(crate) fn route_not_found() -> Self {
@@ -164,6 +177,8 @@ impl ApiError {
             StoreError::IntentConflict { .. }
             | StoreError::AgentConflict { .. }
             | StoreError::IdentityKeyConflict { .. }
+            | StoreError::OperatorConflict { .. }
+            | StoreError::OperatorRoleConflict { .. }
             | StoreError::IntentHashMismatch { .. }
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
@@ -176,6 +191,7 @@ impl ApiError {
             ),
             StoreError::DurableStateCorrupt { .. }
             | StoreError::IdentityStateCorrupt { .. }
+            | StoreError::OperatorStateCorrupt { .. }
             | StoreError::NonceStateCorrupt { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
             | StoreError::IncompleteDecisionEvidence { .. }
@@ -190,6 +206,8 @@ impl ApiError {
             | StoreError::InvalidRepositoryInput { .. }
             | StoreError::AgentNotFound { .. }
             | StoreError::IdentityKeyNotFound { .. }
+            | StoreError::OperatorNotFound { .. }
+            | StoreError::OperatorRoleNotFound { .. }
             | StoreError::IdempotencyNotFound { .. }
             | StoreError::RecoveredWorkMustFailClosed { .. }
             | StoreError::IntentNotFound { .. }
@@ -211,7 +229,7 @@ impl ApiError {
     }
 
     pub(crate) fn into_response(self, request_id: &RequestId) -> Response {
-        (
+        let mut response = (
             self.status,
             Json(ApiErrorBody {
                 code: self.code,
@@ -220,7 +238,13 @@ impl ApiError {
                 details: self.details,
             }),
         )
-            .into_response()
+            .into_response();
+        if self.bearer_challenge {
+            response
+                .headers_mut()
+                .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
+        response
     }
 
     pub(crate) fn code(&self) -> &'static str {
@@ -233,6 +257,7 @@ impl ApiError {
             code,
             message,
             details: Vec::new(),
+            bearer_challenge: false,
         }
     }
 }

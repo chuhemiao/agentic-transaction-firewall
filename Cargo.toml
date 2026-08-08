@@ -39,6 +39,9 @@ chrono = { version = "0.4", features = ["serde"] }
 ulid = { version = "3", features = ["serde"] }
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
+jsonwebtoken = { version = "=9.3.1", default-features = false }
+reqwest = { version = "=0.12.28", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 clap = { version = "4", features = ["derive"] }
 rust_decimal = { version = "1", features = ["serde-str"] }
 jsonschema = "0.28"

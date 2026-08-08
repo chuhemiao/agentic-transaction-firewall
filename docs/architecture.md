@@ -66,7 +66,7 @@ Agent Intent
   *Implemented (partial — daily cumulative spend, first-time destination
   address, and order frequency, PRD §12.2, still need an explicit
   PERMITTED/EXECUTED/SETTLED accounting boundary).*
-- **`atf-audit`** — `AuditEvent`/`EventType`, 33 canonical version-1 typed
+- **`atf-audit`** — `AuditEvent`/`EventType`, 37 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
   `AuditLedger` with hash-chain verification (PRD §16.3). Its closed JSON
@@ -104,11 +104,16 @@ Agent Intent
   immutable organization/Agent-scoped Nonce hashes bound to the exact Key,
   Intent, idempotency reservation, lifecycle versions and
   `IdentityVerified` event. It also exposes a live schema/connectivity
-  readiness check. *Implemented and wired into the Gateway for authenticated
-  admission/finalization/lifecycle/history/readiness.*
+  readiness check. Migration 0006 adds immutable external Operator subject
+  fingerprints and explicit organization-role rows, with canonical bytes,
+  hashes, monotonic lifecycle versions, typed Audit pointers, mutation guards,
+  and repeatable-read verification. *Implemented and wired into the Gateway
+  for authenticated admission/finalization/lifecycle/history/readiness and
+  Decision-read authorization.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
   `atf policy test`, plus offline `atf identity` Agent/public-key
-  provision/status/revoke commands. *Implemented (partial PRD command set).*
+  provision/status/revoke and `atf operator` subject/status/role commands.
+  *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
   durable admission -> Policy -> (if permitted)
@@ -116,21 +121,24 @@ Agent Intent
   admission commits Intent + `IntentReceived`; finalization commits Evaluation,
   typed Identity/Policy/Risk/Simulation events, Decision, lifecycle state, and
   bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
-  requires `X-ATF-Organization-ID` and returns only a fully verified durable
-  Decision; `/readyz` checks live database/schema compatibility. *Implemented
-  and verified through restart and two real Gateway processes. POST requires
-  a canonical detached Identity Envelope/signature, verifies the current
-  durable exact Key, and consumes its Nonce before Policy/Risk. The GET
-  organization header remains an unauthenticated tenant hint, not an operator
-  authorization boundary. Every response has a
+  requires a canonical `X-ATF-Organization-ID`, one validated RFC 9068 Bearer
+  JWT, and a current durable `auditor` or `org_admin` binding before returning
+  a fully verified durable Decision; `/readyz` checks live database/schema and
+  configured-JWKS readiness. *Implemented and verified through restart and two
+  real Gateway processes. POST requires a canonical detached Identity
+  Envelope/signature, verifies the current durable exact Key, and consumes its
+  Nonce before Policy/Risk. The GET organization header remains only a tenant
+  selector; JWT claims grant no ATF role. Every response has a
   server-generated request ID; business/Router/Store errors use one fixed safe
   JSON envelope without returning raw Schema, SQL, policy or key/internal
   diagnostics. Completed same-hash POSTs return the verified original Decision
   without re-evaluation; active duplicates return bounded 409; normal
   evaluation renews its lease between Policy/Risk stages; and a request may
   conditionally reclaim an expired admission and terminate it as one fenced
-  fail-closed `Decision(ERROR)`. Background recovery, operator authentication,
-  configured limits, full trace/Audit correlation, and metrics remain absent.*
+  fail-closed `Decision(ERROR)`. Agent/Operator credentials are disjoint and
+  Decision absence, cross-tenant selection and insufficient read role share
+  one 404. Background recovery, configured general request/rate limits, full
+  trace/Audit correlation, and metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -155,18 +163,19 @@ Agent Intent
   error/validation-order contract plus DS-012 atomic idempotency/lease/fencing
   foundation, DS-013 exact retry/stage-heartbeat/request-driven recovery, and
   DS-014 domain-separated Identity Envelope and DS-015 durable Agent/Key
-  lifecycle plus offline provisioning, and DS-016 authenticated Gateway/Nonce
-  admission now exist. Additional action profiles and operator authorization
-  remain unimplemented. Accepted
-  [`ADR-0003`](decisions/0003-operator-authentication.md) fixes the intended
-  operator trust boundary, but DS-018 has not implemented it yet.
+  lifecycle plus offline provisioning, DS-016 authenticated Gateway/Nonce
+  admission, and DS-018 durable Operator subjects/roles plus Gateway JWT/JWKS
+  Decision-read RBAC now exist. Additional action profiles and Admin/Audit HTTP
+  role matrices remain unimplemented. Accepted
+  [`ADR-0003`](decisions/0003-operator-authentication.md) is implemented for
+  the current Decision-read surface.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
 `README.md` describing what belongs there and which roadmap phase (PRD §31)
 will fill it in. None of it is wired into the Cargo workspace yet.
 
-## Accepted operator trust boundary (not implemented)
+## Implemented operator trust boundary
 
 ADR-0003 requires that the Gateway act as an OAuth resource server and verify
 short-lived RFC 9068 JWT access tokens from one configured HTTPS issuer and
@@ -181,13 +190,18 @@ Headers, paths, or bodies remain selectors and must agree with the principal's
 durable binding and the resource's organization. The Gateway ignores proxy
 identity assertions and validates the token itself.
 
+DS-018 implements the application boundary: migration 0006 and `atf-store`
+own subject/role lifecycle and verification; `atf operator` provisions it
+offline; Gateway startup discovers and loads only the configured HTTPS issuer
+and JWKS; `AgentPrincipal` and `OperatorPrincipal` are disjoint; every Decision
+read reloads current local status/roles; and non-enumerating, revocation,
+restart, redaction and real HTTP/PostgreSQL tests cover the role matrix.
+
 TLS terminates at a trusted ingress, while the ingress-to-Gateway hop must be
-private and protected from observation, injection, and replay. DS-034 owns the
-concrete proxy, Header/body/time/rate limits, and deployment tests. DS-018 owns
-the subject/role migration, offline provisioning, JWT/JWKS verifier, typed
-principals, Decision-read RBAC, and non-enumerating cross-tenant tests. The
-accepted design must not be presented as implemented before DS-018 passes
-those runtime checks.
+private and protected from observation, injection, and replay. DS-034 still
+owns the concrete proxy, general Header/body/time/rate limits, and deployment
+tests. DS-018 therefore closes the application principal/RBAC gap, not the
+shared-network production-hardening gate.
 
 ## Accepted durable-state contract (partially implemented)
 
@@ -371,12 +385,13 @@ complete Decision Engine:
 - Budget model and atomic reserve/commit/release (PRD §9.4).
 - Agent Envelope verification, exact durable Key selection and atomic hashed
   Nonce consumption are wired before Policy/Risk. Process memory is not
-  deployment authority. Operator/auditor authentication and authorization are
-  still absent. ADR-0003 fixes the accepted DS-017 boundary; DS-018 is the next
-  implementation task.
+  deployment authority. DS-018 implements ADR-0003 for Decision reads with
+  Gateway-validated JWTs and current durable Operator roles; future Admin and
+  Audit routes still need their explicit endpoint capability matrices.
 - `services/gateway` is durable but not production-ready. It requires an
-  already migrated database and explicitly provisioned organizations; GET's
-  organization header is not authenticated. It loads the full organization
+  already migrated database, explicitly provisioned organizations/operators,
+  and configured HTTPS issuer/JWKS. GET's organization header is a selector
+  authorized against the current durable Operator role. It loads the full organization
   Audit chain for history rules, has no configured header/timeout/rate limits,
   and has no background lifecycle recovery worker. Completed same-hash POSTs
   now return the original verified Decision, an active same-hash duplicate

@@ -91,6 +91,9 @@ public-key-only offline provisioning. DS-016 completes Gateway verification
 and atomic signed-Nonce consumption with
 migration 0005, strict detached identity Headers, current exact-Key
 verification and typed rejection/replay evidence.
+DS-018 adds migration 0006, durable Operator subjects/organization roles,
+offline typed-Audit provisioning, Gateway JWT/JWKS validation, disjoint typed
+principals and non-enumerating Decision-read RBAC.
 
 ## Module inventory
 
@@ -101,11 +104,11 @@ verification and typed rejection/replay evidence.
 | `atf-identity` | `IMPLEMENTED_AND_WIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority. DS-016 requires it before Policy/Risk and atomically consumes hashed Nonces. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 33 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key operator events and DS-016 adds `ReplayDetected`; the Gateway persists/verifies current request lifecycle and identity events through `atf-store`. Queries and checkpoints remain. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 37 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key events, DS-016 adds `ReplayDetected`, and DS-018 adds four Operator/Role events; the Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge is wired; Simulator input and strong Decision binding fields are missing. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, authenticated atomic admission/finalization, persisted/replayed Intent and Agent/Key lifecycle, immutable hashed Nonce bindings, evidence-gated reads, evaluator lease/fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Background scanning and provenance-pinned deterministic recovery remain absent. |
-| `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, and offline `identity` provision/register/status/revoke exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection. Restart/second-instance reads, dependency readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency and retry-driven fail-closed recovery are tested. Operator/read auth, background recovery, configured limits, full correlation, metrics, and query APIs are missing. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, authenticated atomic admission/finalization, persisted/replayed Intent, Agent/Key and Operator/Role lifecycle, immutable hashed Nonce bindings, evidence-gated reads, evaluator lease/fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Background scanning and provenance-pinned deterministic recovery remain absent. |
+| `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision GET requires a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and Audit/Admin query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
@@ -151,7 +154,7 @@ verification and typed rejection/replay evidence.
 - **security_impact:** current POST admission no longer accepts Agent impersonation or conflicting signed-Nonce replay; operator/read authentication is tracked separately by GAP-API-001.
 - **financial_impact:** an unverified Agent request cannot enter Policy/Risk or poison accepted Intent history.
 - **severity:** `CLOSED` (formerly `HIGH`)
-- **recommended_change:** retain the DS-014..DS-016 canonical/exact-key/atomic-Nonce invariants while adding operator RBAC and edge hardening.
+- **recommended_change:** retain the DS-014..DS-016 canonical/exact-key/atomic-Nonce invariants and the disjoint DS-018 Operator principal while adding edge hardening.
 - **required_tests:** implemented for the current scope; keep in PostgreSQL and Gateway regression suites.
 - **dependencies:** PostgreSQL, Admin provisioning/RBAC, idempotency nonce store.
 - **target_release:** Durable Shadow Mode P0.5.
@@ -160,32 +163,35 @@ verification and typed rejection/replay evidence.
 ### GAP-API-001 — Authentication and Authorization
 
 - **module:** `services/gateway`
-- **current_state:** `MISSING`
-- **evidence:** POST authenticates an Agent Envelope and exact durable Key, but
-  GET remains anonymous. GET requires
-  `X-ATF-Organization-ID` and the store keys reads by organization + Intent,
-  but any caller can forge that tenant selector because no identity or RBAC
-  binds it to the request principal.
-- **design evidence:** Accepted
-  [`ADR-0003`](decisions/0003-operator-authentication.md) selects direct Gateway
-  validation of short-lived RFC 9068 access tokens plus per-request
-  PostgreSQL-authoritative operator/organization roles. It separates Agent and
-  Operator principals, rejects proxy/selector authority, specifies rotation,
-  revocation, TLS, non-enumerating reads, and confused-deputy tests. The design
-  is accepted but not implemented, so the gap remains `MISSING`/`CRITICAL`.
-- **security_impact:** an unauthenticated caller that learns or guesses an
-  organization/Intent pair can read its Decision, and no operator identity is
-  attributable to that access. Authenticated POST admission is no longer part
-  of this open gap.
-- **financial_impact:** disclosed Decisions can reveal transaction intent,
-  Policy/Risk outcomes, and organization behavior; this GET path does not
-  mutate purchase history.
-- **severity:** `CRITICAL`
-- **recommended_change:** separate Agent auth from Admin/auditor auth, enforce organization isolation and least-privilege RBAC.
-- **required_tests:** cross-tenant denial, role matrix, invalid/expired credential, confused-deputy tests.
-- **dependencies:** identity envelope, Admin auth model, persistence.
+- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **evidence:** DS-018 migration 0006 persists immutable issuer/subject
+  fingerprints, local Operator status and explicit organization roles with
+  canonical records, typed Audit pointers and mutation guards. Offline CLI
+  provisioning stores no raw subject. Gateway startup loads only configured
+  HTTPS discovery/JWKS, validates asymmetric RFC 9068 `at+jwt` issuer,
+  audience, signature, time, subject and key, then reloads current local status
+  and roles for every Decision read. Agent and Operator principals are
+  disjoint; selector/JWT role claims grant nothing; missing/cross-tenant/
+  wrong-role resource reads do not enumerate. PostgreSQL/Gateway tests cover
+  restart, role revoke/regrant, subject disable, token failures, redaction and
+  confused-deputy cases, with a real authenticated HTTP smoke.
+- **security_impact:** the current POST and Decision GET surfaces require
+  route-appropriate typed principals; local revocation is immediate on the
+  next request. Future Admin/Audit routes and edge deployment controls remain
+  separate gaps.
+- **financial_impact:** Decision contents are no longer anonymously readable
+  through a forged organization selector; this route remains read-only.
+- **severity:** `CLOSED` (formerly `CRITICAL`)
+- **recommended_change:** preserve disjoint principals and current durable-role
+  reload when adding explicit capability matrices for future routes.
+- **required_tests:** implemented for the current route matrix; retain token,
+  cross-tenant, role, revocation, restart, tamper, redaction and confused-deputy
+  regressions.
+- **dependencies:** identity envelope, durable Operator/Role lifecycle and
+  configured HTTPS issuer/JWKS are complete; DS-034 still owns edge hardening.
 - **target_release:** Durable Shadow Mode before any shared deployment.
-- **acceptance_criteria:** every non-health route authenticates and authorizes an organization-scoped principal.
+- **acceptance_criteria:** met for current non-health routes; new routes must
+  add an explicit principal/capability contract before exposure.
 
 ### GAP-RPL-001 — Idempotency and Replay Protection
 
@@ -388,11 +394,11 @@ verification and typed rejection/replay evidence.
 
 - **module:** `services/gateway`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. Health/readiness retain text bodies. Authentication, explicit header/body/timeout/rate configuration, full trace/Audit propagation and a captured-log redaction policy remain absent.
-- **security_impact:** ambiguous/reflected/internal error disclosure is reduced and failures are client-correlatable; unauthenticated enumeration, resource exhaustion and incomplete incident traceability remain.
+- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. DS-018 adds bounded Bearer parsing, token/JWKS validation, durable RBAC, generic credential errors, non-enumerating resource reads and JWKS readiness. Health/readiness retain text bodies. General explicit header/body/timeout/rate configuration, full trace/Audit propagation and a captured-log redaction policy remain absent.
+- **security_impact:** ambiguous/reflected/internal/credential error disclosure and anonymous Decision enumeration are reduced and failures are client-correlatable; resource exhaustion and incomplete incident traceability remain.
 - **financial_impact:** availability loss remains possible; a client can now correlate one failed HTTP response with local Store/readiness logs, but not yet with full traces or durable Audit evidence for a disputed action.
 - **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-011 envelope while adding authentication/RBAC, finite configurable limits, full trace/Audit propagation and redaction through DS-018/DS-033/DS-034.
+- **recommended_change:** retain the DS-011/DS-018 envelope and principal boundary while adding finite configurable limits, full trace/Audit propagation and captured-log redaction through DS-033/DS-034.
 - **required_tests:** structured error and local request-ID tests are implemented; oversized/slow/rate-limited requests, timeout, cross-service correlation and captured-log redaction remain.
 - **dependencies:** Authentication/Authorization and observability.
 - **target_release:** Durable Shadow Mode before shared deployment.
@@ -463,7 +469,8 @@ verification and typed rejection/replay evidence.
 
 ## Next vertical feature
 
-`DS-018` is next: implement accepted ADR-0003 as organization-scoped operator
-RBAC. DS-016 has closed Agent authentication and signed Nonce replay protection
-before Policy/Risk; the current runtime still has no operator principal, and
-Agent/operator identities remain deliberately separate.
+`DS-019` is next: add the validated, scoped, deterministic Cedar Policy Bundle
+manifest/hash that later immutable `EvaluationContext` and replay work depend
+on. DS-018 has closed the current Operator Decision-read principal/RBAC gap;
+future Admin/Audit routes remain unavailable until their capability matrices
+and security tests exist.

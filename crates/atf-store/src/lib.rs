@@ -13,6 +13,7 @@ mod identity;
 mod lifecycle;
 mod models;
 mod nonce;
+mod operator;
 mod repository;
 
 use serde::{Deserialize, Serialize};
@@ -26,10 +27,14 @@ pub use models::{
     FinalizationInput, FinalizedDecision, IdempotencyReservation, IdempotencyResult,
     IdempotencyState, StoredEvaluation, StoredLifecycle,
 };
+pub use operator::{
+    operator_subject_fingerprint, OperatorKind, OperatorPrincipal, OperatorRegistration,
+    OperatorRole, OperatorRoleBinding, OperatorStatus, StoredOperator,
+};
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 5;
+pub const CURRENT_SCHEMA_VERSION: i32 = 6;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
