@@ -38,6 +38,10 @@ impl OperatorRole {
     pub const fn can_read_decisions(self) -> bool {
         matches!(self, Self::Auditor | Self::OrgAdmin)
     }
+
+    pub const fn can_change_policy(self) -> bool {
+        matches!(self, Self::PolicyAuthor | Self::OrgAdmin)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -571,6 +575,47 @@ impl Store {
     }
 }
 
+pub(crate) async fn authorize_policy_change(
+    transaction: &mut Transaction<'_, Postgres>,
+    operator_id: &str,
+    organization_id: &str,
+) -> Result<(), StoreError> {
+    validate_identifier("operator_id", operator_id)?;
+    validate_identifier("organization_id", organization_id)?;
+    let denied = || StoreError::PolicyAuthorizationDenied {
+        organization_id: organization_id.into(),
+        operator_id: operator_id.into(),
+    };
+    let Some(row) =
+        fetch_operator_query(transaction, "operator_id = $1", operator_id, true).await?
+    else {
+        return Err(denied());
+    };
+    let operator_chain =
+        load_verified_in_transaction(transaction, &row.audit_organization_id).await?;
+    let operator = verify_operator_row(row, &operator_chain)?;
+    if operator.status != OperatorStatus::Active {
+        return Err(denied());
+    }
+
+    let role_rows = fetch_roles_for_update(transaction, operator_id, organization_id).await?;
+    let role_chain = if organization_id == operator.audit_organization_id {
+        None
+    } else {
+        Some(load_verified_in_transaction(transaction, organization_id).await?)
+    };
+    let chain = role_chain.as_deref().unwrap_or(&operator_chain);
+    let authorized = role_rows.into_iter().try_fold(false, |authorized, row| {
+        let binding = verify_role_row(row, chain)?;
+        Ok::<_, StoreError>(authorized || (binding.active && binding.role.can_change_policy()))
+    })?;
+    if authorized {
+        Ok(())
+    } else {
+        Err(denied())
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn finish_role_change(
     mut transaction: Transaction<'_, Postgres>,
@@ -789,6 +834,29 @@ async fn fetch_roles(
         FROM operator_roles
         WHERE operator_id = $1 AND organization_id = $2
         ORDER BY role
+        "#,
+    )
+    .bind(operator_id)
+    .bind(organization_id)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+async fn fetch_roles_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+    operator_id: &str,
+    organization_id: &str,
+) -> Result<Vec<RoleRow>, StoreError> {
+    Ok(sqlx::query_as(
+        r#"
+        SELECT operator_id, organization_id, role, status,
+               canonical_binding, canonical_binding_bytes,
+               binding_hash::text AS binding_hash, lifecycle_version,
+               last_event_id, created_at, updated_at
+        FROM operator_roles
+        WHERE operator_id = $1 AND organization_id = $2
+        ORDER BY role
+        FOR UPDATE
         "#,
     )
     .bind(operator_id)

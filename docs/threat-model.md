@@ -24,14 +24,14 @@ real network request path, but no execution path or production secret.
 | 1 | Prompt injection causing an Agent to overstep authorization | Partially constrained on the Shadow Gateway path by authenticated Agent identity, common semantics, a closed Profile dispatcher, mandatory Policy/Risk evaluation, and no LLM in Permit/Deny. Only the Agent-Commerce Payment profile is supported and execution enforcement remains absent |
 | 2 | Agent tool-call parameters tampered with | Addressed at current Shadow admission: `atf-intent` supplies a tamper-evident canonical hash; DS-014's `ATF_INTENT_V1` Envelope binds that hash plus organization, Agent, exact Key ID, time, Nonce, audience and environment under strict Ed25519; DS-015 persists exact public-key lifecycle; DS-016 requires and reverifies that proof before Policy/Risk |
 | 3 | Intent and final transaction diverge | Not yet enforced — requires execution-hash binding (PRD §14.2, §18.1.5), Phase 4 |
-| 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. DS-019 rejects unmanifested, mis-scoped, inactive, hash/digest-mismatched or Cedar-Schema-invalid local Bundles and returns their exact identity. Trusted publisher signatures, durable activation/rollback and production edge controls remain absent, so this is not yet a deployable enforcement boundary |
+| 4 | Policy bypass | The Gateway has one Agent-authenticated Policy-first evaluation path and no execution route. DS-019 rejects unmanifested, mis-scoped, inactive, hash/digest-mismatched or Cedar-Schema-invalid Bundles. DS-020 additionally requires strict detached publisher proof, immutable durable installation and an audited active pointer reloaded per request; Policy mutation requires current `policy_author`/`org_admin`. Multi-Bundle conflict resolution and production edge controls remain absent, so this is not yet a deployable enforcement boundary |
 | 5 | Approval replay | Not applicable yet — no Approval Engine (Phase 4) |
 | 6 | Payment proof replay | Not applicable yet — no Adapter (Phase 3) |
 | 7 | Nonce replay | Mitigated for Gateway Agent admission: DS-016 atomically stores an organization/Agent-scoped Nonce hash bound to the exact Key, Envelope, Intent and idempotency tuple. Exact retry adds nothing; fresh valid retry consumes a new Nonce; conflicting concurrent or post-restart reuse emits `ReplayDetected` and fails 409. Raw Nonces/signatures are not stored and privileged row tampering is detected on verified reads |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
-| 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles for Decision reads. No Admin API exists; future administrative capabilities still require endpoint matrices and high-risk multi-party controls |
+| 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
@@ -82,10 +82,13 @@ secret. The realistic attack surface today includes:
   per-file and total bytes; rejects traversal/symlinks/unlisted files; verifies
   exact digests plus a domain-separated Bundle hash; and validates both Policy
   and Request against one Cedar Schema. Scope/expiry and Cedar runtime
-  diagnostics fail closed on every evaluation. The startup directory is still
-  a local configuration trust boundary and must not be concurrently writable
-  by an untrusted user; publisher signature trust and durable immutable
-  activation/rollback are DS-020.
+  diagnostics fail closed on every evaluation. DS-020 signs the exact Bundle
+  Hash plus publisher Key ID, stores a bounded exact-byte archive/public-key
+  proof immutably, and permits only an audited active pointer. Gateway no
+  longer evaluates a startup directory; each request revalidates the current
+  durable artifact. Offline installation remains a privileged deployment
+  boundary, and dedicated publisher-key revocation plus multi-Bundle conflict
+  analysis remain open.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
   restart no longer clears history. The Gateway currently reloads and verifies

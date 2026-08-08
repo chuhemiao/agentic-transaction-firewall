@@ -35,7 +35,11 @@ the not-yet-implemented per-scenario bundles from PRD §24).
 - `require-human-authorization.cedar` — forbids anything where the intent's
   mandate was not human-authorized, regardless of what else permits it
   (Cedar's `forbid` always overrides `permit` — PRD §11.3.1).
+- `signature.json` / `publisher-2026.pub` — deterministic, non-production
+  detached proof/public-key fixtures for lifecycle tests and local smoke only.
 
 Load the validated bundle with `atf-cli evaluate --policies policies/examples
 --environment development`. See `docs/policy-bundles.md` for hashing and
-validation details.
+validation details. The included public proof is test-only; production release
+proofs must come from an external signing-key custody boundary following
+`docs/policy-model.md`.

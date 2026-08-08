@@ -12,6 +12,8 @@ or execution authority.
 | `GET` | `/readyz` | PostgreSQL/schema and Operator-JWKS readiness text (`ready` or `not ready`) |
 | `POST` | `/v1/intents` | A durably recorded Decision |
 | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
+| `POST` | `/v1/policy-bundles/{bundle_id}/activate` | Activate one installed signed version |
+| `POST` | `/v1/policy-bundles/{bundle_id}/rollback` | Select the immediately prior signed version |
 
 The Decision read route requires exactly one RFC 9068
 `Authorization: Bearer` access token validated by the Gateway and a current
@@ -22,17 +24,27 @@ selector; it and JWT organization/role/email claims never become authority.
 Decision absence, cross-organization selection and insufficient read role all
 return the same `404 DECISION_NOT_FOUND` response.
 
+Policy mutation routes require the same validated Operator token and selector,
+plus a current `policy_author` or `org_admin` binding. The Store repeats that
+authorization while holding the mutation transaction locks. Missing Bundle,
+cross-organization selection, insufficient role and unavailable rollback are
+non-enumerating `404 POLICY_BUNDLE_NOT_FOUND` responses. Activate accepts the
+closed body `{"environment":"...","policy_version":"..."}`; rollback accepts
+`{"environment":"..."}`. Success returns Bundle ID/version/hash, pointer
+lifecycle version and Audit event ID. Installation is intentionally offline.
+
 `POST /v1/intents` requires the detached Agent identity Headers defined in
 [`gateway-identity.md`](gateway-identity.md): lowercase-hex canonical Envelope
 bytes plus one exact Ed25519 signature. Trusted audience/environment come from
 required Gateway startup configuration, not the request.
 
-DS-019 additionally requires `ATF_POLICIES_DIR` to contain one validated
-Policy Bundle and `ATF_POLICY_ORGANIZATION_ID` to match its exact organization
-scope. The manifest environment must equal `ATF_DEPLOYMENT_ENVIRONMENT`.
-Startup fails on manifest/Schema/digest/hash/scope/time errors, and scope plus
-expiry are rechecked on every Policy evaluation. This single configured active
-Bundle is transitional until DS-020 provides durable signed active pointers.
+DS-020 requires `ATF_POLICY_ORGANIZATION_ID`, `ATF_POLICY_BUNDLE_ID` and
+`ATF_DEPLOYMENT_ENVIRONMENT` to resolve one signed durable active pointer.
+Startup fails on missing pointer or artifact/archive/signature/Audit/scope/time
+integrity errors. Every new evaluation reloads the pointer and immutable
+archive in one repeatable-read snapshot, rechecks the signature, Bundle hash,
+Schema, scope and expiry, and then evaluates that exact owned version. See
+[`policy-model.md`](policy-model.md) for installation and signing details.
 
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
@@ -96,13 +108,14 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 |---:|---|---|
 | 400 | `INVALID_UTF8` | Body is not UTF-8 |
 | 400 | `INVALID_JSON` | Body is not JSON |
-| 400 | `REQUEST_BODY_INVALID` | Body buffering failed safely |
+| 400 | `REQUEST_BODY_INVALID` | Body buffering or a closed Admin JSON contract failed safely |
 | 400 | `INTENT_SCHEMA_INVALID` | Common Intent Schema rejected the document |
 | 400 | `INTENT_SHAPE_INVALID` | Typed parsing rejected a Schema/Rust mismatch |
 | 400 | `INTENT_SEMANTIC_INVALID` | Common or Profile semantic rules rejected the Intent |
 | 400 | `ORGANIZATION_HEADER_INVALID` | Canonical tenant-selector header is malformed |
 | 400 | `ORGANIZATION_NOT_FOUND` | Declared organization is unavailable |
 | 404 | `DECISION_NOT_FOUND` | No tenant-scoped durable Decision exists |
+| 404 | `POLICY_BUNDLE_NOT_FOUND` | Policy resource is absent, cross-tenant, unauthorized, or cannot roll back |
 | 404 | `ROUTE_NOT_FOUND` | Path is not registered |
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
 | 401 | `AUTHENTICATION_REQUIRED` | Route-appropriate Agent/Operator credential is missing, invalid, disabled, or used on the wrong route |
@@ -120,7 +133,7 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 Changing or removing an existing code or field is a compatibility decision and
 requires an explicit migration.
 
-## DS-018 Operator error mapping
+## DS-018/DS-020 Operator error mapping
 
 The current Decision-read contract deliberately minimizes credential and
 resource-state disclosure:
@@ -129,6 +142,7 @@ resource-state disclosure:
 |---:|---|---|
 | 401 | `AUTHENTICATION_REQUIRED` | No single valid route-appropriate credential, no active mapped Operator, or principal-type mismatch |
 | 404 | `DECISION_NOT_FOUND` | Decision absent, cross-organization, or not readable by the principal; the cases are indistinguishable |
+| 404 | `POLICY_BUNDLE_NOT_FOUND` | Policy Bundle/pointer absent, cross-organization, wrong-role, or rollback unavailable; the cases are indistinguishable |
 | 503 | readiness text only | No fresh usable configured issuer key set is available; `/readyz` fails and protected reads fail closed |
 
 401 responses include only a fixed safe `WWW-Authenticate: Bearer` challenge.

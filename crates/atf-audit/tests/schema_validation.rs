@@ -255,8 +255,28 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
         (
             None,
             AuditPayload::PolicyChanged(PolicyChangedPayload {
+                organization_id: None,
+                environment: None,
                 policy_bundle_id: text("bundle-1"),
+                policy_version: None,
+                previous_policy_bundle_hash: None,
                 policy_bundle_hash: hash('5'),
+                change_kind: None,
+                lifecycle_version: None,
+                actor_id: text("operator-1"),
+            }),
+        ),
+        (
+            None,
+            AuditPayload::PolicyChanged(PolicyChangedPayload {
+                organization_id: Some(text("alpha-lab")),
+                environment: Some(text("production")),
+                policy_bundle_id: text("bundle-1"),
+                policy_version: Some(text("1.1.0")),
+                previous_policy_bundle_hash: Some(hash('4')),
+                policy_bundle_hash: hash('5'),
+                change_kind: Some(text("ROLLED_BACK")),
+                lifecycle_version: Some(3),
                 actor_id: text("operator-1"),
             }),
         ),

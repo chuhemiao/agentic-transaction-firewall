@@ -125,6 +125,22 @@ impl ApiError {
         )
     }
 
+    pub(crate) fn policy_bundle_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "POLICY_BUNDLE_NOT_FOUND",
+            "No Policy Bundle was found.",
+        )
+    }
+
+    pub(crate) fn invalid_json() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "REQUEST_BODY_INVALID",
+            "Request body must match the supported JSON contract.",
+        )
+    }
+
     pub(crate) fn authentication_required() -> Self {
         let mut error = Self::new(
             StatusCode::UNAUTHORIZED,
@@ -179,6 +195,7 @@ impl ApiError {
             | StoreError::IdentityKeyConflict { .. }
             | StoreError::OperatorConflict { .. }
             | StoreError::OperatorRoleConflict { .. }
+            | StoreError::PolicyBundleConflict { .. }
             | StoreError::IntentHashMismatch { .. }
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
@@ -192,6 +209,7 @@ impl ApiError {
             StoreError::DurableStateCorrupt { .. }
             | StoreError::IdentityStateCorrupt { .. }
             | StoreError::OperatorStateCorrupt { .. }
+            | StoreError::PolicyStateCorrupt { .. }
             | StoreError::NonceStateCorrupt { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
             | StoreError::IncompleteDecisionEvidence { .. }
@@ -202,12 +220,17 @@ impl ApiError {
             ),
             StoreError::AuditPayload(_)
             | StoreError::IdentityDomain(_)
+            | StoreError::PolicyDomain(_)
             | StoreError::InvalidAuditEvent { .. }
             | StoreError::InvalidRepositoryInput { .. }
             | StoreError::AgentNotFound { .. }
             | StoreError::IdentityKeyNotFound { .. }
             | StoreError::OperatorNotFound { .. }
             | StoreError::OperatorRoleNotFound { .. }
+            | StoreError::PolicyAuthorizationDenied { .. }
+            | StoreError::PolicyBundleNotFound { .. }
+            | StoreError::ActivePolicyBundleNotFound { .. }
+            | StoreError::PolicyRollbackUnavailable { .. }
             | StoreError::IdempotencyNotFound { .. }
             | StoreError::RecoveredWorkMustFailClosed { .. }
             | StoreError::IntentNotFound { .. }

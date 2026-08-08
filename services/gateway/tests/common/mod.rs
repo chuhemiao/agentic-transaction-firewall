@@ -43,6 +43,20 @@ pub fn test_state(store: Store) -> AppState {
 }
 
 #[allow(dead_code)]
+pub fn test_durable_policy_state(store: Store) -> AppState {
+    AppState::new_durable(
+        "alpha-lab".into(),
+        "development".into(),
+        "atf-example-payments".into(),
+        RiskConfig::default(),
+        store,
+        IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
+            .expect("test identity context is canonical"),
+        test_operator_authenticator(),
+    )
+}
+
+#[allow(dead_code)]
 pub fn test_state_with_forbid_all_policy(store: Store) -> AppState {
     test_state_with_policy_dir(store, Path::new("tests/fixtures/forbid-all-policy"))
 }

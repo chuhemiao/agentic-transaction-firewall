@@ -1,8 +1,9 @@
 # Policy Bundle Contract
 
-ATF evaluates Cedar only from a validated Policy Bundle directory. Loading raw
-`.cedar` text or concatenating an unmanifested directory is not a supported
-runtime path.
+ATF constructs Cedar only from a validated Policy Bundle artifact. Loading raw
+`.cedar` text or concatenating an unmanifested directory is not supported.
+Directories are an offline authoring/install input; Gateway runtime resolves an
+immutable signed archive through PostgreSQL.
 
 ## Version 1 layout
 
@@ -23,10 +24,10 @@ traversal, symlinks, duplicate entries, unsorted entries, missing files, digest
 mismatches and undeclared `.cedar` files fail closed. Manifest size is capped at
 64 KiB, each Schema/Policy file at 1 MiB, and all declared executable files at
 16 MiB total; reads are bounded even if a file changes after metadata lookup.
-The current Gateway hosts one explicitly configured organization-scoped
-directory. That local directory must not be concurrently writable by an
-untrusted user. DS-020 replaces this transitional startup selection with
-durable signed installation and active pointers.
+An install directory must not be concurrently writable by an untrusted user.
+DS-020 immediately converts the validated files into a bounded exact-byte
+archive and persists it with detached publisher proof; Gateway never evaluates
+that directory.
 
 ## Canonical bundle hash
 
@@ -70,5 +71,6 @@ and that requests must conform to the Schema contract:
 [policy validation](https://docs.cedarpolicy.com/policies/validation.html) and
 [Cedar 4.11.2 Validator API](https://docs.rs/cedar-policy/4.11.2/cedar_policy/struct.Validator.html).
 
-Signatures, trusted publishers, immutable installation, activation, version
-uniqueness and rollback are intentionally not claimed here; they are DS-020.
+Detached signature bytes, immutable installation, version uniqueness,
+activation and rollback are specified in [`policy-model.md`](policy-model.md).
+Multi-Bundle resolution and static conflict detection remain future work.

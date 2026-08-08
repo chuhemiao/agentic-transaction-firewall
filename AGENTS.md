@@ -97,8 +97,8 @@ cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --policies policies/examples
 cargo run -p atf-cli -- policy test
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf cargo run -p atf-store --bin atf-store-migrate
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf PORT=8080 ATF_POLICIES_DIR=policies/examples cargo run -p atf-gateway
-# Provision the Intent's organization first; GET Decision also requires X-ATF-Organization-ID.
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf PORT=8080 ATF_DEPLOYMENT_ENVIRONMENT=development ATF_POLICY_ORGANIZATION_ID=alpha-lab ATF_POLICY_BUNDLE_ID=atf-example-payments cargo run -p atf-gateway
+# Provision the organization/identity/operator and install+activate signed Policy first; GET Decision also requires X-ATF-Organization-ID.
 ```
 
 ## Where to look for more

@@ -9,6 +9,9 @@ pub enum StoreError {
     #[error("identity domain rejected durable state: {0}")]
     IdentityDomain(#[from] atf_identity::IdentityError),
 
+    #[error("Policy domain rejected durable state: {0}")]
+    PolicyDomain(#[from] atf_policy::PolicyError),
+
     #[error("PostgreSQL operation failed: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -92,6 +95,50 @@ pub enum StoreError {
 
     #[error("durable Operator state for `{operator_id}` is corrupt: {reason}")]
     OperatorStateCorrupt { operator_id: String, reason: String },
+
+    #[error("Operator `{operator_id}` is not authorized to change Policy in organization `{organization_id}`")]
+    PolicyAuthorizationDenied {
+        organization_id: String,
+        operator_id: String,
+    },
+
+    #[error("Policy Bundle `{bundle_id}` version `{policy_version}` already exists in organization `{organization_id}` environment `{environment}`")]
+    PolicyBundleConflict {
+        organization_id: String,
+        environment: String,
+        bundle_id: String,
+        policy_version: String,
+    },
+
+    #[error("Policy Bundle `{bundle_id}` version `{policy_version}` does not exist in organization `{organization_id}` environment `{environment}`")]
+    PolicyBundleNotFound {
+        organization_id: String,
+        environment: String,
+        bundle_id: String,
+        policy_version: String,
+    },
+
+    #[error("Policy Bundle `{bundle_id}` has no active version in organization `{organization_id}` environment `{environment}`")]
+    ActivePolicyBundleNotFound {
+        organization_id: String,
+        environment: String,
+        bundle_id: String,
+    },
+
+    #[error("Policy Bundle `{bundle_id}` has no prior version available for rollback in organization `{organization_id}` environment `{environment}`")]
+    PolicyRollbackUnavailable {
+        organization_id: String,
+        environment: String,
+        bundle_id: String,
+    },
+
+    #[error("durable Policy state for Bundle `{bundle_id}` in organization `{organization_id}` environment `{environment}` is corrupt: {reason}")]
+    PolicyStateCorrupt {
+        organization_id: String,
+        environment: String,
+        bundle_id: String,
+        reason: String,
+    },
 
     #[error("request identity was rejected with stable reason `{reason_code}`")]
     IdentityRejected { reason_code: &'static str },

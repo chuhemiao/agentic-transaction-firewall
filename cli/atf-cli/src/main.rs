@@ -66,6 +66,53 @@ enum PolicyCommand {
         #[arg(long, default_value = "conformance/policy-tests")]
         dir: PathBuf,
     },
+    /// Verify and immutably install one signed Policy Bundle.
+    Install {
+        /// Directory containing manifest.json and its exact bound files.
+        bundle_dir: PathBuf,
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        environment: String,
+        /// Detached proof; defaults to <bundle-dir>/signature.json.
+        #[arg(long)]
+        signature: Option<PathBuf>,
+        /// File containing exactly one lowercase-hex Ed25519 public key.
+        #[arg(long)]
+        publisher_public_key: PathBuf,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+    /// Atomically select an installed signed version as active.
+    Activate {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        environment: String,
+        #[arg(long)]
+        bundle_id: String,
+        #[arg(long)]
+        policy_version: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+    /// Atomically return to the immediately prior immutable signed version.
+    Rollback {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        environment: String,
+        #[arg(long)]
+        bundle_id: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
 }
 
 #[derive(Subcommand)]
@@ -212,9 +259,7 @@ async fn main() -> std::process::ExitCode {
             environment,
             evaluated_at,
         } => run_evaluate(&intent_path, &policies, &environment, evaluated_at),
-        Command::Policy { action } => match action {
-            PolicyCommand::Test { dir } => conformance::run(&dir),
-        },
+        Command::Policy { action } => run_policy(action).await,
         Command::Identity { action } => run_identity(action).await,
         Command::Operator { action } => run_operator(action).await,
     };
@@ -226,6 +271,122 @@ async fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+async fn run_policy(command: PolicyCommand) -> Result<()> {
+    if let PolicyCommand::Test { dir } = &command {
+        return conformance::run(dir);
+    }
+    let database_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL is required for Policy lifecycle commands")?;
+    let store = atf_store::Store::connect(&database_url)
+        .await
+        .context("connecting to the ATF durable-state database")?;
+    let result = match command {
+        PolicyCommand::Test { .. } => unreachable!("handled before database connection"),
+        PolicyCommand::Install {
+            bundle_dir,
+            organization_id,
+            environment,
+            signature,
+            publisher_public_key,
+            actor_id,
+            occurred_at,
+        } => {
+            let bundle = atf_policy::PolicyBundle::from_dir_for_install(
+                &bundle_dir,
+                &organization_id,
+                &environment,
+            )
+            .with_context(|| format!("validating Policy Bundle {}", bundle_dir.display()))?;
+            let signature_path = signature.unwrap_or_else(|| bundle_dir.join("signature.json"));
+            let signature = atf_policy::PolicyBundleSignature::from_file(&signature_path)
+                .with_context(|| {
+                    format!("reading Policy Bundle proof {}", signature_path.display())
+                })?;
+            let public_key = read_public_key_file(&publisher_public_key)?;
+            let stored = store
+                .install_policy_bundle(&bundle, &signature, &public_key, &actor_id, occurred_at)
+                .await?;
+            println!("bundle_id: {}", stored.bundle_id);
+            println!("policy_version: {}", stored.policy_version);
+            println!("bundle_hash: {}", stored.bundle_hash);
+            println!("publisher_key_id: {}", stored.publisher_key_id);
+            println!("audit_event_id: {}", stored.installed_event_id);
+            Ok(())
+        }
+        PolicyCommand::Activate {
+            organization_id,
+            environment,
+            bundle_id,
+            policy_version,
+            actor_id,
+            occurred_at,
+        } => {
+            let active = store
+                .activate_policy_bundle(
+                    &organization_id,
+                    &environment,
+                    &bundle_id,
+                    &policy_version,
+                    &actor_id,
+                    occurred_at,
+                )
+                .await?;
+            print_active_policy(&active);
+            Ok(())
+        }
+        PolicyCommand::Rollback {
+            organization_id,
+            environment,
+            bundle_id,
+            actor_id,
+            occurred_at,
+        } => {
+            let active = store
+                .rollback_policy_bundle(
+                    &organization_id,
+                    &environment,
+                    &bundle_id,
+                    &actor_id,
+                    occurred_at,
+                )
+                .await?;
+            print_active_policy(&active);
+            Ok(())
+        }
+    };
+    store.close().await;
+    result
+}
+
+fn print_active_policy(active: &atf_store::ActivePolicyBundle) {
+    println!("bundle_id: {}", active.bundle.bundle_id());
+    println!("policy_version: {}", active.bundle.policy_version());
+    println!("bundle_hash: {}", active.bundle.bundle_hash());
+    println!("lifecycle_version: {}", active.lifecycle_version);
+    println!("audit_event_id: {}", active.last_event_id);
+}
+
+fn read_public_key_file(path: &Path) -> Result<[u8; 32]> {
+    let metadata = std::fs::symlink_metadata(path)
+        .with_context(|| format!("inspecting publisher public key {}", path.display()))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 66 {
+        bail!("publisher public-key path must be a regular file of at most 66 bytes");
+    }
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("opening publisher public key {}", path.display()))?;
+    let mut value = String::new();
+    file.take(129)
+        .read_to_string(&mut value)
+        .with_context(|| format!("reading publisher public key {}", path.display()))?;
+    while value.ends_with('\r') || value.ends_with('\n') {
+        value.pop();
+    }
+    if value.contains('\r') || value.contains('\n') {
+        bail!("publisher public-key file must contain exactly one line");
+    }
+    decode_public_key_hex(&value)
 }
 
 async fn run_operator(command: OperatorCommand) -> Result<()> {

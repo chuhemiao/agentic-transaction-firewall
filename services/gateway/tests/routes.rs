@@ -4,19 +4,23 @@
 mod common;
 
 use atf_audit::EventType;
-use atf_core::IntentLifecycleState;
+use atf_core::{IntentLifecycleState, Timestamp};
 use atf_gateway::build_router;
+use atf_policy::{
+    policy_bundle_signature_message, PolicyBundle, PolicyBundleLoadContext, PolicyBundleSignature,
+};
 use atf_store::{OperatorRole, OperatorStatus};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use std::{error::Error, sync::Arc, time::Duration};
+use ed25519_dalek::{Signer, SigningKey};
+use std::{error::Error, path::Path, sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tower::ServiceExt;
 
 use common::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
-    operator_authorization, post_intent_request, sample_intent_json, test_state,
-    test_state_with_forbid_all_policy, TestDatabase,
+    operator_authorization, post_intent_request, sample_intent_json, test_durable_policy_state,
+    test_state, test_state_with_forbid_all_policy, TestDatabase,
 };
 
 #[tokio::test]
@@ -465,6 +469,126 @@ async fn decision_lookup_requires_an_organization_header() -> Result<(), Box<dyn
     )
     .await?;
     assert_eq!(error["details"], serde_json::json!([]));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn policy_activation_api_requires_current_policy_role_and_records_exact_pointer(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("policy_activation_api").await?;
+    let store = database.connect().await?;
+    let now: Timestamp = Timestamp::now().to_string().parse()?;
+    store
+        .grant_operator_role(
+            "operator-1",
+            "alpha-lab",
+            OperatorRole::PolicyAuthor,
+            "test-db-admin",
+            "TEST_POLICY_ACCESS",
+            now,
+        )
+        .await?;
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/examples");
+    let bundle = PolicyBundle::from_dir(
+        &directory,
+        &PolicyBundleLoadContext {
+            organization_id: "alpha-lab".into(),
+            environment: "development".into(),
+            evaluated_at: now,
+        },
+    )?;
+    let signing_key = SigningKey::from_bytes(&[31; 32]);
+    let message = policy_bundle_signature_message("gateway-test-publisher", bundle.bundle_hash())?;
+    let proof = PolicyBundleSignature::from_parts(
+        "gateway-test-publisher".into(),
+        bundle.bundle_hash().into(),
+        signing_key.sign(&message).to_bytes(),
+    )?;
+    store
+        .install_policy_bundle(
+            &bundle,
+            &proof,
+            &signing_key.verifying_key().to_bytes(),
+            "operator-1",
+            now,
+        )
+        .await?;
+    store
+        .revoke_operator_role(
+            "operator-1",
+            "alpha-lab",
+            OperatorRole::PolicyAuthor,
+            "test-db-admin",
+            "TEST_POLICY_ACCESS_REMOVED",
+            now,
+        )
+        .await?;
+
+    let app = build_router(test_state(store.clone()));
+    let request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/v1/policy-bundles/atf-example-payments/activate")
+            .header("content-type", "application/json")
+            .header("x-atf-organization-id", "alpha-lab")
+            .header("authorization", operator_authorization())
+            .body(Body::from(
+                r#"{"environment":"development","policy_version":"1.0.0"}"#,
+            ))
+            .unwrap()
+    };
+    error_json(
+        app.clone().oneshot(request()).await?,
+        StatusCode::NOT_FOUND,
+        "POLICY_BUNDLE_NOT_FOUND",
+    )
+    .await?;
+
+    store
+        .grant_operator_role(
+            "operator-1",
+            "alpha-lab",
+            OperatorRole::PolicyAuthor,
+            "test-db-admin",
+            "TEST_POLICY_ACCESS_RESTORED",
+            now,
+        )
+        .await?;
+
+    let invalid_scope = Request::builder()
+        .method("POST")
+        .uri("/v1/policy-bundles/atf-example-payments/activate")
+        .header("content-type", "application/json")
+        .header("x-atf-organization-id", "alpha-lab")
+        .header("authorization", operator_authorization())
+        .body(Body::from(
+            r#"{"environment":"development/other","policy_version":"1.0.0"}"#,
+        ))
+        .unwrap();
+    error_json(
+        app.clone().oneshot(invalid_scope).await?,
+        StatusCode::BAD_REQUEST,
+        "REQUEST_BODY_INVALID",
+    )
+    .await?;
+
+    let response = app.oneshot(request()).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await?;
+    assert_eq!(body["policy_version"], "1.0.0");
+    assert_eq!(body["bundle_hash"], bundle.bundle_hash());
+    assert_eq!(body["lifecycle_version"], 1);
+    assert!(body["audit_event_id"].as_str().is_some());
+
+    let durable_gateway = build_router(test_durable_policy_state(store.clone()));
+    let evaluated = durable_gateway
+        .oneshot(post_intent_request("01J0000000000000000000P020", "12.50"))
+        .await?;
+    assert_eq!(evaluated.status(), StatusCode::OK);
+    assert_eq!(body_json(evaluated).await?["decision"], "PERMIT");
 
     store.close().await;
     database.destroy().await?;

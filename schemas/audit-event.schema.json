@@ -506,10 +506,36 @@
       "required": ["schema_version", "policy_bundle_id", "policy_bundle_hash", "actor_id"],
       "properties": {
         "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "environment": { "$ref": "#/$defs/nonEmpty" },
         "policy_bundle_id": { "$ref": "#/$defs/nonEmpty" },
+        "policy_version": { "$ref": "#/$defs/nonEmpty" },
+        "previous_policy_bundle_hash": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        },
         "policy_bundle_hash": { "$ref": "#/$defs/sha256" },
+        "change_kind": { "enum": ["INSTALLED", "ACTIVATED", "ROLLED_BACK"] },
+        "lifecycle_version": { "type": "integer", "minimum": 1 },
         "actor_id": { "$ref": "#/$defs/nonEmpty" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["change_kind"] },
+          "then": {
+            "required": ["organization_id", "environment", "policy_version", "previous_policy_bundle_hash"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "change_kind": { "enum": ["ACTIVATED", "ROLLED_BACK"] } },
+            "required": ["change_kind"]
+          },
+          "then": { "required": ["lifecycle_version"] }
+        }
+      ]
     },
     "agentPaused": {
       "type": "object",

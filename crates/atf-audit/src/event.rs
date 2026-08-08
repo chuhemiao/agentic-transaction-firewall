@@ -103,6 +103,7 @@ impl EventType {
                     | Self::OperatorStatusChanged
                     | Self::OperatorRoleGranted
                     | Self::OperatorRoleRevoked
+                    | Self::PolicyChanged
             )
     }
 }

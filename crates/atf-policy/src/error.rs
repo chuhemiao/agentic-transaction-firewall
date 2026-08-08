@@ -65,6 +65,18 @@ pub enum PolicyError {
     #[error("policy bundle hash mismatch: expected {expected}, got {actual}")]
     BundleHashMismatch { expected: String, actual: String },
 
+    #[error("persisted policy bundle artifact is invalid: {0}")]
+    Artifact(String),
+
+    #[error("policy bundle signature proof is invalid: {0}")]
+    SignatureProof(String),
+
+    #[error("policy bundle signature references a different bundle hash")]
+    SignatureBundleMismatch,
+
+    #[error("policy bundle signature verification failed")]
+    SignatureVerification,
+
     #[error("failed to parse Cedar schema: {0}")]
     CedarSchema(String),
 
@@ -73,6 +85,9 @@ pub enum PolicyError {
 
     #[error("Cedar authorization produced runtime diagnostics: {0}")]
     Authorization(String),
+
+    #[error("the authoritative Policy Bundle is unavailable")]
+    Unavailable,
 
     #[error("failed to build Cedar request from intent: {0}")]
     RequestBuild(String),

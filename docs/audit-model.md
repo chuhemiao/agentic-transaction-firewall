@@ -29,10 +29,11 @@ contract, append typed evidence, and update the materialized state atomically.
   constructor/parser.
 - `crates/atf-store/src/lifecycle.rs`: transactional replay and persistence
   boundary.
-- `migrations/0002_intent_lifecycle.sql`, `migrations/0004_identity.sql`, and
-  `migrations/0005_nonces.sql`, plus `migrations/0006_operator_rbac.sql`:
-  additive Intent, Agent identity, authenticated Nonce, and Operator/Role
-  lifecycle schemas.
+- `migrations/0002_intent_lifecycle.sql`, `migrations/0004_identity.sql`,
+  `migrations/0005_nonces.sql`, `migrations/0006_operator_rbac.sql`, and
+  `migrations/0007_policy_bundles.sql`: additive Intent, Agent identity,
+  authenticated Nonce, Operator/Role and signed Policy pointer lifecycle
+  schemas.
 - `schemas/audit-event.schema.json`: wire-level validation matching the Rust
   types.
 - `crates/atf-core/tests/lifecycle.rs` and

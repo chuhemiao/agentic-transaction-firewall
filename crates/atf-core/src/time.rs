@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Timelike, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::CoreError;
@@ -14,6 +14,17 @@ pub struct Timestamp(DateTime<Utc>);
 impl Timestamp {
     pub fn now() -> Self {
         Self(Utc::now())
+    }
+
+    /// Capture the current time at the precision used by ATF canonical JSON
+    /// and PostgreSQL lifecycle boundaries.
+    pub fn now_millis() -> Self {
+        let now = Utc::now();
+        let nanos = now.timestamp_subsec_millis() * 1_000_000;
+        Self(
+            now.with_nanosecond(nanos)
+                .expect("a millisecond-aligned nanosecond is always valid"),
+        )
     }
 
     pub fn from_datetime(dt: DateTime<Utc>) -> Self {
@@ -77,5 +88,16 @@ mod tests {
     fn rejects_non_rfc3339() {
         assert!("2026-07-18".parse::<Timestamp>().is_err());
         assert!(serde_json::from_str::<Timestamp>("1752825600").is_err());
+    }
+
+    #[test]
+    fn current_millisecond_timestamp_matches_canonical_precision() {
+        assert_eq!(
+            Timestamp::now_millis()
+                .as_datetime()
+                .timestamp_subsec_nanos()
+                % 1_000_000,
+            0
+        );
     }
 }

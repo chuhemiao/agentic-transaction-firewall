@@ -19,6 +19,7 @@ atf-core = { workspace = true }
 atf-decision = { workspace = true }
 atf-identity = { workspace = true }
 atf-intent = { workspace = true }
+atf-policy = { workspace = true }
 chrono = { workspace = true }
 home = { workspace = true }
 serde = { workspace = true }

@@ -217,15 +217,24 @@ principals and non-enumerating Decision-read RBAC.
   Cedar Schema and exact file digests into a domain-separated canonical hash.
   Strict Cedar policy validation runs at load; Schema-backed request validation,
   scope/expiry rechecks and runtime-diagnostic rejection run per evaluation.
-  Trusted signature, durable activation/rollback and multi-bundle resolution do
-  not yet exist.
-- **security_impact:** stale, malformed-scope, or unauthorized policy bundles can be loaded without provenance.
-- **financial_impact:** transactions may be evaluated under the wrong organization or policy version.
+  DS-020 adds a domain-separated strict Ed25519 publisher proof, immutable
+  exact-byte archive/public-key evidence, unique version enforcement,
+  monotonic active pointers, atomic rollback and typed `PolicyChanged`. JWT
+  Admin routes and the Store both recheck current Policy roles; Gateway reloads
+  and verifies the active artifact per request. Multi-Bundle resolution and
+  persistent Decision/Evaluation input binding remain open.
+- **security_impact:** the selected Bundle is now provenance-checked and
+  rollback-safe, but future multi-Bundle composition could still omit or mix a
+  required scope until resolver/binding work is complete.
+- **financial_impact:** a current evaluation uses one exact authorized Bundle;
+  the canonical Decision still does not persistently name every decisive input.
 - **severity:** `HIGH`
-- **recommended_change:** build DS-020 trusted signature verification,
-  immutable persistence, active pointers, activation/rollback and change Audit
-  on the DS-019 identity contract.
-- **required_tests:** bad signature/schema/scope/version/expiry, conflict, rollback, deterministic bundle hash.
+- **recommended_change:** retain DS-019/DS-020 invariants; DS-023..DS-025 must
+  pin the resolved Bundle identity into immutable Evaluation Context,
+  Evaluation, Decision and Audit, followed by replay verification.
+- **required_tests:** implemented for bad signature/schema/scope/version/
+  expiry, duplicate/conflict, concurrent activation, restart, rollback,
+  privileged tamper, authenticated RBAC API and real CLI.
 - **dependencies:** Admin RBAC, persistence, canonical hashing.
 - **target_release:** Durable Shadow Mode P0.9.
 - **acceptance_criteria:** bundle load failures are fail-closed and every Decision/Audit event names the exact validated bundle hash/version.
@@ -477,7 +486,7 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-020` is next: persist signed immutable Policy Bundles and audited active
-pointers with rollback. DS-019 now provides the validated, scoped,
-deterministic Cedar Bundle identity later `EvaluationContext` and replay work
-will pin.
+`DS-021` is next: version and hash the Risk Rule Set, including missing-data
+behavior and lifecycle accounting boundaries. DS-019/DS-020 now provide the
+signed durable Policy identity later `EvaluationContext` and replay work will
+pin beside that Risk identity.

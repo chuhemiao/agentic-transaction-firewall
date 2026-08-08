@@ -6,6 +6,9 @@ mod error;
 mod eval;
 mod mapping;
 
-pub use bundle::{PolicyBundle, PolicyBundleLoadContext};
+pub use bundle::{
+    policy_bundle_signature_message, PolicyBundle, PolicyBundleArtifact, PolicyBundleLoadContext,
+    PolicyBundleSignature,
+};
 pub use error::PolicyError;
 pub use eval::{PolicyDecision, PolicyOutcome};

@@ -59,10 +59,12 @@ Agent Intent
   Loader checks JSON Schema, safe/sorted paths, file digests, unlisted Cedar
   files, Bundle hash and strict Cedar policy validation. `evaluate_at` rechecks
   organization/expiry, validates the request against the same Cedar Schema,
-  rejects runtime diagnostics and returns the exact bundle identity.
-  *Implemented for immutable local Bundle identity; trusted signatures,
-  durable activation/rollback and multi-bundle conflict resolution remain
-  DS-020 and later work.*
+  rejects runtime diagnostics and returns the exact bundle identity. DS-020
+  adds a bounded exact-byte archive and detached Ed25519 proof over the
+  domain-separated Key-ID/Bundle-Hash message; durable restore repeats all
+  manifest/file/hash/Schema checks before strict signature verification.
+  *Implemented for signed immutable Bundle identity and restore; multi-bundle
+  merge/conflict resolution remains later work.*
 - **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol) via `evaluate`, plus one history-dependent rule
@@ -114,11 +116,15 @@ Agent Intent
   readiness check. Migration 0006 adds immutable external Operator subject
   fingerprints and explicit organization-role rows, with canonical bytes,
   hashes, monotonic lifecycle versions, typed Audit pointers, mutation guards,
-  and repeatable-read verification. *Implemented and wired into the Gateway
+  and repeatable-read verification. Migration 0007 adds immutable signed
+  Policy Bundle archives, publisher public-key/signature evidence and
+  monotonic active pointers whose update always retains the previous installed
+  version and references the same transaction's typed `PolicyChanged` event.
+  *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
-  `atf policy test`, plus offline `atf identity` Agent/public-key
+  `atf policy test/install/activate/rollback`, plus offline `atf identity` Agent/public-key
   provision/status/revoke and `atf operator` subject/status/role commands.
   *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -310,6 +316,10 @@ implementation order are in ADR-0002.
    `evaluate_at` Schema-validates the Intent's principal/action/resource/
    context, then returns Cedar Permit/Forbid plus policy IDs and the exact
    bundle ID/version/hash.
+   DS-020 installation additionally validates the detached publisher proof,
+   persists the exact archive immutably, and makes only an audited active
+   pointer selectable. Gateway requests resolve that pointer and revalidate
+   the archive/signature in one repeatable-read snapshot before evaluation.
 5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or a
    history-aware variant when the caller has verified events — see step 10) runs
    the MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
@@ -389,15 +399,18 @@ complete Decision Engine:
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields, but each rule still needs an explicit
   lifecycle accounting boundary and deterministic evaluation time.
-- Policy Bundle signature trust, durable activation/rollback and multi-bundle
-  conflict resolution (PRD §11.3). Local manifest/version/hash/scope/Schema
-  validation is implemented by DS-019.
+- Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
+  DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
+  publisher proof, immutable persistence and atomic activation/rollback for
+  one explicitly selected Bundle ID.
 - Budget model and atomic reserve/commit/release (PRD §9.4).
 - Agent Envelope verification, exact durable Key selection and atomic hashed
   Nonce consumption are wired before Policy/Risk. Process memory is not
   deployment authority. DS-018 implements ADR-0003 for Decision reads with
-  Gateway-validated JWTs and current durable Operator roles; future Admin and
-  Audit routes still need their explicit endpoint capability matrices.
+  Gateway-validated JWTs and current durable Operator roles. DS-020 adds the
+  first Admin capability: Policy activation/rollback requires `policy_author`
+  or `org_admin` and is reauthorized inside the mutation transaction. Other
+  Admin and Audit routes still need their explicit endpoint matrices.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database, explicitly provisioned organizations/operators,
   and configured HTTPS issuer/JWKS. GET's organization header is a selector

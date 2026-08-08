@@ -4,7 +4,11 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use atf_core::Timestamp;
-use atf_policy::{PolicyBundle, PolicyBundleLoadContext, PolicyDecision, PolicyError};
+use atf_policy::{
+    policy_bundle_signature_message, PolicyBundle, PolicyBundleArtifact, PolicyBundleLoadContext,
+    PolicyBundleSignature, PolicyDecision, PolicyError,
+};
+use ed25519_dalek::{Signer, SigningKey};
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -226,4 +230,79 @@ fn rejects_nested_paths_and_oversized_bundle_inputs_before_reading_them() {
     assert!(matches!(error, PolicyError::FileTooLarge { .. }));
 
     fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn archive_round_trip_revalidates_every_bound_byte() {
+    let context = load_context("alpha-lab", "2026-08-08T12:00:00Z");
+    let loaded = PolicyBundle::from_dir(&fixture_dir(), &context).unwrap();
+    let encoded = loaded.artifact().encode();
+    let artifact = PolicyBundleArtifact::decode(&encoded).unwrap();
+    let restored = PolicyBundle::from_artifact(artifact, &context).unwrap();
+
+    assert_eq!(restored.bundle_hash(), loaded.bundle_hash());
+    assert_eq!(restored.organization_id(), "alpha-lab");
+    assert_eq!(restored.environment(), "development");
+    assert_eq!(restored.artifact().encode(), encoded);
+
+    let mut tampered = encoded;
+    let last = tampered.last_mut().expect("archive is not empty");
+    *last ^= 1;
+    let artifact = PolicyBundleArtifact::decode(&tampered).unwrap();
+    let error = PolicyBundle::from_artifact(artifact, &context)
+        .expect_err("archived Policy bytes must be revalidated after durable load");
+    assert!(matches!(error, PolicyError::FileDigestMismatch { .. }));
+}
+
+#[test]
+fn detached_signature_binds_key_id_and_exact_bundle_hash() {
+    let context = load_context("alpha-lab", "2026-08-08T12:00:00Z");
+    let bundle = PolicyBundle::from_dir(&fixture_dir(), &context).unwrap();
+    let signing_key = SigningKey::from_bytes(&[7; 32]);
+    let message = policy_bundle_signature_message("publisher-2026", bundle.bundle_hash()).unwrap();
+    let signature = signing_key.sign(&message).to_bytes();
+    let proof = PolicyBundleSignature::from_parts(
+        "publisher-2026".into(),
+        bundle.bundle_hash().into(),
+        signature,
+    )
+    .unwrap();
+
+    proof
+        .verify(&bundle, &signing_key.verifying_key().to_bytes())
+        .unwrap();
+    assert_eq!(proof.key_id(), "publisher-2026");
+    assert_eq!(proof.bundle_hash(), bundle.bundle_hash());
+
+    let wrong_key = SigningKey::from_bytes(&[8; 32]);
+    assert!(matches!(
+        proof.verify(&bundle, &wrong_key.verifying_key().to_bytes()),
+        Err(PolicyError::SignatureVerification)
+    ));
+
+    let wrong_key_id = PolicyBundleSignature::from_parts(
+        "other-publisher".into(),
+        bundle.bundle_hash().into(),
+        signature,
+    )
+    .unwrap();
+    assert!(matches!(
+        wrong_key_id.verify(&bundle, &signing_key.verifying_key().to_bytes()),
+        Err(PolicyError::SignatureVerification)
+    ));
+
+    let document = serde_json::json!({
+        "signature_version": "1",
+        "algorithm": "Ed25519",
+        "key_id": proof.key_id(),
+        "bundle_hash": proof.bundle_hash(),
+        "signature": signature.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    });
+    PolicyBundleSignature::from_json(&serde_json::to_string(&document).unwrap()).unwrap();
+    let mut unknown = document;
+    unknown["untrusted_hint"] = serde_json::json!("ignore-signature");
+    assert!(matches!(
+        PolicyBundleSignature::from_json(&serde_json::to_string(&unknown).unwrap()),
+        Err(PolicyError::SignatureProof(_))
+    ));
 }

@@ -50,6 +50,14 @@ lifecycle versions and typed Audit pointers make registration, status,
 grant/revoke and regrant verifiable after restart. Immutable issuer/subject
 bindings and database guards reject rebinding, deletion and truncate.
 
+Migration 0007 adds DS-020 immutable signed Policy Bundle artifacts and one
+explicit active pointer per organization/environment/Bundle ID. Exact archive
+bytes, archive/public-key hashes, detached Ed25519 proof and typed install
+Audit evidence are immutable. Pointer updates are monotonic, always retain the
+immediately prior installed version for rollback, and must reference the same
+transaction's `PolicyChanged` event. Only publisher public keys are persisted;
+private signing keys remain external.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

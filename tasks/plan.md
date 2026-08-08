@@ -80,16 +80,21 @@ atomic hashed-Nonce admission and typed rejection/replay evidence. ADR-0003 was
 explicitly accepted on 2026-08-08 as DS-017; DS-018 now implements it with
 durable Operator/Role lifecycle, configured JWT/JWKS validation, typed
 principals and non-enumerating Decision-read RBAC. DS-019 now provides
-validated Policy Bundle identity; the next task is DS-020.
+validated Policy Bundle identity, and DS-020 adds signed durable activation
+and rollback; the next task is DS-021.
 
 ### Present but incomplete or unwired
 
 - Agent identity is wired before Policy/Risk with PostgreSQL-authoritative
   Nonce replay protection. Operator authentication and current Decision-read
-  authorization are wired; future Admin/Audit endpoints still need explicit
-  capability matrices.
+  authorization are wired. Policy activation/rollback now have an explicit
+  authenticated role matrix; future Admin/Audit endpoints still need their
+  own capability matrices.
 - Decision contains only ID, Intent ID, kind and reasons.
-- Policy has no manifest, schema, scope, version, hash, signature or rollback.
+- Policy now has a closed manifest, Cedar schema, scope/time validity,
+  deterministic version/hash, detached Ed25519 signature, immutable archive,
+  active pointer and immediate rollback. It is not yet bound into a durable
+  Evaluation Context or strongly bound Decision.
 - Risk reads wall-clock time and accepts an Agent-provided vendor median.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
   intermediate events. Current admissions emit `IdentityVerified`; the old
@@ -98,8 +103,9 @@ validated Policy Bundle identity; the next task is DS-020.
   replay, and atomic idempotency lease/result fencing. Gateway now returns
   exact completed results and recovers expired admissions on retry; there is
   no background recovery scanner or Context-based deterministic recomputation.
-- GET's `X-ATF-Organization-ID` is a tenant selector, not authentication; all
-  non-health routes remain unsafe for shared deployment.
+- `X-ATF-Organization-ID` remains a tenant selector rather than a credential;
+  protected routes derive authority from their validated Agent or Operator
+  principal and re-check current durable lifecycle state.
 
 ### Missing release controls
 
@@ -765,24 +771,29 @@ closed on mismatch.
 
 ### DS-020 — Persist signed Policy activation and rollback `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Store immutable bundles and explicit active pointers per
 organization/environment. Add signature verification and authenticated CLI/API
 activation/rollback with `PolicyChanged` Audit evidence; never mutate a version.
 
 - **Dependencies:** DS-019.
-- **Likely files:** `migrations/0007_policy_bundles.sql`,
+- **Delivered files:** `migrations/0007_policy_bundles.sql`,
   `crates/atf-store/src/policy.rs`, `cli/atf-cli/src/main.rs`,
-  `crates/atf-policy/tests/activation.rs`, `docs/policy-model.md`.
+  `crates/atf-policy/tests/bundle.rs`, Gateway Admin/runtime wiring and
+  `docs/policy-model.md`.
 - **Acceptance criteria:**
   1. Unsigned/untrusted/tampered or duplicate identity/version bundles cannot
      activate.
   2. Activation is atomic and rollback selects an immutable prior version.
   3. Every change records actor, old/new hashes and scope.
-- **Verification:** install/activate/rollback integration and CLI smoke; full DoD.
+- **Verification:** bad proof/role/duplicate/tamper tests, concurrent one-winner
+  activation, restart/rollback, authenticated Admin route, real CLI lifecycle,
+  Gateway durable evaluation and full DoD.
 
 ### DS-021 — Version and hash the Risk Rule Set `[S]`
+
+**Status:** Next.
 
 **Description:** Make enabled rules, thresholds, missing-data behavior and
 lifecycle accounting boundaries a canonical versioned artifact. Return its

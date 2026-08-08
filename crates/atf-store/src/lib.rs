@@ -14,6 +14,7 @@ mod lifecycle;
 mod models;
 mod nonce;
 mod operator;
+mod policy;
 mod repository;
 
 use serde::{Deserialize, Serialize};
@@ -31,10 +32,11 @@ pub use operator::{
     operator_subject_fingerprint, OperatorKind, OperatorPrincipal, OperatorRegistration,
     OperatorRole, OperatorRoleBinding, OperatorStatus, StoredOperator,
 };
+pub use policy::{ActivePolicyBundle, StoredPolicyBundle};
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 6;
+pub const CURRENT_SCHEMA_VERSION: i32 = 7;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -68,7 +68,8 @@ Only the following crates are implemented so far:
   hash. Strict Cedar policy validation happens at load; Schema-backed request
   validation, scope/expiry rechecks and runtime-diagnostic rejection happen
   on every evaluation. Successful Policy output names the exact bundle
-  ID/version/hash. Signature, durable activation and rollback remain DS-020.
+  ID/version/hash. DS-020 adds a detached, domain-separated strict Ed25519
+  publisher proof and a bounded exact-byte archive for durable revalidation.
 - `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
   stateless MVP rules (request expiry, single-transaction cap, fee ratio,
   vendor price deviation, high-risk network/protocol), plus one
@@ -120,7 +121,12 @@ Only the following crates are implemented so far:
   Operator subject fingerprints and explicit organization-role lifecycle rows;
   their canonical records, versions, status and last-event pointers are bound
   to typed Audit evidence and protected against rebinding/deletion/truncate.
+  Migration 0007 persists only signed immutable Policy Bundle archives and
+  publisher public keys, plus monotonic organization/environment/Bundle active
+  pointers retaining the immediately prior signed version for rollback. Every
+  install, activation and rollback is atomically bound to `PolicyChanged`.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
+  `atf policy install/activate/rollback`,
   offline `atf identity` provision/register/status/revoke commands, and
   offline `atf operator` subject/status/role commands. Lifecycle commands read
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
@@ -128,7 +134,8 @@ Only the following crates are implemented so far:
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
   (including the history-dependent duplicate-purchase check), Decision, and
   Audit into one request path: `POST /v1/intents` and
-  `GET /v1/intents/{id}/decision`, plus `/healthz`/`/readyz`. PostgreSQL is
+  `GET /v1/intents/{id}/decision`, authenticated Policy activation/rollback,
+  plus `/healthz`/`/readyz`. PostgreSQL is
   required at startup, `/readyz` verifies live storage/schema compatibility
   and fresh usable configured JWKS, and restart/second-instance reads return
   the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
@@ -146,6 +153,9 @@ Only the following crates are implemented so far:
   revoke takes effect on the next request. Missing/invalid credentials return
   one safe 401 challenge; absent, cross-tenant and wrong-role Decision reads
   are indistinguishable 404 responses.
+  Each new evaluation loads and fully revalidates the current signed durable
+  active pointer in one repeatable-read snapshot, so an audited activation or
+  rollback applies to the next request without restarting the Gateway.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -192,12 +202,16 @@ ADR-0003 on 2026-08-08. `DS-018` implements that boundary with migration 0006,
 offline Operator/role lifecycle, typed principals, Gateway JWT/JWKS validation,
 and organization-scoped non-enumerating Decision-read RBAC. `DS-019` replaces
 raw Cedar directory loading with Schema-backed, scoped, time-bounded Policy
-Bundle manifests and deterministic file-bound bundle identities.
+Bundle manifests and deterministic file-bound bundle identities. `DS-020`
+adds detached publisher proof, migration 0007 immutable archives and active
+pointers, authorized install/activation/rollback, and per-request Gateway
+resolution of the exact current signed version.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
 Rust profile validator),
 `policy-bundle.schema.json` (enforced by `atf-policy` while loading manifests),
+`policy-bundle-signature.schema.json` (the detached Ed25519 proof contract),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -256,10 +270,11 @@ semantics (evaluate only, never execute).
    `GET /v1/intents/{id}/decision`. Policy/Risk/Simulation outcomes are typed
    in canonical Evaluation evidence and the durable Audit chain. Verified across two
    real Gateway processes sharing one PostgreSQL database, not just in-process
-   tests. **Not** wired in: Simulation, Approval, or an Admin HTTP API. Agent
-   identity is wired on POST and Operator RBAC is wired on Decision GET;
-   lifecycle provisioning intentionally remains an offline CLI until the Admin
-   boundary is implemented.
+   tests. **Not** wired in: Simulation or Approval. DS-020 adds only the first
+   Admin HTTP subset (Policy activate/rollback); Agent/Operator/Policy
+   installation lifecycle provisioning remains an offline CLI. Agent identity
+   is wired on POST and Operator RBAC is wired on Decision GET and Policy
+   mutation routes.
 9. ~~Common Transaction Intent semantic validation.~~ Done in DS-009:
    financial/time/ULID/text invariants produce stable ordered codes, CLI
    failures exit non-zero, and Gateway integration proves invalid input leaves
@@ -326,9 +341,16 @@ semantics (evaluate only, never execute).
     window are domain-separated into one deterministic Bundle hash; load and
     per-request validation fail closed, and Policy output carries the exact
     bundle ID/version/hash.
-20. **Signed durable Policy activation and rollback. Next:** persist immutable
-    Bundle artifacts and organization/environment active pointers, verify a
-    trusted publisher signature, and atomically Audit activation/rollback.
+20. ~~Signed durable Policy activation and rollback.~~ Done in DS-020:
+    migration 0007 stores immutable exact-byte archives, strict detached
+    Ed25519 proof and publisher public-key evidence; monotonic active pointers
+    atomically retain the previous version and bind install/activate/rollback
+    to typed `PolicyChanged`. JWT-authenticated Admin routes recheck current
+    `policy_author`/`org_admin`, and Gateway evaluation resolves the signed
+    pointer per request.
+21. **Versioned Risk Rule Set. Next:** bind enabled rules, thresholds,
+    missing-data behavior and accounting boundaries into a deterministic
+    version/hash returned with every Risk result.
 
 ### Remaining before Phase 2 can close out
 
@@ -429,14 +451,15 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
 psql postgres://postgres:postgres@localhost:5432/atf \
   -c "INSERT INTO organizations (organization_id) VALUES ('alpha-lab') ON CONFLICT DO NOTHING"
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
-  ATF_POLICIES_DIR=policies/examples \
   ATF_IDENTITY_AUDIENCE=atf-gateway \
   ATF_DEPLOYMENT_ENVIRONMENT=development \
   ATF_POLICY_ORGANIZATION_ID=alpha-lab \
+  ATF_POLICY_BUNDLE_ID=atf-example-payments \
   PORT=8080 cargo run -p atf-gateway
 
 # Provision Agent/public-key authority first; see docs/identity.md. POST then
 # requires the detached signed Header contract in docs/gateway-identity.md.
+# Install and activate a signed Policy Bundle first; see docs/policy-model.md.
 
 # Validate an intent against the JSON Schema + common/profile semantics + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json

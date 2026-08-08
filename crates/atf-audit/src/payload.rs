@@ -246,8 +246,20 @@ pub struct BudgetPayload {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyChangedPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
     pub policy_bundle_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_version: Option<String>,
+    #[serde(default)]
+    pub previous_policy_bundle_hash: Option<String>,
     pub policy_bundle_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_version: Option<u64>,
     pub actor_id: String,
 }
 
@@ -763,6 +775,68 @@ impl AuditPayload {
                     ],
                 )?;
                 sha256(event_type, "policy_bundle_hash", &value.policy_bundle_hash)?;
+                if let Some(previous) = &value.previous_policy_bundle_hash {
+                    sha256(event_type, "previous_policy_bundle_hash", previous)?;
+                }
+                let durable_fields = [
+                    value.organization_id.is_some(),
+                    value.environment.is_some(),
+                    value.policy_version.is_some(),
+                    value.change_kind.is_some(),
+                ];
+                if durable_fields.iter().any(|present| *present)
+                    || value.previous_policy_bundle_hash.is_some()
+                    || value.lifecycle_version.is_some()
+                {
+                    if durable_fields.iter().any(|present| !*present) {
+                        return Err(invalid(
+                            event_type,
+                            "durable PolicyChanged scope/version/kind fields must be complete",
+                        ));
+                    }
+                    strings(
+                        event_type,
+                        &[
+                            (
+                                "organization_id",
+                                value.organization_id.as_deref().expect("checked above"),
+                            ),
+                            (
+                                "environment",
+                                value.environment.as_deref().expect("checked above"),
+                            ),
+                            (
+                                "policy_version",
+                                value.policy_version.as_deref().expect("checked above"),
+                            ),
+                        ],
+                    )?;
+                    let change_kind = value.change_kind.as_deref().expect("checked above");
+                    if !matches!(change_kind, "INSTALLED" | "ACTIVATED" | "ROLLED_BACK") {
+                        return Err(invalid(event_type, "change_kind is not supported"));
+                    }
+                    match change_kind {
+                        "INSTALLED" if value.lifecycle_version.is_some() => {
+                            return Err(invalid(
+                                event_type,
+                                "installed Bundle must not have a pointer lifecycle version",
+                            ));
+                        }
+                        "ACTIVATED" => {
+                            positive_optional_version(event_type, value.lifecycle_version)?;
+                        }
+                        "ROLLED_BACK" => {
+                            positive_optional_version(event_type, value.lifecycle_version)?;
+                            if value.previous_policy_bundle_hash.is_none() {
+                                return Err(invalid(
+                                    event_type,
+                                    "rollback must identify the previous active Bundle hash",
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
             Self::AgentPaused(value) => strings(
                 event_type,
@@ -1256,6 +1330,15 @@ fn positive_version(event_type: EventType, version: u64) -> Result<(), AuditPayl
     } else {
         Err(invalid(event_type, "lifecycle_version must be positive"))
     }
+}
+
+fn positive_optional_version(
+    event_type: EventType,
+    version: Option<u64>,
+) -> Result<(), AuditPayloadError> {
+    version
+        .ok_or_else(|| invalid(event_type, "pointer lifecycle_version is required"))
+        .and_then(|version| positive_version(event_type, version))
 }
 
 fn nonnegative_amount(

@@ -1,5 +1,6 @@
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Extension, Path, State};
 use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
 use axum::middleware;
@@ -17,8 +18,9 @@ use atf_intent::TransactionIntent;
 use atf_policy::PolicyDecision;
 use atf_store::{
     AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationInput, EvaluatorLease,
-    FinalizationInput, Store, StoreError,
+    FinalizationInput, OperatorPrincipal, Store, StoreError,
 };
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::auth::{has_identity_headers, parse_identity_assertion};
@@ -40,6 +42,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/v1/intents", post(create_intent))
         .route("/v1/intents/{intent_id}/decision", get(get_decision))
+        .route(
+            "/v1/policy-bundles/{bundle_id}/activate",
+            post(activate_policy_bundle),
+        )
+        .route(
+            "/v1/policy-bundles/{bundle_id}/rollback",
+            post(rollback_policy_bundle),
+        )
         .fallback(route_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
@@ -100,7 +110,7 @@ async fn create_intent(
         let reason_code = "IDENTITY_PRINCIPAL_TYPE_MISMATCH";
         if let Err(store_error) = state
             .store
-            .record_identity_rejection(&intent, reason_code, Timestamp::now())
+            .record_identity_rejection(&intent, reason_code, Timestamp::now_millis())
             .await
         {
             return store_error_response(&request_id, "record identity rejection", store_error);
@@ -114,7 +124,7 @@ async fn create_intent(
             let reason_code = error.code();
             if let Err(store_error) = state
                 .store
-                .record_identity_rejection(&intent, reason_code, Timestamp::now())
+                .record_identity_rejection(&intent, reason_code, Timestamp::now_millis())
                 .await
             {
                 return store_error_response(&request_id, "record identity rejection", store_error);
@@ -154,8 +164,8 @@ async fn create_intent(
         admitted.admitted.identity.envelope_hash
     );
 
-    let evaluated_at = Timestamp::now();
-    let policy_result = state.policy_bundle.evaluate_at(&intent, evaluated_at);
+    let evaluated_at = Timestamp::now_millis();
+    let policy_result = state.evaluate_policy(&intent, evaluated_at).await;
     let policy_evidence = match &policy_result {
         Ok(outcome) => PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -275,7 +285,7 @@ async fn create_intent(
                 },
             },
             decision,
-            decided_at: Timestamp::now(),
+            decided_at: Timestamp::now_millis(),
         })
         .await
     {
@@ -300,7 +310,7 @@ async fn admit_or_recover(
             signature: identity.signature,
             audience: audience.to_owned(),
             environment: environment.to_owned(),
-            received_at: Timestamp::now(),
+            received_at: Timestamp::now_millis(),
             lease_duration: EVALUATOR_LEASE_DURATION,
         })
         .await
@@ -392,7 +402,7 @@ fn recovery_finalization(
     admitted: AdmittedIntent,
     evaluator_lease: EvaluatorLease,
 ) -> FinalizationInput {
-    let evaluated_at = Timestamp::now();
+    let evaluated_at = Timestamp::now_millis();
     FinalizationInput {
         organization_id: admitted.organization_id,
         intent_id: admitted.intent.intent_id.clone(),
@@ -430,7 +440,7 @@ fn recovery_finalization(
                     .into(),
             }],
         },
-        decided_at: Timestamp::now(),
+        decided_at: Timestamp::now_millis(),
     }
 }
 
@@ -441,16 +451,118 @@ async fn get_decision(
     Path(intent_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Decision>, Response> {
-    if has_identity_headers(&headers) {
-        return Err(ApiError::authentication_required().into_response(&request_id));
+    let principal = authenticate_operator(&state, &headers, &request_id).await?;
+    if !principal.roles.iter().any(|role| role.can_read_decisions()) {
+        return Err(ApiError::decision_not_found().into_response(&request_id));
+    }
+    match state
+        .store
+        .load_finalized_decision(&principal.organization_id, &intent_id)
+        .await
+    {
+        Ok(Some(finalized)) => Ok(Json(finalized.decision)),
+        Ok(None) => Err(ApiError::decision_not_found().into_response(&request_id)),
+        Err(error) => Err(store_error_response(&request_id, "load Decision", error)),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActivatePolicyRequest {
+    environment: String,
+    policy_version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RollbackPolicyRequest {
+    environment: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyMutationResponse {
+    bundle_id: String,
+    policy_version: String,
+    bundle_hash: String,
+    lifecycle_version: i64,
+    audit_event_id: String,
+}
+
+async fn activate_policy_bundle(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(bundle_id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Json<ActivatePolicyRequest>, JsonRejection>,
+) -> Result<Json<PolicyMutationResponse>, Response> {
+    let principal = authenticate_policy_operator(&state, &headers, &request_id).await?;
+    let Json(body) = body.map_err(|_| ApiError::invalid_json().into_response(&request_id))?;
+    let active = state
+        .store
+        .activate_policy_bundle(
+            &principal.organization_id,
+            &body.environment,
+            &bundle_id,
+            &body.policy_version,
+            &principal.operator_id,
+            Timestamp::now_millis(),
+        )
+        .await
+        .map_err(|error| policy_mutation_error(&request_id, error))?;
+    Ok(Json(policy_mutation_response(active)))
+}
+
+async fn rollback_policy_bundle(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(bundle_id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Json<RollbackPolicyRequest>, JsonRejection>,
+) -> Result<Json<PolicyMutationResponse>, Response> {
+    let principal = authenticate_policy_operator(&state, &headers, &request_id).await?;
+    let Json(body) = body.map_err(|_| ApiError::invalid_json().into_response(&request_id))?;
+    let active = state
+        .store
+        .rollback_policy_bundle(
+            &principal.organization_id,
+            &body.environment,
+            &bundle_id,
+            &principal.operator_id,
+            Timestamp::now_millis(),
+        )
+        .await
+        .map_err(|error| policy_mutation_error(&request_id, error))?;
+    Ok(Json(policy_mutation_response(active)))
+}
+
+async fn authenticate_policy_operator(
+    state: &AppState,
+    headers: &HeaderMap,
+    request_id: &RequestId,
+) -> Result<OperatorPrincipal, Response> {
+    let principal = authenticate_operator(state, headers, request_id).await?;
+    if principal.roles.iter().any(|role| role.can_change_policy()) {
+        Ok(principal)
+    } else {
+        Err(ApiError::policy_bundle_not_found().into_response(request_id))
+    }
+}
+
+async fn authenticate_operator(
+    state: &AppState,
+    headers: &HeaderMap,
+    request_id: &RequestId,
+) -> Result<OperatorPrincipal, Response> {
+    if has_identity_headers(headers) {
+        return Err(ApiError::authentication_required().into_response(request_id));
     }
     let verified = state
         .operator_auth
-        .verify(&headers)
+        .verify(headers)
         .await
-        .map_err(|_| ApiError::authentication_required().into_response(&request_id))?;
-    let organization_id = organization_header(&headers)
-        .ok_or_else(|| ApiError::organization_header_invalid().into_response(&request_id))?;
+        .map_err(|_| ApiError::authentication_required().into_response(request_id))?;
+    let organization_id = organization_header(headers)
+        .ok_or_else(|| ApiError::organization_header_invalid().into_response(request_id))?;
     let principal = state
         .store
         .resolve_operator_principal(
@@ -459,24 +571,41 @@ async fn get_decision(
             organization_id,
         )
         .await
-        .map_err(|error| store_error_response(&request_id, "resolve Operator", error))?
-        .ok_or_else(|| ApiError::authentication_required().into_response(&request_id))?;
+        .map_err(|error| store_error_response(request_id, "resolve Operator", error))?
+        .ok_or_else(|| ApiError::authentication_required().into_response(request_id))?;
     let principal = RequestPrincipal::Operator(principal)
         .into_operator()
         .expect("Operator authentication constructs only an Operator Principal");
-    if principal.organization_id != organization_id
-        || !principal.roles.iter().any(|role| role.can_read_decisions())
-    {
-        return Err(ApiError::decision_not_found().into_response(&request_id));
+    if principal.organization_id != organization_id {
+        return Err(ApiError::authentication_required().into_response(request_id));
     }
-    match state
-        .store
-        .load_finalized_decision(organization_id, &intent_id)
-        .await
-    {
-        Ok(Some(finalized)) => Ok(Json(finalized.decision)),
-        Ok(None) => Err(ApiError::decision_not_found().into_response(&request_id)),
-        Err(error) => Err(store_error_response(&request_id, "load Decision", error)),
+    Ok(principal)
+}
+
+fn policy_mutation_response(active: atf_store::ActivePolicyBundle) -> PolicyMutationResponse {
+    PolicyMutationResponse {
+        bundle_id: active.bundle.bundle_id().into(),
+        policy_version: active.bundle.policy_version().into(),
+        bundle_hash: active.bundle.bundle_hash().into(),
+        lifecycle_version: active.lifecycle_version,
+        audit_event_id: active.last_event_id,
+    }
+}
+
+fn policy_mutation_error(request_id: &RequestId, error: StoreError) -> Response {
+    if matches!(error, StoreError::InvalidRepositoryInput { .. }) {
+        return ApiError::invalid_json().into_response(request_id);
+    }
+    if matches!(
+        error,
+        StoreError::PolicyAuthorizationDenied { .. }
+            | StoreError::PolicyBundleNotFound { .. }
+            | StoreError::ActivePolicyBundleNotFound { .. }
+            | StoreError::PolicyRollbackUnavailable { .. }
+    ) {
+        ApiError::policy_bundle_not_found().into_response(request_id)
+    } else {
+        store_error_response(request_id, "change active Policy Bundle", error)
     }
 }
 
