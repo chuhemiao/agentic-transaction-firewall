@@ -96,6 +96,9 @@ Only the following crates are implemented so far:
   never inspected for privileged values. Vendor median requires persisted,
   fresh, hash-verified, allowlisted, scope-bound `ATF_ENRICHED` evidence;
   enabled Rule Sets must emit a restrictive finding when it is absent.
+  DS-026 migration 0009 additionally archives the exact canonical Rule Set
+  per organization/environment with typed installer Audit evidence, so
+  restart Replay never substitutes a process default.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only tamper detection (`verify_chain`), and version-1 typed payloads
   for all canonical PRD lifecycle/administrative events. Event-to-state
@@ -154,8 +157,15 @@ Only the following crates are implemented so far:
   exact canonical bytes/hash and redundant columns are bound to the admitted
   Intent, selected Profile/artifacts, verified Audit-history prefix and one
   `ContextEnriched` event. Final Evaluations foreign-key the snapshot hash.
+  Migration 0009 adds immutable organization/environment Risk Rule Set
+  archives bound to current Policy-change authority and atomic
+  `RiskRuleSetStored` evidence. Original Replay reloads the exact Intent,
+  Context, signed Policy, Risk archive and Context-bound Audit prefix,
+  reproduces canonical Decision bytes/hash, and appends only
+  non-authoritative `OriginalReplayCompleted` evidence.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
+  `atf risk install`, `atf replay original`,
   offline `atf identity` provision/register/status/revoke commands, and
   offline `atf operator` subject/status/role commands. Lifecycle commands read
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
@@ -185,8 +195,9 @@ Only the following crates are implemented so far:
   Each new evaluation loads and fully revalidates the current signed durable
   active pointer in one repeatable-read snapshot, so an audited activation or
   rollback applies to the next request without restarting the Gateway.
-  Startup also loads one required closed Risk Rule Set artifact; each Risk
-  result and durable `RiskEvaluated` evidence carries its exact version/hash.
+  Startup also requires its configured closed Risk Rule Set to resolve to the
+  exact audited durable archive; each Risk result and durable `RiskEvaluated`
+  evidence carries its exact version/hash.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -201,7 +212,9 @@ Only the following crates are implemented so far:
   its evaluation time, Policy/Risk identities and Audit history, and records
   `ContextEnriched` before module output. Recovered work reuses an existing
   context or creates an explicit unavailable recovery context, then records
-  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` until DS-026 replay.
+  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`. Operator-invoked
+  Original Replay now exists, but it deliberately does not resume or replace
+  incomplete recovery work.
   Never executes anything — evaluate-only.
 
 The durable-state contract is fixed in
@@ -258,6 +271,10 @@ rejects Agent vendor values and post-snapshot history.
 envelope and domain-separated canonical hash. Store finalization and reads
 verify it against the immutable Intent/Context, while current
 `DecisionRecorded` payloads mirror the same bindings.
+`DS-026` adds migration 0009's immutable Risk archives, exact-version Original
+Replay, typed non-authoritative replay evidence, stable fail-closed codes and
+the offline `risk install`/`replay original` commands. Restart replay is
+locked by a public conformance fixture and never mutates the original result.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -360,7 +377,8 @@ semantics (evaluate only, never execute).
     evaluation renews its lease between stages; and an expired admission is
     conditionally reclaimed after restart, given an immutable explicit-
     unavailable recovery context, and terminated once as
-    `RECOVERY_REPLAY_NOT_IMPLEMENTED` until Original Replay exists.
+    `RECOVERY_REPLAY_NOT_IMPLEMENTED`. DS-026 Original Replay is an authorized
+    verifier for completed Decisions; it does not reinterpret incomplete work.
 14. ~~Domain-separated Agent Identity Envelope.~~ Done in DS-014:
     `ATF_INTENT_V1` sorted canonical bytes bind organization, Agent, exact
     Key ID, Intent hash, a closed five-minute lifetime, nonce, audience and
@@ -435,9 +453,14 @@ semantics (evaluate only, never execute).
     future Approval/Obligation fields and execution constraints under one
     domain-separated hash. Store and `DecisionRecorded` enforce the same
     values; mutation and four-outcome Schema tests lock the contract.
-26. **NEXT — Original Replay:** reload the immutable inputs named by the
-    original Decision, reproduce its exact hash and append replay evidence
-    without overwriting the authoritative result.
+26. ~~Original Replay.~~ Done in DS-026: migration 0009 archives exact audited
+    Risk Rule Sets; Store reloads the immutable Intent, Context, signed Policy,
+    Risk archive and exact Audit prefix, reproduces byte-identical Decision
+    hash output after restart, and appends non-authoritative typed evidence
+    without changing the original Evaluation/Decision.
+27. **NEXT — Counterfactual Replay:** create a separate non-authoritative
+    Evaluation/Decision lineage under explicitly selected newer Policy/Risk
+    artifacts without changing the original records.
 
 ### Remaining before Phase 2 can close out
 
@@ -460,8 +483,9 @@ semantics (evaluate only, never execute).
   DS-007 extends the active contract to 22 states/28 events with a retained
   Shadow-only `IDENTITY_UNVERIFIED` compatibility branch; DS-015 adds four
   typed Agent/Key operator events, DS-016 adds `ReplayDetected`, and DS-018 adds
-  four Operator subject/role events, for 37 typed events without changing the
-  state set.
+  four Operator subject/role events, and DS-026 adds `RiskRuleSetStored` plus
+  `OriginalReplayCompleted`, for 39 typed events without changing the state
+  set.
 - ~~Transactional lifecycle persistence and typed phase evidence.~~ Done in
   DS-007: migration 0002, optimistic versioning/row locking, typed event
   replay, atomic five-phase finalization, race/rollback/tamper tests, and
@@ -496,9 +520,9 @@ semantics (evaluate only, never execute).
 - ~~Organization-scoped operator authentication/RBAC following accepted
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
-- ~~Make Policy/Risk consume only the persisted `EvaluationContext` and
-  strongly bind canonical Decisions to it.~~ Done in DS-024/DS-025. Add
-  Original/Counterfactual Replay next.
+- ~~Make Policy/Risk consume only the persisted `EvaluationContext`, strongly
+  bind canonical Decisions, and reproduce the original result.~~ Done in
+  DS-024..DS-026. Counterfactual Replay is next.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
@@ -515,9 +539,9 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  deterministic replay, stateful Risk, Audit query/metrics, operational
-  hardening, and security re-audit. Strongly bound Decisions are complete in
-  DS-025.
+  Counterfactual Replay, stateful Risk, Audit query/metrics, operational
+  hardening, and security re-audit. Strongly bound Decisions and Original
+  Replay are complete through DS-026.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -536,7 +560,10 @@ ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   cargo run -p atf-store --bin atf-store-migrate
 
-# Provision a development organization, then run the durable Gateway
+# Provision a development organization. Before Gateway startup, provision an
+# authorized Operator, install/activate the signed Policy Bundle, and archive
+# the configured Risk Rule Set (`atf risk install`); see docs/policy-model.md,
+# docs/risk-rule-sets.md, and docs/replay.md.
 psql postgres://postgres:postgres@localhost:5432/atf \
   -c "INSERT INTO organizations (organization_id) VALUES ('alpha-lab') ON CONFLICT DO NOTHING"
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
@@ -549,7 +576,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
 
 # Provision Agent/public-key authority first; see docs/identity.md. POST then
 # requires the detached signed Header contract in docs/gateway-identity.md.
-# Install and activate a signed Policy Bundle first; see docs/policy-model.md.
+# The signed Policy and exact audited Risk archive must already exist.
 
 # Validate an intent against the JSON Schema + common/profile semantics + canonical hash
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json

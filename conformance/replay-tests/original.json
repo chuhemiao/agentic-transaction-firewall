@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "fixture_id": "ds026-original-replay-v1",
+  "expected_decision_relation": "REPLAYED_EQUALS_ORIGINAL",
+  "stable_errors": {
+    "authorization_denied": "REPLAY_AUTHORIZATION_DENIED",
+    "missing_risk_artifact": "REPLAY_RISK_ARTIFACT_MISSING",
+    "tampered_context": "REPLAY_INPUT_TAMPERED",
+    "tampered_risk_artifact": "REPLAY_INPUT_TAMPERED"
+  },
+  "invariants": {
+    "matched": true,
+    "authoritative": false,
+    "original_rows_unchanged": true
+  }
+}

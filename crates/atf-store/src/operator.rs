@@ -616,6 +616,46 @@ pub(crate) async fn authorize_policy_change(
     }
 }
 
+pub(crate) async fn authorize_decision_read(
+    transaction: &mut Transaction<'_, Postgres>,
+    operator_id: &str,
+    organization_id: &str,
+) -> Result<(), StoreError> {
+    validate_identifier("operator_id", operator_id)?;
+    validate_identifier("organization_id", organization_id)?;
+    let denied = || StoreError::DecisionReadAuthorizationDenied {
+        organization_id: organization_id.into(),
+        operator_id: operator_id.into(),
+    };
+    let Some(row) =
+        fetch_operator_query(transaction, "operator_id = $1", operator_id, true).await?
+    else {
+        return Err(denied());
+    };
+    let operator_chain =
+        load_verified_in_transaction(transaction, &row.audit_organization_id).await?;
+    let operator = verify_operator_row(row, &operator_chain)?;
+    if operator.status != OperatorStatus::Active {
+        return Err(denied());
+    }
+    let role_rows = fetch_roles_for_update(transaction, operator_id, organization_id).await?;
+    let role_chain = if organization_id == operator.audit_organization_id {
+        None
+    } else {
+        Some(load_verified_in_transaction(transaction, organization_id).await?)
+    };
+    let chain = role_chain.as_deref().unwrap_or(&operator_chain);
+    let authorized = role_rows.into_iter().try_fold(false, |authorized, row| {
+        let binding = verify_role_row(row, chain)?;
+        Ok::<_, StoreError>(authorized || (binding.active && binding.role.can_read_decisions()))
+    })?;
+    if authorized {
+        Ok(())
+    } else {
+        Err(denied())
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn finish_role_change(
     mut transaction: Transaction<'_, Postgres>,

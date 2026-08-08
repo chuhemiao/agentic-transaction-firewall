@@ -395,6 +395,32 @@ pub struct OperatorRoleChangedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RiskRuleSetStoredPayload {
+    pub organization_id: String,
+    pub environment: String,
+    pub engine_version: String,
+    pub rule_set_version: String,
+    pub rule_set_hash: String,
+    pub artifact_hash: String,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OriginalReplayCompletedPayload {
+    pub organization_id: String,
+    pub replay_id: String,
+    pub original_evaluation_id: String,
+    pub original_decision_id: String,
+    pub original_decision_hash: String,
+    pub replayed_decision_hash: String,
+    pub matched: bool,
+    pub authoritative: bool,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KillSwitchPayload {
     pub scope: String,
     pub actor_id: String,
@@ -451,6 +477,8 @@ pub enum AuditPayload {
     OperatorStatusChanged(OperatorStatusChangedPayload),
     OperatorRoleGranted(OperatorRoleChangedPayload),
     OperatorRoleRevoked(OperatorRoleChangedPayload),
+    RiskRuleSetStored(RiskRuleSetStoredPayload),
+    OriginalReplayCompleted(OriginalReplayCompletedPayload),
     KillSwitchEnabled(KillSwitchPayload),
     KillSwitchDisabled(KillSwitchPayload),
     IntentExpired(IntentExpiredPayload),
@@ -493,6 +521,8 @@ impl AuditPayload {
             Self::OperatorStatusChanged(_) => EventType::OperatorStatusChanged,
             Self::OperatorRoleGranted(_) => EventType::OperatorRoleGranted,
             Self::OperatorRoleRevoked(_) => EventType::OperatorRoleRevoked,
+            Self::RiskRuleSetStored(_) => EventType::RiskRuleSetStored,
+            Self::OriginalReplayCompleted(_) => EventType::OriginalReplayCompleted,
             Self::KillSwitchEnabled(_) => EventType::KillSwitchEnabled,
             Self::KillSwitchDisabled(_) => EventType::KillSwitchDisabled,
             Self::IntentExpired(_) => EventType::IntentExpired,
@@ -534,6 +564,8 @@ impl AuditPayload {
             Self::OperatorRegistered(value) => encode(value),
             Self::OperatorStatusChanged(value) => encode(value),
             Self::OperatorRoleGranted(value) | Self::OperatorRoleRevoked(value) => encode(value),
+            Self::RiskRuleSetStored(value) => encode(value),
+            Self::OriginalReplayCompleted(value) => encode(value),
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => encode(value),
             Self::IntentExpired(value) => encode(value),
             Self::IntentCancelled(value) => encode(value),
@@ -592,6 +624,10 @@ impl AuditPayload {
             }
             EventType::OperatorRoleRevoked => {
                 Self::OperatorRoleRevoked(decode(event_type, fields)?)
+            }
+            EventType::RiskRuleSetStored => Self::RiskRuleSetStored(decode(event_type, fields)?),
+            EventType::OriginalReplayCompleted => {
+                Self::OriginalReplayCompleted(decode(event_type, fields)?)
             }
             EventType::KillSwitchEnabled => Self::KillSwitchEnabled(decode(event_type, fields)?),
             EventType::KillSwitchDisabled => Self::KillSwitchDisabled(decode(event_type, fields)?),
@@ -1036,6 +1072,51 @@ impl AuditPayload {
                 sha256(event_type, "binding_hash", &value.binding_hash)?;
                 positive_version(event_type, value.lifecycle_version)?;
             }
+            Self::RiskRuleSetStored(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("environment", &value.environment),
+                        ("engine_version", &value.engine_version),
+                        ("rule_set_version", &value.rule_set_version),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                sha256(event_type, "rule_set_hash", &value.rule_set_hash)?;
+                sha256(event_type, "artifact_hash", &value.artifact_hash)?;
+            }
+            Self::OriginalReplayCompleted(value) => {
+                strings(
+                    event_type,
+                    &[
+                        ("organization_id", &value.organization_id),
+                        ("replay_id", &value.replay_id),
+                        ("original_evaluation_id", &value.original_evaluation_id),
+                        ("original_decision_id", &value.original_decision_id),
+                        ("actor_id", &value.actor_id),
+                    ],
+                )?;
+                sha256(
+                    event_type,
+                    "original_decision_hash",
+                    &value.original_decision_hash,
+                )?;
+                sha256(
+                    event_type,
+                    "replayed_decision_hash",
+                    &value.replayed_decision_hash,
+                )?;
+                if !value.matched
+                    || value.authoritative
+                    || value.original_decision_hash != value.replayed_decision_hash
+                {
+                    return Err(invalid(
+                        event_type,
+                        "Original Replay evidence must have equal hashes and be matched and non-authoritative",
+                    ));
+                }
+            }
             Self::KillSwitchEnabled(value) | Self::KillSwitchDisabled(value) => strings(
                 event_type,
                 &[
@@ -1071,6 +1152,7 @@ impl AuditPayload {
                 | Self::OperatorStatusChanged(_)
                 | Self::OperatorRoleGranted(_)
                 | Self::OperatorRoleRevoked(_)
+                | Self::RiskRuleSetStored(_)
                 | Self::ReplayDetected(_)
                 | Self::KillSwitchEnabled(_)
                 | Self::KillSwitchDisabled(_)
@@ -1153,6 +1235,8 @@ impl AuditPayload {
             | Self::OperatorStatusChanged(_)
             | Self::OperatorRoleGranted(_)
             | Self::OperatorRoleRevoked(_)
+            | Self::RiskRuleSetStored(_)
+            | Self::OriginalReplayCompleted(_)
             | Self::ReplayDetected(_)
             | Self::KillSwitchEnabled(_)
             | Self::KillSwitchDisabled(_) => return Ok(current),

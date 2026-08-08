@@ -933,6 +933,8 @@ domain-separated canonical Decision hash. Keep future approval fields explicit.
 
 ### DS-026 — Implement Original Replay `[M]`
 
+**Status:** Complete (2026-08-08).
+
 **Description:** Load the exact Intent, Evaluation Context, Policy Bundle,
 Risk Rule Set and snapshots by immutable hashes; recompute and compare the
 original Decision without overwriting it.
@@ -941,6 +943,11 @@ original Decision without overwriting it.
 - **Likely files:** `crates/atf-store/src/replay.rs`,
   `cli/atf-cli/src/replay.rs`, `conformance/replay-tests/original.json`,
   `crates/atf-store/tests/replay.rs`, `docs/replay.md`.
+- **Delivered boundary:** migration 0009 archives immutable audited Risk Rule
+  Sets; current `auditor`/`org_admin` authority gates exact Intent/Context/
+  Policy/Risk/history restore, typed module-evidence comparison and canonical
+  Decision reproduction. Success appends referenced non-authoritative Audit
+  evidence and never writes authoritative Evaluation/Decision rows.
 - **Acceptance criteria:**
   1. Original Replay reproduces the exact Decision hash.
   2. Missing/tampered versions or snapshots fail closed with a stable code.

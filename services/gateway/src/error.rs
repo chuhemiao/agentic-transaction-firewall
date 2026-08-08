@@ -196,6 +196,7 @@ impl ApiError {
             | StoreError::OperatorConflict { .. }
             | StoreError::OperatorRoleConflict { .. }
             | StoreError::PolicyBundleConflict { .. }
+            | StoreError::RiskRuleSetConflict { .. }
             | StoreError::IntentHashMismatch { .. }
             | StoreError::LifecycleConflict { .. }
             | StoreError::DecisionConflict { .. }
@@ -211,6 +212,7 @@ impl ApiError {
             | StoreError::IdentityStateCorrupt { .. }
             | StoreError::OperatorStateCorrupt { .. }
             | StoreError::PolicyStateCorrupt { .. }
+            | StoreError::RiskStateCorrupt { .. }
             | StoreError::NonceStateCorrupt { .. }
             | StoreError::EvaluationContextNotFound { .. }
             | StoreError::IncompleteAdmissionEvidence { .. }
@@ -231,7 +233,9 @@ impl ApiError {
             | StoreError::OperatorNotFound { .. }
             | StoreError::OperatorRoleNotFound { .. }
             | StoreError::PolicyAuthorizationDenied { .. }
+            | StoreError::DecisionReadAuthorizationDenied { .. }
             | StoreError::PolicyBundleNotFound { .. }
+            | StoreError::RiskRuleSetNotFound { .. }
             | StoreError::ActivePolicyBundleNotFound { .. }
             | StoreError::PolicyRollbackUnavailable { .. }
             | StoreError::IdempotencyNotFound { .. }

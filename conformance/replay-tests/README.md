@@ -1,5 +1,12 @@
 # conformance/replay-tests
 
-**Status:** not yet implemented — planned for **Phase 2 (Shadow Mode)** (see `docs/PRD.md` §31).
+**Status:** Original Replay is implemented by DS-026; Counterfactual Replay
+remains DS-027.
 
-Conformance tests asserting Decision replay determinism (PRD §10.1, §32.1.6).
+`original.json` is consumed by `crates/atf-store/tests/replay.rs`. It locks the
+exact replayed-equals-original hash relation, stable fail-closed codes and non-authoritative/
+non-overwrite invariants for the restart fixture. The integration suite builds
+the complete durable authority, restarts Store, reloads every exact artifact
+and Audit prefix, and verifies both successful and missing/tampered paths.
+
+Counterfactual lineage fixtures will be added by DS-027.

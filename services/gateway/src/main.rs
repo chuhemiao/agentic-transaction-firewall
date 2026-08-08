@@ -40,13 +40,24 @@ async fn main() {
     );
     let risk_rule_set_path = std::env::var("ATF_RISK_RULE_SET_PATH")
         .expect("ATF_RISK_RULE_SET_PATH is required for versioned Risk evaluation");
-    let risk_rule_set = RiskRuleSet::from_file(std::path::Path::new(&risk_rule_set_path))
-        .expect("failed to load the configured Risk Rule Set");
+    let configured_risk_rule_set =
+        RiskRuleSet::from_file(std::path::Path::new(&risk_rule_set_path))
+            .expect("failed to load the configured Risk Rule Set");
+    let risk_rule_set = store
+        .load_risk_rule_set(
+            &policy_organization_id,
+            &deployment_environment,
+            configured_risk_rule_set.engine_version(),
+            configured_risk_rule_set.version(),
+            configured_risk_rule_set.rule_set_hash(),
+        )
+        .await
+        .expect("failed to load the exact audited durable Risk Rule Set");
     tracing::info!(
         risk_rule_set_version = risk_rule_set.version(),
         risk_rule_set_hash = risk_rule_set.rule_set_hash(),
         risk_engine_version = risk_rule_set.engine_version(),
-        "validated Risk Rule Set loaded"
+        "audited durable Risk Rule Set loaded"
     );
     let identity = IdentityGatewayConfig::new(
         std::env::var("ATF_IDENTITY_AUDIENCE")

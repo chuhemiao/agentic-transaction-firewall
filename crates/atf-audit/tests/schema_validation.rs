@@ -433,6 +433,32 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
         ),
         (
             None,
+            AuditPayload::RiskRuleSetStored(RiskRuleSetStoredPayload {
+                organization_id: text("alpha-lab"),
+                environment: text("production"),
+                engine_version: text("atf-risk-engine-v1"),
+                rule_set_version: text("1.0.0"),
+                rule_set_hash: hash('1'),
+                artifact_hash: hash('2'),
+                actor_id: text("operator-1"),
+            }),
+        ),
+        (
+            intent(),
+            AuditPayload::OriginalReplayCompleted(OriginalReplayCompletedPayload {
+                organization_id: text("alpha-lab"),
+                replay_id: text("replay-1"),
+                original_evaluation_id: text("evaluation-1"),
+                original_decision_id: text("decision-1"),
+                original_decision_hash: hash('3'),
+                replayed_decision_hash: hash('3'),
+                matched: true,
+                authoritative: false,
+                actor_id: text("operator-1"),
+            }),
+        ),
+        (
+            None,
             AuditPayload::KillSwitchEnabled(KillSwitchPayload {
                 scope: text("GLOBAL"),
                 actor_id: text("operator-1"),

@@ -68,6 +68,14 @@ legacy schema-v1 Evaluation rows remain readable without one. Update, delete
 and truncate are rejected; canonical Intent/Evaluation/Decision/Audit bytes
 are never rewritten.
 
+Migration 0009 adds DS-026 organization/environment-scoped immutable Risk
+Rule Set archives. Canonical JSON and exact bytes are stored beside the raw
+artifact hash and domain-separated Rule Set hash. Each installation requires
+current Policy-change authority and a same-transaction typed
+`RiskRuleSetStored` event. Update, delete and truncate are rejected so
+Original Replay can load the exact Risk behavior named by an Evaluation
+Context after restart.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

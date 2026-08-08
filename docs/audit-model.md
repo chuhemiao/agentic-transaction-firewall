@@ -148,6 +148,8 @@ carry contradictory fields such as both a result and an error.
 | `IntentCancelled` | any explicitly cancellable state -> `CANCELLED` |
 | `ReplayDetected` | organization-scoped conflicting Nonce evidence; accepted Intent lifecycle state is unchanged |
 | `AgentRegistered`, `AgentStatusChanged`, `IdentityKeyRegistered`, `IdentityKeyRevoked` | typed Agent/Key lifecycle evidence; Intent lifecycle state is unchanged |
+| `RiskRuleSetStored` | organization-scoped immutable Rule Set installation evidence; Intent lifecycle state is unchanged |
+| `OriginalReplayCompleted` | Intent-scoped, non-authoritative evidence referencing the original Evaluation/Decision; lifecycle state is unchanged |
 | `ContextEnriched`, `ServiceDelivered`, Budget, Policy, `AgentPaused`, and Kill Switch events | typed non-state evidence; Intent lifecycle state is unchanged |
 
 Previously published `ApprovalGranted`, `ExecutionRequested`, and
@@ -168,6 +170,8 @@ Every row below also carries `schema_version: 1`.
 | Context enriched | immutable Evaluation Context hash and sorted source IDs; DS-023 persists the exact canonical snapshot and this event atomically before Policy/Risk output |
 | Policy evaluated | required-module outcome and matched policy IDs |
 | Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
+| Risk Rule Set stored | organization/environment, engine/Rule Set versions, Rule Set/artifact hashes and authorized installer; never mutable process defaults |
+| Original Replay completed | replay/original Evaluation/original Decision IDs, original/replayed Decision hashes, actor, `matched: true`, and `authoritative: false` |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |
 | Decision recorded | organization, Agent, Intent/Evaluation/Decision IDs and hashes, Decision kind, action/resource/amount evidence; current producers additionally mirror the complete Decision v1 Profile/artifact/Context/snapshot/Simulation/time/expiry/Approval/Obligation/execution-constraint binding while pre-DS-025 immutable events remain decodable without it |
 | Approval | approval/Decision IDs, required roles or approver plus stable rejection code |
@@ -311,6 +315,12 @@ embedded in Decision v1 to equal the `decisions.decision_hash` column, and the
 typed `DecisionRecorded.binding` to equal that same Decision's immutable
 Context-derived fields. Reads recheck all three representations before
 exposure; changing one copy cannot silently re-authorize a Decision.
+
+DS-026 treats `RiskRuleSetStored` as authoritative only when the immutable
+archive row and event commit together. `OriginalReplayCompleted` can only be
+emitted by the authorized exact-input reproduction path; its hashes must be
+equal, `matched` must be true, and `authoritative` must be false. Generic Audit
+append cannot fabricate either event.
 
 Threats addressed are Audit payload confusion/tampering, backward or
 post-terminal state advancement, stale-writer races, state/event split brain,

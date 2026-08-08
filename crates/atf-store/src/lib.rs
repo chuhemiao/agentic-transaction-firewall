@@ -16,7 +16,9 @@ mod models;
 mod nonce;
 mod operator;
 mod policy;
+mod replay;
 mod repository;
+mod risk;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
@@ -35,10 +37,12 @@ pub use operator::{
     OperatorRole, OperatorRoleBinding, OperatorStatus, StoredOperator,
 };
 pub use policy::{ActivePolicyBundle, StoredPolicyBundle};
+pub use replay::{OriginalReplayRequest, OriginalReplayResult, ReplayError};
+pub use risk::StoredRiskRuleSet;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 8;
+pub const CURRENT_SCHEMA_VERSION: i32 = 9;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

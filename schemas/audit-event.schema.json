@@ -56,6 +56,8 @@
         "OperatorStatusChanged",
         "OperatorRoleGranted",
         "OperatorRoleRevoked",
+        "RiskRuleSetStored",
+        "OriginalReplayCompleted",
         "IntentExpired",
         "IntentCancelled"
       ]
@@ -104,6 +106,8 @@
     { "$ref": "#/$defs/operatorStatusChangedEvent" },
     { "$ref": "#/$defs/operatorRoleGrantedEvent" },
     { "$ref": "#/$defs/operatorRoleRevokedEvent" },
+    { "$ref": "#/$defs/riskRuleSetStoredEvent" },
+    { "$ref": "#/$defs/originalReplayCompletedEvent" },
     { "$ref": "#/$defs/killSwitchEnabledEvent" },
     { "$ref": "#/$defs/killSwitchDisabledEvent" },
     { "$ref": "#/$defs/intentExpiredEvent" },
@@ -791,6 +795,38 @@
         "reason_code": { "$ref": "#/$defs/nonEmpty" }
       }
     },
+    "riskRuleSetStored": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "environment", "engine_version", "rule_set_version", "rule_set_hash", "artifact_hash", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "environment": { "$ref": "#/$defs/nonEmpty" },
+        "engine_version": { "$ref": "#/$defs/nonEmpty" },
+        "rule_set_version": { "$ref": "#/$defs/nonEmpty" },
+        "rule_set_hash": { "$ref": "#/$defs/sha256" },
+        "artifact_hash": { "$ref": "#/$defs/sha256" },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "originalReplayCompleted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "organization_id", "replay_id", "original_evaluation_id", "original_decision_id", "original_decision_hash", "replayed_decision_hash", "matched", "authoritative", "actor_id"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "replay_id": { "$ref": "#/$defs/nonEmpty" },
+        "original_evaluation_id": { "$ref": "#/$defs/nonEmpty" },
+        "original_decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "original_decision_hash": { "$ref": "#/$defs/sha256" },
+        "replayed_decision_hash": { "$ref": "#/$defs/sha256" },
+        "matched": { "const": true },
+        "authoritative": { "const": false },
+        "actor_id": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
     "killSwitch": {
       "type": "object",
       "additionalProperties": false,
@@ -920,6 +956,12 @@
     },
     "operatorRoleRevokedEvent": {
       "properties": { "event_type": { "const": "OperatorRoleRevoked" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "allOf": [{ "$ref": "#/$defs/operatorRoleChanged" }, { "properties": { "binding_status": { "const": "REVOKED" } } }] } }
+    },
+    "riskRuleSetStoredEvent": {
+      "properties": { "event_type": { "const": "RiskRuleSetStored" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/riskRuleSetStored" } }
+    },
+    "originalReplayCompletedEvent": {
+      "properties": { "event_type": { "const": "OriginalReplayCompleted" }, "intent_id": { "$ref": "#/$defs/intentScope" }, "data": { "$ref": "#/$defs/originalReplayCompleted" } }
     },
     "killSwitchEnabledEvent": {
       "properties": { "event_type": { "const": "KillSwitchEnabled" }, "intent_id": { "$ref": "#/$defs/operatorScope" }, "data": { "$ref": "#/$defs/killSwitch" } }

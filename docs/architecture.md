@@ -95,7 +95,7 @@ Agent Intent
   *Implemented (partial — production enrichment, durable bounded history
   queries, daily cumulative spend, first-time destination and frequency rules
   remain later work).*
-- **`atf-audit`** — `AuditEvent`/`EventType`, 37 canonical version-1 typed
+- **`atf-audit`** — `AuditEvent`/`EventType`, 39 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
   `AuditLedger` with hash-chain verification (PRD §16.3). Its closed JSON
@@ -149,11 +149,18 @@ Agent Intent
   the same context hash. Store readers rederive the Profile and Agent-context
   hash, verify the Audit-history prefix, reject row/Audit tampering and support
   restart-safe lookup by Intent or Evaluation ID.
+  Migration 0009 adds immutable organization/environment Risk Rule Set
+  archives with canonical bytes, artifact/domain hashes, installer identity
+  and atomic `RiskRuleSetStored` evidence. Original Replay verifies every
+  immutable input and exact history prefix, recomputes typed module evidence
+  and canonical Decision bytes, and appends only a referenced
+  `OriginalReplayCompleted` event after current Decision-read authorization.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
 - **`cli/atf-cli`** — `atf validate-intent`, `atf evaluate`,
-  `atf policy test/install/activate/rollback`, plus offline `atf identity` Agent/public-key
+  `atf policy test/install/activate/rollback`, `atf risk install`,
+  `atf replay original`, plus offline `atf identity` Agent/public-key
   provision/status/revoke and `atf operator` subject/status/role commands.
   *Implemented (partial PRD command set).*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
@@ -170,7 +177,8 @@ Agent Intent
   a fully verified durable Decision; `/readyz` checks live database/schema and
   configured-JWKS readiness. *Implemented and verified through restart and two
   real Gateway processes. Startup requires a validated
-  `ATF_RISK_RULE_SET_PATH`; POST persists its version/hash with Risk evidence.
+  `ATF_RISK_RULE_SET_PATH` whose exact identity exists in the audited durable
+  archive; POST persists its version/hash with Risk evidence.
   POST requires a canonical detached Identity
   Envelope/signature, verifies the current durable exact Key, and consumes its
   Nonce before Policy/Risk. The GET organization header remains only a tenant
@@ -182,7 +190,9 @@ Agent Intent
   evaluation renews its lease between Policy/Risk stages; and a request may
   conditionally reclaim an expired admission, persist/reuse an explicit
   recovery context and terminate it as one fenced
-  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`. Agent/Operator credentials are disjoint and
+  `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`. Original Replay is a
+  separate authorized verification operation and never changes that recovery
+  record. Agent/Operator credentials are disjoint and
   Decision absence, cross-tenant selection and insufficient read role share
   one 404. Background recovery, configured general request/rate limits, full
   trace/Audit correlation, and metrics remain absent.*
@@ -431,6 +441,12 @@ implementation order are in ADR-0002.
     fixed `{code,message,request_id,details}` contract; validation details are
     server-owned semantic code/field pairs. Health/readiness keep minimal text
     bodies. See `docs/api.md` for the code/status and compatibility contract.
+12. `atf replay original` authorizes the current Operator, reloads the exact
+    immutable Intent/Context/signed Policy/Risk archive/Audit prefix, reruns
+    Policy and Risk, and requires typed Evaluation evidence plus complete
+    Decision bytes/hash to match. It then reauthorizes and appends only
+    `OriginalReplayCompleted`; no authoritative Evaluation or Decision row is
+    inserted or updated.
 
 No Adapter, execution path, wallet integration, or production secret exists
 in this repository. Everything above only evaluates; it never signs or
@@ -455,6 +471,10 @@ complete Decision Engine:
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
+- Original Replay is complete through DS-026, including immutable Risk
+  archives and restart/missing/tamper conformance. Counterfactual Replay
+  remains DS-027 and must create explicitly linked non-authoritative output
+  under selected replacement artifacts.
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.

@@ -105,6 +105,12 @@ pub enum StoreError {
         operator_id: String,
     },
 
+    #[error("Operator `{operator_id}` is not authorized to read Decisions in organization `{organization_id}`")]
+    DecisionReadAuthorizationDenied {
+        organization_id: String,
+        operator_id: String,
+    },
+
     #[error("Policy Bundle `{bundle_id}` version `{policy_version}` already exists in organization `{organization_id}` environment `{environment}`")]
     PolicyBundleConflict {
         organization_id: String,
@@ -140,6 +146,31 @@ pub enum StoreError {
         organization_id: String,
         environment: String,
         bundle_id: String,
+        reason: String,
+    },
+
+    #[error("Risk Rule Set `{rule_set_version}` for engine `{engine_version}` already exists in organization `{organization_id}` environment `{environment}`")]
+    RiskRuleSetConflict {
+        organization_id: String,
+        environment: String,
+        engine_version: String,
+        rule_set_version: String,
+    },
+
+    #[error("Risk Rule Set `{rule_set_version}` for engine `{engine_version}` does not exist in organization `{organization_id}` environment `{environment}`")]
+    RiskRuleSetNotFound {
+        organization_id: String,
+        environment: String,
+        engine_version: String,
+        rule_set_version: String,
+    },
+
+    #[error("durable Risk state for Rule Set `{rule_set_version}` in organization `{organization_id}` environment `{environment}` is corrupt: {reason}")]
+    RiskStateCorrupt {
+        organization_id: String,
+        environment: String,
+        engine_version: String,
+        rule_set_version: String,
         reason: String,
     },
 

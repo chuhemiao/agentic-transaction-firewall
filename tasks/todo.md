@@ -117,9 +117,12 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-025:** emitted closed strongly bound canonical Decisions; Store and
   `DecisionRecorded` verify the exact same bindings, and Schema rejects
   unknown core fields for all four outcomes. Depends: DS-023, DS-024.
-- [ ] **NEXT — DS-026:** implement Original Replay with exact Decision-hash reproduction. Depends: DS-025.
-- [ ] **DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.
-- [ ] **Checkpoint C3:** every Decision names immutable inputs and is exactly replayable.
+- [x] **DS-026:** implemented authorized Original Replay with exact immutable
+  artifacts/history, Decision-hash reproduction, stable fail-closed codes and
+  non-authoritative Audit evidence. Depends: DS-025.
+- [ ] **NEXT — DS-027:** implement isolated Counterfactual Replay. Depends: DS-026.
+- [ ] **Checkpoint C3:** every Decision names immutable inputs and supports
+  both exact Original and isolated Counterfactual Replay.
 
 ### C4 Release hardening
 

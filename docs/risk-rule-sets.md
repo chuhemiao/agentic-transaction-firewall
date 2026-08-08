@@ -57,15 +57,19 @@ event to its immutable `IntentReceived` subject fields by Intent ID.
 ## Runtime selection and limits
 
 Gateway requires `ATF_RISK_RULE_SET_PATH` and fails startup if the artifact is
-missing or invalid. `atf evaluate` accepts `--risk-rule-set` and defaults to
+missing, invalid, or not present as the exact audited durable archive for its
+organization/environment. `atf risk install` validates and archives a Rule
+Set through migration 0009; the installer must currently hold
+`policy_author` or `org_admin`. `atf evaluate` accepts `--risk-rule-set` and defaults to
 the reference file. Gateway evaluates stateless and history rules through
 `evaluate_context` after the immutable Context has been persisted. The
 evaluator obtains time, verified Evidence and repository boundary from that
 Context, verifies the supplied Audit prefix and returns the version/hash in
 canonical Evaluation and Audit evidence.
 
-DS-021 does not yet make the artifact durable or organization-scoped. DS-022
-now supplies provenance-bearing Evidence and the privileged-context firewall:
+DS-026 makes the artifact durable and organization/environment-scoped so
+Original Replay never substitutes a process default. DS-022 supplies
+provenance-bearing Evidence and the privileged-context firewall:
 the vendor rule no longer reads Agent context and requires fresh verified,
 scope-bound ATF evidence. DS-023 persists the exact Evaluation Context;
 DS-024 removes the former clock/time/context convenience APIs and rejects

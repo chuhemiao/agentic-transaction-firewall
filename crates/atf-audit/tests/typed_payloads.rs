@@ -5,9 +5,9 @@ use atf_audit::{
     ContextEnrichedPayload, DecisionRecordedPayload, EventType, IdentityKeyRegisteredPayload,
     IdentityKeyRevokedPayload, IdentityRejectedPayload, IdentityVerificationSkippedPayload,
     IdentityVerifiedPayload, IntentReceivedPayload, KillSwitchPayload, NewAuditEvent,
-    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, ReplayDetectedPayload,
-    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
-    SimulationCompletedPayload,
+    OptionalModuleOutcome, OriginalReplayCompletedPayload, PolicyEvaluatedPayload, PolicyOutcome,
+    ReplayDetectedPayload, RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence,
+    RiskSeverity, SimulationCompletedPayload,
 };
 use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, Timestamp};
 
@@ -250,6 +250,13 @@ fn non_state_evidence_preserves_state_and_invalid_advancement_fails_closed() {
         Some(State::IdentityVerified)
     );
     assert!(!EventType::ReplayDetected.has_lifecycle_effect());
+    for event_type in [
+        EventType::RiskRuleSetStored,
+        EventType::OriginalReplayCompleted,
+    ] {
+        assert!(!event_type.has_lifecycle_effect());
+        assert!(event_type.requires_atomic_state_transaction());
+    }
 
     let approval = AuditPayload::ApprovalRequested(ApprovalRequestedPayload {
         approval_id: "approval-1".into(),
@@ -290,6 +297,24 @@ fn malformed_identifiers_and_hashes_are_rejected_before_event_creation() {
         Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
         Some("intent-1".into()),
         payload,
+    )
+    .is_err());
+
+    let mismatched_replay = AuditPayload::OriginalReplayCompleted(OriginalReplayCompletedPayload {
+        organization_id: "alpha-lab".into(),
+        replay_id: "replay-1".into(),
+        original_evaluation_id: "evaluation-1".into(),
+        original_decision_id: "decision-1".into(),
+        original_decision_hash: hash('a'),
+        replayed_decision_hash: hash('b'),
+        matched: true,
+        authoritative: false,
+        actor_id: "operator-1".into(),
+    });
+    assert!(NewAuditEvent::from_payload(
+        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
+        Some("intent-1".into()),
+        mismatched_replay,
     )
     .is_err());
 }

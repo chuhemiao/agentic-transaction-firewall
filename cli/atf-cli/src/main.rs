@@ -14,9 +14,9 @@ use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
 use clap::{Parser, Subcommand};
 
 /// ATF command-line interface (PRD §21). Only the commands needed to
-/// exercise today's Intent/Policy/Risk/Decision and offline Identity boundaries are implemented;
-/// the rest of the MVP command list (`serve`, `shadow`, `policy validate`,
-/// `audit show`, `replay`, `init`) waits on the crates that would back them
+/// exercise today's Intent/Policy/Risk/Decision, Original Replay, and offline Identity boundaries
+/// are implemented; the rest of the MVP command list (`serve`, `shadow`, `policy validate`,
+/// `audit show`, `init`) waits on the crates that would back them
 /// (see `docs/architecture.md`).
 #[derive(Parser)]
 #[command(name = "atf", version, about = "Agentic Transaction Firewall CLI")]
@@ -54,6 +54,16 @@ enum Command {
         #[command(subcommand)]
         action: PolicyCommand,
     },
+    /// Immutable Risk Rule Set artifact commands.
+    Risk {
+        #[command(subcommand)]
+        action: RiskCommand,
+    },
+    /// Deterministic Replay commands.
+    Replay {
+        #[command(subcommand)]
+        action: ReplayCommand,
+    },
     /// Offline Agent and Ed25519 public-key lifecycle commands.
     Identity {
         #[command(subcommand)]
@@ -63,6 +73,40 @@ enum Command {
     Operator {
         #[command(subcommand)]
         action: OperatorCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum RiskCommand {
+    /// Validate and immutably install one Risk Rule Set for replay.
+    Install {
+        rule_set_path: PathBuf,
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        environment: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReplayCommand {
+    /// Reproduce an authoritative Decision from its exact immutable inputs.
+    Original {
+        #[arg(long)]
+        organization_id: String,
+        #[arg(long)]
+        intent_id: String,
+        #[arg(long)]
+        actor_id: String,
+        #[arg(long)]
+        occurred_at: Timestamp,
+        /// Caller-supplied replay correlation ID; defaults to a fresh ULID.
+        #[arg(long)]
+        replay_id: Option<String>,
     },
 }
 
@@ -275,6 +319,8 @@ async fn main() -> std::process::ExitCode {
             &risk_rule_set,
         ),
         Command::Policy { action } => run_policy(action).await,
+        Command::Risk { action } => run_risk(action).await,
+        Command::Replay { action } => run_replay(action).await,
         Command::Identity { action } => run_identity(action).await,
         Command::Operator { action } => run_operator(action).await,
     };
@@ -286,6 +332,75 @@ async fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+async fn run_risk(command: RiskCommand) -> Result<()> {
+    let database_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL is required for Risk Rule Set commands")?;
+    let store = atf_store::Store::connect(&database_url)
+        .await
+        .context("connecting to the ATF durable-state database")?;
+    let RiskCommand::Install {
+        rule_set_path,
+        organization_id,
+        environment,
+        actor_id,
+        occurred_at,
+    } = command;
+    let rule_set = atf_risk::RiskRuleSet::from_file(&rule_set_path)
+        .with_context(|| format!("validating Risk Rule Set {}", rule_set_path.display()))?;
+    let stored = store
+        .install_risk_rule_set(
+            &organization_id,
+            &environment,
+            &rule_set,
+            &actor_id,
+            occurred_at,
+        )
+        .await
+        .context("installing immutable Risk Rule Set")?;
+    println!("engine_version: {}", stored.engine_version);
+    println!("rule_set_version: {}", stored.rule_set_version);
+    println!("rule_set_hash: {}", stored.rule_set_hash);
+    println!("artifact_hash: {}", stored.artifact_hash);
+    println!("audit_event_id: {}", stored.installed_event_id);
+    store.close().await;
+    Ok(())
+}
+
+async fn run_replay(command: ReplayCommand) -> Result<()> {
+    let database_url =
+        std::env::var("DATABASE_URL").context("DATABASE_URL is required for Replay commands")?;
+    let store = atf_store::Store::connect(&database_url)
+        .await
+        .context("connecting to the ATF durable-state database")?;
+    let ReplayCommand::Original {
+        organization_id,
+        intent_id,
+        actor_id,
+        occurred_at,
+        replay_id,
+    } = command;
+    let replay_id = replay_id.unwrap_or_else(atf_core::new_ulid);
+    let result = store
+        .replay_original(atf_store::OriginalReplayRequest {
+            replay_id,
+            organization_id,
+            intent_id,
+            actor_id,
+            occurred_at,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{}: {error}", error.code()))?;
+    println!("replay_id: {}", result.replay_id);
+    println!("original_evaluation_id: {}", result.original_evaluation_id);
+    println!("original_decision_id: {}", result.original_decision_id);
+    println!("original_decision_hash: {}", result.original_decision_hash);
+    println!("replayed_decision_hash: {}", result.replayed_decision_hash);
+    println!("matched: {}", result.matched);
+    println!("audit_event_id: {}", result.audit_event.event.event_id);
+    store.close().await;
+    Ok(())
 }
 
 async fn run_policy(command: PolicyCommand) -> Result<()> {

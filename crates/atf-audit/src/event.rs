@@ -48,6 +48,8 @@ pub enum EventType {
     OperatorStatusChanged,
     OperatorRoleGranted,
     OperatorRoleRevoked,
+    RiskRuleSetStored,
+    OriginalReplayCompleted,
     IntentExpired,
     IntentCancelled,
 }
@@ -84,6 +86,8 @@ impl EventType {
                 | Self::OperatorStatusChanged
                 | Self::OperatorRoleGranted
                 | Self::OperatorRoleRevoked
+                | Self::RiskRuleSetStored
+                | Self::OriginalReplayCompleted
                 | Self::ApprovalGranted
                 | Self::ExecutionRequested
         )
@@ -104,6 +108,8 @@ impl EventType {
                     | Self::OperatorRoleGranted
                     | Self::OperatorRoleRevoked
                     | Self::PolicyChanged
+                    | Self::RiskRuleSetStored
+                    | Self::OriginalReplayCompleted
             )
     }
 }

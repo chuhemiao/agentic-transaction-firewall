@@ -356,9 +356,9 @@ principals and non-enumerating Decision-read RBAC.
 - **financial_impact:** a future execution grant can bind one exact immutable
   Decision instead of trusting a mutable ID or stale module selection.
 - **severity:** `CLOSED` (formerly `HIGH`)
-- **recommended_change:** retain DS-025 invariants; DS-026 must reproduce the
-  exact original hash and future Simulator/Approval work must extend with a
-  new version rather than weakening v1.
+- **recommended_change:** retain DS-025/DS-026 invariants; Original Replay now
+  reproduces the exact hash, and future Counterfactual/Simulator/Approval work
+  must create explicit lineage or a new version rather than weakening v1.
 - **required_tests:** implemented mutation sensitivity, deterministic bytes,
   all-four-outcome closed Schema, module mismatch, PostgreSQL persistence/
   Audit equality, Gateway integration and live API smoke.
@@ -529,6 +529,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-026` is next: load the immutable inputs named by Decision v1, reproduce the
-exact original Decision hash, append replay evidence and never overwrite the
-authoritative Evaluation/Decision.
+`DS-027` is next: use explicitly selected replacement Policy/Risk artifacts to
+create separately identified, non-authoritative Counterfactual Evaluation/
+Decision lineage without overwriting the original records.

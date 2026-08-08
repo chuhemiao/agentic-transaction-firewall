@@ -83,6 +83,14 @@ struct VerifiedActivePointer {
     updated_at: Timestamp,
 }
 
+struct PolicyBundleSelection<'a> {
+    organization_id: &'a str,
+    environment: &'a str,
+    bundle_id: &'a str,
+    policy_version: &'a str,
+    expected_hash: &'a str,
+}
+
 impl Store {
     pub async fn install_policy_bundle(
         &self,
@@ -382,6 +390,71 @@ impl Store {
             updated_at: pointer.updated_at,
         })
     }
+
+    pub async fn load_policy_bundle(
+        &self,
+        organization_id: &str,
+        environment: &str,
+        bundle_id: &str,
+        policy_version: &str,
+        expected_hash: &str,
+        evaluated_at: Timestamp,
+    ) -> Result<PolicyBundle, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        set_read_transaction(&mut transaction).await?;
+        let chain = load_verified_in_transaction(&mut transaction, organization_id).await?;
+        let bundle = load_policy_bundle_in_transaction(
+            &mut transaction,
+            PolicyBundleSelection {
+                organization_id,
+                environment,
+                bundle_id,
+                policy_version,
+                expected_hash,
+            },
+            evaluated_at,
+            &chain,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(bundle)
+    }
+}
+
+/// Load one immutable signed Bundle by the complete identity captured in an
+/// Evaluation Context. Replay must never follow the mutable active pointer.
+async fn load_policy_bundle_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    selection: PolicyBundleSelection<'_>,
+    evaluated_at: Timestamp,
+    chain: &[StoredAuditEvent],
+) -> Result<PolicyBundle, StoreError> {
+    validate_scope(
+        selection.organization_id,
+        selection.environment,
+        selection.bundle_id,
+        Some(selection.policy_version),
+    )?;
+    validate_timestamp(evaluated_at)?;
+    let row = fetch_bundle(
+        transaction,
+        selection.organization_id,
+        selection.environment,
+        selection.bundle_id,
+        selection.policy_version,
+        false,
+    )
+    .await?;
+    let verified = verify_bundle_row(row, evaluated_at, chain)?;
+    if verified.bundle.bundle_hash() != selection.expected_hash {
+        return Err(corrupt(
+            selection.organization_id,
+            selection.environment,
+            selection.bundle_id,
+            "requested immutable Bundle hash disagrees with stored artifact",
+        ));
+    }
+    Ok(verified.bundle)
 }
 
 #[allow(clippy::too_many_arguments)]
