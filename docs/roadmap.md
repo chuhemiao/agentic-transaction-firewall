@@ -25,6 +25,9 @@ order. The executable order is:
 
 - [x] BL-001 Restore the cargo-deny baseline without weakening wildcard,
   license, or source policy; pin CI to cargo-deny 0.20.2 semantics.
+- [x] BL-002 Make that baseline warning-free: deny new duplicate versions,
+  retain only exact-versioned compatibility exceptions with dependency-path
+  reasons, and make local/CI `-D warnings` reject stale exceptions.
 - [x] DS-001 Fix the PostgreSQL ownership boundary, per-organization
   chain-head locking, atomic admission/finalization, fenced evaluator
   recovery, and migration compatibility in ADR-0002.

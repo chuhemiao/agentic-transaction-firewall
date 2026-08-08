@@ -145,7 +145,7 @@ fallback.
 - Format: `cargo fmt --all -- --check`.
 - Lint: `cargo clippy --all-targets --all-features -- -D warnings`.
 - Test: `cargo test --workspace --all-targets --all-features`.
-- Dependency policy: `cargo deny check`.
+- Dependency policy: `cargo deny check -D warnings`.
 
 Always validate every bound field before accepting the signature and keep
 identity separate from Policy/Risk authorization. Never add a raw-message

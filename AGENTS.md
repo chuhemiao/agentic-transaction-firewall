@@ -30,7 +30,7 @@ If you're asked to "continue" or "keep going through the TODO list":
 2. Implement it.
 3. Verify: `cargo fmt --all -- --check`, `cargo clippy --all-targets
    --all-features -- -D warnings`, `cargo test --workspace --all-targets
-   --all-features` — all three must be clean.
+   --all-features`, `cargo deny check -D warnings` — all four must be clean.
 4. If the change has runtime behavior (new HTTP route, new CLI command,
    etc.), smoke-test the real thing — run the actual binary and hit it
    (`curl`, `cargo run -p atf-cli -- ...`), don't stop at unit tests. This
@@ -91,6 +91,7 @@ If you're asked to "continue" or "keep going through the TODO list":
 
 ```bash
 cargo build
+cargo deny check -D warnings
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres cargo test
 cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json --policies policies/examples

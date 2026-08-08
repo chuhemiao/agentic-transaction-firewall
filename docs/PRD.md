@@ -1694,7 +1694,7 @@ Policy：
 1. cargo fmt --check
 2. cargo clippy --all-targets --all-features -- -D warnings
 3. cargo test
-4. cargo deny check
+4. cargo deny check -D warnings
 5. 已加入 Workspace 的 Schema Tests 与 Policy Tests
 
 Durable Shadow Mode 完成前必须补充：

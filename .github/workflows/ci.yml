@@ -67,3 +67,5 @@ jobs:
       # v2.1.1 is the official cargo-deny 0.20.2 action release. Pin the
       # immutable commit so local and CI policy semantics cannot drift.
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          command-arguments: -D warnings

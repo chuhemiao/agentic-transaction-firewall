@@ -133,7 +133,7 @@ versions and Audit event IDs; failures exit non-zero.
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo deny check
+cargo deny check -D warnings
 ATF_TEST_DATABASE_URL=postgres://... \
   cargo test --workspace --all-targets --all-features
 ```

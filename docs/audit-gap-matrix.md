@@ -22,7 +22,12 @@ BL-001 repaired that regression on 2026-08-07: local workspace dependencies
 now carry exact versions, both new licenses were reviewed from their packaged
 license texts, unused license allowances were removed, and CI is pinned to the
 official v2.1.1 Action commit for cargo-deny 0.20.2. Wildcard and unknown-source
-denial remain enabled; `cargo deny check` passes.
+denial remain enabled; `cargo deny check -D warnings` passes. BL-002 followed
+on 2026-08-08 after the graph accumulated 23 upstream-constrained duplicate
+families:
+new duplicates are now denied, current exceptions are exact-versioned with
+upstream-path reasons, target coverage remains unrestricted, and CI rejects
+all other warnings plus stale exceptions.
 
 DS-001 fixed the missing persistence design contract on 2026-08-07 in
 ADR-0002. It selects one PostgreSQL storage boundary, per-organization
@@ -401,7 +406,9 @@ verification and typed rejection/replay evidence.
 - **current_state:** `PARTIALLY_IMPLEMENTED`
 - **evidence:** fmt/clippy/test jobs run; BL-001 restored cargo-deny 0.20.2 by
   exact-versioning path dependencies, reviewing the Cedar/JSON Schema
-  transitive licenses, and pinning the official Action release commit. cargo
+  transitive licenses, and pinning the official Action release commit. BL-002
+  denies unreviewed duplicate versions, documents exact current exceptions,
+  and promotes every cargo-deny warning to a CI error. cargo
   audit/nextest/fuzz, secret/SAST/container scanning, SBOM, signing, migration
   and Compose E2E are still absent.
 - **security_impact:** vulnerable code, secrets, images, or artifacts can escape current gates.
@@ -410,7 +417,7 @@ verification and typed rejection/replay evidence.
 - **recommended_change:** add staged security/release jobs with pinned actions and generated attestations.
 - **required_tests:** intentional gate-failure fixtures, fuzz smoke, migration E2E, artifact verification.
 - **dependencies:** persistence/container packaging for later jobs.
-- **target_release:** BL-001 deny repair is complete; remaining
+- **target_release:** BL-001/BL-002 deny repair is complete; remaining
   dependency/secret/SAST gates land during Durable Shadow Mode.
 - **acceptance_criteria:** every PR runs declared gates and every release has verifiable SBOM, checksum, and signature/attestation.
 

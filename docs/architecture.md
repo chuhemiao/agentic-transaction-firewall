@@ -135,7 +135,11 @@ Agent Intent
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
   bounds as well as paths, while wildcard and unknown-source denial remain
-  enabled. `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
+  enabled. BL-002 additionally denies every unreviewed duplicate dependency;
+  the current Cedar/SQLx/JSON Schema/ULID/Ed25519 and target-only splits use
+  exact-versioned, reasoned exceptions, and CI promotes every cargo-deny
+  warning to an error so new duplicates and stale exceptions fail.
+  `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
   (JSON Schema path), plus ISC code and CDLA-Permissive-2.0 trust-anchor data
   on SQLx's Rustls path, are explicitly reviewed permissive licenses. Broader
   audit/secret/SAST/SBOM gates remain planned under GAP-CI-001.

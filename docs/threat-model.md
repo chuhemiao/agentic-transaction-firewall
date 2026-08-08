@@ -30,7 +30,7 @@ real network request path, but no execution path or production secret.
 | 7 | Nonce replay | Mitigated for Gateway Agent admission: DS-016 atomically stores an organization/Agent-scoped Nonce hash bound to the exact Key, Envelope, Intent and idempotency tuple. Exact retry adds nothing; fresh valid retry consumes a new Nonce; conflicting concurrent or post-restart reuse emits `ReplayDetected` and fails 409. Raw Nonces/signatures are not stored and privileged row tampering is detected on verified reads |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
-| 10 | Supply-chain dependency attack | Partially addressed: `cargo deny` is configured and runs in CI. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
+| 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | Addressed by design via Admin API RBAC (PRD §17.3); no Admin API exists yet |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, and DS-016 binds Nonce rows to verified Audit/lifecycle evidence. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
@@ -103,7 +103,8 @@ secret. The realistic attack surface today includes:
   abandoned Intent remains `RECEIVED` until a retry arrives; no background
   scanner or operational alert exists yet.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
-  `cargo deny` in CI; the broader controls listed above remain open.
+  warning-free, all-feature/all-target `cargo deny` in CI; the broader controls
+  listed above remain open.
 
 ## Secret management (PRD §18.3)
 

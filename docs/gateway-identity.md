@@ -139,7 +139,7 @@ boundary rather than silently creating a tenant from untrusted input.
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo deny check
+cargo deny check -D warnings
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
   cargo test --workspace --all-targets --all-features
 ```

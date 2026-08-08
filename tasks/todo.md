@@ -11,6 +11,9 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **BL-001:** restored `cargo deny 0.20.2`; reviewed new licenses,
   exact-versioned workspace path dependencies, retained restrictive policies,
   and pinned CI behavior.
+- [x] **BL-002:** made cargo-deny warning-free; new duplicate versions fail,
+  current unavoidable splits have exact-versioned dependency-path reasons,
+  and CI rejects both new warnings and stale exceptions.
 
 ## Verified baseline — do not reopen without evidence
 

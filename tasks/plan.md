@@ -44,7 +44,10 @@ rejected by the wildcard rule. `BL-001` was defined to repair this baseline
 before feature work rather than treat a configured CI job as a passing gate.
 
 BL-001 was completed on 2026-08-07 with the restrictive wildcard/source policy
-intact. DS-001 was completed the same day by accepting ADR-0002: PostgreSQL is
+intact. BL-002 made that gate warning-free on 2026-08-08 by denying new
+duplicate versions, documenting exact current compatibility exceptions,
+checking all features and targets, and promoting cargo-deny warnings to CI
+errors. DS-001 was completed on 2026-08-07 by accepting ADR-0002: PostgreSQL is
 the single durable boundary, Audit chains serialize per organization, and
 admission/finalization plus fenced evaluator recovery have explicit
 invariants. DS-002 was completed on 2026-08-08 with the `atf-store` boundary,
@@ -126,7 +129,7 @@ Every implementation task must satisfy all applicable items:
 - `cargo fmt --all -- --check` passes.
 - `cargo clippy --all-targets --all-features -- -D warnings` passes.
 - `cargo test --workspace --all-targets --all-features` passes.
-- `cargo deny check` passes.
+- `cargo deny check -D warnings` passes.
 - Runtime behavior is exercised through the real binary/API when applicable.
 - Schema, migration, compatibility, security and rollback effects are handled.
 - `README.md`, `docs/architecture.md`, roadmap and gap evidence stay truthful.
@@ -137,7 +140,7 @@ Every implementation task must satisfy all applicable items:
 
 ```mermaid
 flowchart TD
-  Z["Baseline security gate: BL-001"]
+  Z["Baseline security gate: BL-001..BL-002"]
   A["C1 Durable state: DS-001..DS-007"]
   B["Intent contract: DS-008..DS-011"]
   C["Idempotency: DS-012..DS-013"]
@@ -188,7 +191,7 @@ flowchart TD
 | GAP-PER-001 | DS-001..DS-007, DS-036, DS-039 |
 | GAP-SEC-001 | DS-011, DS-018, DS-033..DS-035 |
 | GAP-OBS-001 | DS-033 |
-| GAP-CI-001 | BL-001, DS-036..DS-038; artifact gates expand at EN-012 |
+| GAP-CI-001 | BL-001..BL-002, DS-036..DS-038; artifact gates expand at EN-012 |
 | GAP-DOC-001 | Every feature DoD, DS-040, RA-008 and EN-012 |
 | GAP-PRD-001 | DS-039..DS-040; production remains a separate operator review after EN-012 |
 
@@ -211,6 +214,26 @@ pin CI to the reviewed cargo-deny behavior.
   2. Every new license allowance has a dependency-path rationale and local path dependencies remain version-bound.
   3. Local and CI cargo-deny versions/configuration agree.
 - **Verification:** `cargo deny check`, full DoD and a reviewed CI run.
+
+### BL-002 — Enforce a warning-free dependency baseline `[S]`
+
+**Status:** Complete (2026-08-08).
+
+**Description:** Close BL-001's warning-only duplicate-version gap without
+discarding target coverage or weakening advisory, license, source, or wildcard
+checks. New duplicate families are denied; only exact locked versions with an
+upstream dependency-path reason may be skipped. CI promotes every remaining
+warning to an error, including unmatched/stale skip entries.
+
+- **Dependencies:** BL-001 and the DS-016 locked dependency graph.
+- **Implemented files:** `deny.toml`, `.github/workflows/ci.yml` and baseline
+  documentation.
+- **Acceptance criteria:**
+  1. `cargo deny 0.20.2 check -D warnings` reports all four checks `ok` with no warning/error diagnostics.
+  2. A newly introduced duplicate fails by default; exceptions name one exact version and explain the upstream incompatibility.
+  3. The graph continues to include all resolved targets and retains wildcard, unknown-source, advisory, and license enforcement.
+- **Verification:** pre-change `-D warnings` failed on 23 duplicate families;
+  the reviewed configuration and pinned CI command now pass warning-free.
 
 ## 7. Phase 2 — Durable Shadow Mode
 

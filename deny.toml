@@ -1,5 +1,9 @@
 [graph]
+# Keep local and CI graphs aligned; the pinned Action also supplies
+# --all-features. An empty target list intentionally checks every resolved
+# target-specific dependency rather than hiding non-host supply-chain edges.
 targets = []
+all-features = true
 
 [advisories]
 yanked = "deny"
@@ -29,9 +33,56 @@ allow = [
 confidence-threshold = 0.8
 
 [bans]
-multiple-versions = "warn"
+# A new duplicate is a dependency-policy change, not informational noise.
+# Reviewed incompatibilities below are exact-versioned so a graph change makes
+# the entry unmatched and fails the warning-free CI gate.
+multiple-versions = "deny"
 wildcards = "deny"
 deny = []
+skip = [
+    # Cedar's formatter still uses pretty 0.12/arrayvec 0.5 while ATF's
+    # monetary type uses rust_decimal/arrayvec 0.7.
+    { crate = "arrayvec@0.5.2", reason = "cedar-policy-formatter 4.11.2 -> pretty 0.12.5 requires arrayvec 0.5" },
+
+    # SQLx 0.8 and Cedar's parser remain on digest 0.10; ed25519-dalek 3 uses
+    # digest 0.11. Upgrading ATF's direct sha2 alone cannot unify this family.
+    { crate = "block-buffer@0.10.4", reason = "SQLx 0.8/Cedar crypto paths require the digest 0.10 family while ed25519-dalek 3 requires 0.11" },
+    { crate = "cpufeatures@0.2.17", reason = "digest 0.10 consumers require cpufeatures 0.2 while sha2 0.11 requires 0.3" },
+    { crate = "crypto-common@0.1.7", reason = "SQLx 0.8/Cedar crypto paths require crypto-common 0.1 while ed25519-dalek 3 requires 0.2" },
+    { crate = "digest@0.10.7", reason = "SQLx 0.8/Cedar require digest 0.10 while ed25519-dalek 3 requires digest 0.11" },
+    { crate = "sha2@0.10.9", reason = "ATF hashing and SQLx 0.8 use sha2 0.10 while ed25519-dalek 3 requires sha2 0.11" },
+
+    # Independent upstream runtime stacks currently span three getrandom/rand
+    # generations: SQLx/Rustls, JSON Schema, and ULID 3.
+    { crate = "getrandom@0.2.17", reason = "SQLx 0.8/Rustls dependencies require getrandom 0.2" },
+    { crate = "getrandom@0.3.4", reason = "jsonschema 0.28 -> ahash requires getrandom 0.3 while ULID 3 uses 0.4" },
+    { crate = "r-efi@5.3.0", reason = "getrandom 0.3 and 0.4 use different WASI r-efi major versions" },
+    { crate = "rand@0.8.7", reason = "SQLx 0.8 requires rand 0.8 while ULID 3 requires rand 0.10" },
+    { crate = "rand_core@0.6.4", reason = "SQLx 0.8 requires rand_core 0.6 while ULID 3 requires rand_core 0.10" },
+
+    # SQLx and Cedar/Serde currently resolve different collection/proc-macro
+    # generations; these are not controlled by an ATF direct version choice.
+    { crate = "hashbrown@0.15.5", reason = "SQLx 0.8 -> hashlink requires hashbrown 0.15 while Cedar/Serde resolve 0.17" },
+    { crate = "redox_syscall@0.5.18", reason = "target-only parking_lot_core and SQLx/whoami-libredox paths require distinct redox_syscall generations" },
+    { crate = "syn@2.0.119", reason = "Clap/Tokio/Cedar macros still require syn 2 while Serde/ref-cast use syn 3" },
+    { crate = "unicode-width@0.1.14", reason = "Cedar's miette path requires unicode-width 0.1 while pretty uses 0.2" },
+
+    # Cargo-deny checks every resolved target by design. SQLx, Rustls, Home,
+    # Tokio and other upstreams deliberately use several windows-sys eras.
+    # Keep target coverage and enumerate the older exact versions instead of
+    # hiding the Windows subtree with graph.targets or skip-tree.
+    { crate = "windows-sys@0.48.0", reason = "SQLx 0.8 -> etcetera retains the windows-sys 0.48 generation" },
+    { crate = "windows-sys@0.52.0", reason = "Rustls/ring retains the windows-sys 0.52 generation" },
+    { crate = "windows-sys@0.59.0", reason = "home 0.5.11 retains the windows-sys 0.59 generation" },
+    { crate = "windows-targets@0.48.5", reason = "windows-sys 0.48 and newer Windows bindings require incompatible windows-targets generations" },
+    { crate = "windows_aarch64_gnullvm@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_aarch64_msvc@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_i686_gnu@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_i686_msvc@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_x86_64_gnu@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_x86_64_gnullvm@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+    { crate = "windows_x86_64_msvc@0.48.5", reason = "windows-targets 0.48 and 0.52 require exact target-package generations" },
+]
 
 [sources]
 unknown-registry = "deny"

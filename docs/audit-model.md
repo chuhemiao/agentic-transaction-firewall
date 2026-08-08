@@ -43,7 +43,7 @@ cargo test -p atf-audit --test schema_validation
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
-cargo deny check
+cargo deny check -D warnings
 ```
 
 Rust enum variants use PascalCase; lifecycle states and module outcomes use

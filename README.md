@@ -288,7 +288,10 @@ semantics (evaluate only, never execute).
 - ~~Restore the `cargo deny 0.20.2` baseline.~~ Done: reviewed and explicitly
   allowed the two new permissive transitive licenses, exact-versioned every
   local workspace dependency, retained wildcard/source denial, and pinned CI
-  to the official cargo-deny 0.20.2 Action release commit.
+  to the official cargo-deny 0.20.2 Action release commit. BL-002 closes the
+  remaining warning-only hole: all new duplicates are denied, the 23 current
+  duplicate families are represented by exact-versioned, reasoned exceptions,
+  and local/CI checks use `-D warnings` so stale exceptions also fail.
 - ~~PostgreSQL request-path persistence and restart/second-instance Decision
   recovery.~~ Done through DS-005 with no process-local Decision/Audit
   fallback. DS-012 adds evaluator leases/fencing and atomic idempotency result
