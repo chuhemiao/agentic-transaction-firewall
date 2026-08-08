@@ -720,6 +720,8 @@ fn evaluation_input(evaluation_id: &str, evaluated_at: &str) -> EvaluationInput 
             policy_ids: vec!["policy-a".into()],
         },
         risk: RiskEvaluatedPayload {
+            risk_rule_set_version: None,
+            risk_rule_set_hash: None,
             outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
         },
         simulation: SimulationCompletedPayload {

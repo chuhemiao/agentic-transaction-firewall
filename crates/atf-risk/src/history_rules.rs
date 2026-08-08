@@ -1,9 +1,12 @@
-use atf_audit::{AuditEvent, AuditLedger, EventType};
+#[cfg(test)]
+use atf_audit::AuditLedger;
+use atf_audit::{AuditEvent, EventType};
 use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
 use chrono::Duration;
 
 use crate::finding::RiskFinding;
+use crate::rule_set::{AccountingBoundary, RiskRuleSet};
 use crate::severity::Severity;
 
 /// Rules that need to look at prior events, not just the current Intent —
@@ -12,20 +15,26 @@ use crate::severity::Severity;
 /// is implemented so far. `DecisionRecorded` now carries the outcome and
 /// normalized fields needed for this rule; daily spend, first-time address,
 /// and order frequency still need their own lifecycle semantics.
-pub(crate) fn history_findings(
-    intent: &TransactionIntent,
-    ledger: &AuditLedger,
-) -> Vec<RiskFinding> {
-    history_findings_from_events(intent, ledger.iter())
-}
-
 pub(crate) fn history_findings_from_events<'a>(
     intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
     events: impl IntoIterator<Item = &'a AuditEvent>,
+    evaluated_at: Timestamp,
 ) -> Vec<RiskFinding> {
-    duplicate_purchase_with_events(intent, events)
-        .into_iter()
-        .collect()
+    let rule = &rule_set.rules().duplicate_purchase;
+    if !rule.enabled {
+        return Vec::new();
+    }
+    duplicate_purchase_with_events(
+        intent,
+        events,
+        evaluated_at,
+        rule.window_seconds,
+        rule.accounting_boundary,
+        rule.severity,
+    )
+    .into_iter()
+    .collect()
 }
 
 /// Flags a request for the same Organization + Agent + Resource combination
@@ -43,45 +52,108 @@ fn duplicate_purchase_within_24h(
     intent: &TransactionIntent,
     ledger: &AuditLedger,
 ) -> Option<RiskFinding> {
-    duplicate_purchase_with_events(intent, ledger.iter())
+    let rule_set = RiskRuleSet::default();
+    let rule = &rule_set.rules().duplicate_purchase;
+    duplicate_purchase_with_events(
+        intent,
+        ledger.iter(),
+        Timestamp::now(),
+        rule.window_seconds,
+        rule.accounting_boundary,
+        rule.severity,
+    )
 }
 
 fn duplicate_purchase_with_events<'a>(
     intent: &TransactionIntent,
     events: impl IntoIterator<Item = &'a AuditEvent>,
+    evaluated_at: Timestamp,
+    window_seconds: u64,
+    accounting_boundary: AccountingBoundary,
+    severity: Severity,
 ) -> Option<RiskFinding> {
+    let events = events.into_iter().collect::<Vec<_>>();
+    let window = i64::try_from(window_seconds).expect("validated history windows fit i64");
     let window_start =
-        Timestamp::from_datetime(Timestamp::now().as_datetime() - Duration::hours(24));
+        Timestamp::from_datetime(evaluated_at.as_datetime() - Duration::seconds(window));
 
-    let duplicate_of = events.into_iter().find(|event| {
-        event.event_type == EventType::DecisionRecorded
+    let duplicate_of = events.iter().copied().find(|event| {
+        is_accounting_boundary(event, accounting_boundary)
             && event.intent_id.as_deref() != Some(intent.intent_id.as_str())
             && event.occurred_at >= window_start
-            && event.data.get("decision").and_then(|v| v.as_str()) == Some("PERMIT")
-            && event.data.get("organization_id").and_then(|v| v.as_str())
-                == Some(intent.principal.organization_id.as_str())
-            && event.data.get("agent_id").and_then(|v| v.as_str())
-                == Some(intent.principal.agent_id.as_str())
-            && event.data.get("resource_id").and_then(|v| v.as_str())
-                == Some(intent.resource.resource_id.as_str())
+            && event.occurred_at <= evaluated_at
+            && subject_fields(event, &events).is_some_and(
+                |(organization_id, agent_id, resource_id)| {
+                    organization_id == intent.principal.organization_id
+                        && agent_id == intent.principal.agent_id
+                        && resource_id == intent.resource.resource_id
+                },
+            )
     })?;
 
     Some(RiskFinding {
         code: "DUPLICATE_PURCHASE".to_string(),
-        severity: Severity::High,
+        severity,
         message: format!(
-            "Agent `{}` previously received a PERMIT decision for resource `{}` at {} (intent {}), within the last 24h",
+            "Agent `{}` previously crossed the {accounting_boundary:?} boundary for resource `{}` at {} (intent {}), within {} seconds",
             intent.principal.agent_id,
             intent.resource.resource_id,
             duplicate_of.occurred_at,
             duplicate_of.intent_id.as_deref().unwrap_or("unknown"),
+            window_seconds,
         ),
     })
+}
+
+fn is_accounting_boundary(event: &AuditEvent, boundary: AccountingBoundary) -> bool {
+    match boundary {
+        AccountingBoundary::Requested => event.event_type == EventType::IntentReceived,
+        AccountingBoundary::Permitted => {
+            event.event_type == EventType::DecisionRecorded
+                && event.data.get("decision").and_then(|value| value.as_str()) == Some("PERMIT")
+        }
+        AccountingBoundary::Executed => event.event_type == EventType::ExecutionConfirmed,
+        AccountingBoundary::Settled => event.event_type == EventType::SettlementVerified,
+    }
+}
+
+fn subject_fields<'a>(
+    boundary_event: &'a AuditEvent,
+    events: &[&'a AuditEvent],
+) -> Option<(&'a str, &'a str, &'a str)> {
+    let source = if has_subject_fields(boundary_event) {
+        boundary_event
+    } else {
+        let intent_id = boundary_event.intent_id.as_deref()?;
+        events.iter().copied().find(|event| {
+            event.event_type == EventType::IntentReceived
+                && event.intent_id.as_deref() == Some(intent_id)
+                && event.occurred_at <= boundary_event.occurred_at
+                && has_subject_fields(event)
+        })?
+    };
+    Some((
+        source.data.get("organization_id")?.as_str()?,
+        source.data.get("agent_id")?.as_str()?,
+        source.data.get("resource_id")?.as_str()?,
+    ))
+}
+
+fn has_subject_fields(event: &AuditEvent) -> bool {
+    ["organization_id", "agent_id", "resource_id"]
+        .into_iter()
+        .all(|field| {
+            event
+                .data
+                .get(field)
+                .is_some_and(serde_json::Value::is_string)
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atf_audit::NewAuditEvent;
     use atf_core::Amount;
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
     use std::str::FromStr;
@@ -274,5 +346,47 @@ mod tests {
         );
 
         assert!(duplicate_purchase_within_24h(&this_intent, &ledger).is_none());
+    }
+
+    #[test]
+    fn does_not_join_subject_data_observed_after_the_accounting_boundary() {
+        let prior_intent_id = "01J0000000000000000000P800";
+        let boundary_at = Timestamp::from_str("2026-07-18T08:01:00Z").unwrap();
+        let received_after_boundary_at = Timestamp::from_str("2026-07-18T08:02:00Z").unwrap();
+        let evaluated_at = Timestamp::from_str("2026-07-18T08:03:00Z").unwrap();
+        let boundary = NewAuditEvent::new(
+            EventType::ExecutionConfirmed,
+            boundary_at,
+            Some(prior_intent_id.into()),
+            serde_json::json!({}),
+        )
+        .chain(None);
+        let received_after_boundary = NewAuditEvent::new(
+            EventType::IntentReceived,
+            received_after_boundary_at,
+            Some(prior_intent_id.into()),
+            serde_json::json!({
+                "organization_id": "alpha-lab",
+                "agent_id": "research-agent-01",
+                "resource_id": "btc-orderbook-2026-07-01"
+            }),
+        )
+        .chain(None);
+        let current = intent(
+            "01J0000000000000000000P900",
+            "research-agent-01",
+            "btc-orderbook-2026-07-01",
+        );
+
+        let finding = duplicate_purchase_with_events(
+            &current,
+            [&boundary, &received_after_boundary],
+            evaluated_at,
+            86_400,
+            AccountingBoundary::Executed,
+            Severity::High,
+        );
+
+        assert!(finding.is_none());
     }
 }

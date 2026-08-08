@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-018 authenticated admission plus Agent/Operator lifecycle contract
+Status: DS-021 authenticated lifecycle plus versioned Policy/Risk evidence
 
-Version: 5
+Version: 6
 
-Authority: `docs/PRD.md` §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018
+Authority: `docs/PRD.md` §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020/DS-021
 
 ## Objective
 
@@ -107,7 +107,9 @@ and would permit repeated self-transitions.
   `ReplayDetected`. `IdentityVerificationSkipped` is decode/replay
   compatibility only and has no current Gateway producer.
 - Risk records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Policy denial is a valid
-  reason for Risk `NOT_RUN`.
+  reason for Risk `NOT_RUN`. Current Gateway evidence records the selected
+  Risk Rule Set version/hash for both outcomes. Historical version-1 payloads
+  may omit both compatibility fields; exactly one of the pair is invalid.
 - Simulation records `SUCCEEDED`, `ERROR`, or `NOT_RUN`. Until a Simulator is
   wired, every request records a reason-coded Simulation `NOT_RUN` outcome.
 - A skipped or errored module still advances through its phase event, so the
@@ -164,7 +166,7 @@ Every row below also carries `schema_version: 1`.
 | Replay detected | organization, Agent, exact Key ID, hashed Nonce, attempted/bound Intent IDs and hashes, stable reason code; never raw Nonce/Envelope/signature |
 | Context enriched | context hash and source IDs |
 | Policy evaluated | required-module outcome and matched policy IDs |
-| Risk evaluated | optional-module outcome containing typed finding code/severity entries |
+| Risk evaluated | optional-module outcome containing typed finding code/severity entries plus an atomic Risk Rule Set version/hash pair for current producers |
 | Simulation completed | optional-module outcome containing a typed SAFE/REVIEW/UNSAFE result |
 | Decision recorded | organization, Agent, Intent/Evaluation/Decision IDs and hashes, Decision kind, action/resource/amount evidence |
 | Approval | approval/Decision IDs, required roles or approver plus stable rejection code |

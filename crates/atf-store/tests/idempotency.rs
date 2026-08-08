@@ -480,12 +480,16 @@ fn finalization_input(
             },
             risk: if is_error {
                 RiskEvaluatedPayload {
+                    risk_rule_set_version: None,
+                    risk_rule_set_hash: None,
                     outcome: OptionalModuleOutcome::NotRun {
                         reason_code: "POLICY_ERROR".into(),
                     },
                 }
             } else {
                 RiskEvaluatedPayload {
+                    risk_rule_set_version: None,
+                    risk_rule_set_hash: None,
                     outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
                 }
             },

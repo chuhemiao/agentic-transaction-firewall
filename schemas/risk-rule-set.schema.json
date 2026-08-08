@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atf.dev/schemas/risk-rule-set.schema.json",
+  "title": "ATF Risk Rule Set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rule_set_format_version", "rule_set_version", "engine_version", "rules"],
+  "properties": {
+    "rule_set_format_version": { "const": "1" },
+    "rule_set_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "engine_version": { "const": "atf-risk-engine-v1" },
+    "rules": { "$ref": "#/$defs/rules" }
+  },
+  "$defs": {
+    "severity": { "enum": ["info", "medium", "high", "critical"] },
+    "missingData": { "enum": ["NOT_APPLICABLE", "FINDING"] },
+    "accountingBoundary": { "enum": ["REQUESTED", "PERMITTED", "EXECUTED", "SETTLED"] },
+    "toggleRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" }
+      }
+    },
+    "amountCapRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "max_amount"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "max_amount": {
+          "oneOf": [
+            { "type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "properties": { "max_amount": { "type": "string" } } }
+        }
+      ]
+    },
+    "basisPointRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "threshold_bps", "missing_data"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "threshold_bps": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "missing_data": { "$ref": "#/$defs/missingData" }
+      }
+    },
+    "denyListRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "networks", "protocols"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "networks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "protocols": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "historyWindowRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "window_seconds", "accounting_boundary"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "accounting_boundary": { "$ref": "#/$defs/accountingBoundary" }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_expired",
+        "single_amount_cap",
+        "max_fee_ratio",
+        "vendor_price_deviation",
+        "high_risk_network_or_protocol",
+        "duplicate_purchase"
+      ],
+      "properties": {
+        "request_expired": { "$ref": "#/$defs/toggleRule" },
+        "single_amount_cap": { "$ref": "#/$defs/amountCapRule" },
+        "max_fee_ratio": { "$ref": "#/$defs/basisPointRule" },
+        "vendor_price_deviation": { "$ref": "#/$defs/basisPointRule" },
+        "high_risk_network_or_protocol": { "$ref": "#/$defs/denyListRule" },
+        "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" }
+      }
+    }
+  }
+}

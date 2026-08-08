@@ -65,16 +65,19 @@ Agent Intent
   manifest/file/hash/Schema checks before strict signature verification.
   *Implemented for signed immutable Bundle identity and restore; multi-bundle
   merge/conflict resolution remains later work.*
-- **`atf-risk`** — deterministic, stateless MVP risk rules (request expiry,
-  single-transaction cap, fee ratio, vendor price deviation, high-risk
-  network/protocol) via `evaluate`, plus one history-dependent rule
-  (duplicate purchase: same Organization + Agent + Resource within 24h) via
-  `evaluate_with_history` or `evaluate_with_events`. The Gateway supplies the
-  latter with the organization's verified durable Audit events and reads only
-  prior `DecisionRecorded(PERMIT)` outcomes.
-  *Implemented (partial — daily cumulative spend, first-time destination
-  address, and order frequency, PRD §12.2, still need an explicit
-  PERMITTED/EXECUTED/SETTLED accounting boundary).*
+- **`atf-risk`** — DS-021 loads a closed, bounded Rule Set JSON artifact whose
+  format/engine versions, enabled rules, severities, thresholds, canonical
+  deny lists, missing-data behavior, history windows and accounting boundaries
+  form one domain-separated canonical hash. `evaluate*` returns
+  `RiskEvaluation { rule_set_version, rule_set_hash, findings }` and accepts a
+  single explicit time through its `*_at` variants. Stateless rules cover
+  request expiry, single-transaction cap, fee ratio, vendor price deviation
+  and high-risk network/protocol. Duplicate purchase reads verified durable
+  Audit history using an explicit `PERMITTED` boundary; the engine can select
+  `REQUESTED`, `PERMITTED`, `EXECUTED`, or `SETTLED` lifecycle facts.
+  *Implemented (partial — artifact persistence/scope, provenance, durable
+  snapshots, daily cumulative spend, first-time destination and frequency
+  rules remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 37 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -138,7 +141,9 @@ Agent Intent
   JWT, and a current durable `auditor` or `org_admin` binding before returning
   a fully verified durable Decision; `/readyz` checks live database/schema and
   configured-JWKS readiness. *Implemented and verified through restart and two
-  real Gateway processes. POST requires a canonical detached Identity
+  real Gateway processes. Startup requires a validated
+  `ATF_RISK_RULE_SET_PATH`; POST persists its version/hash with Risk evidence.
+  POST requires a canonical detached Identity
   Envelope/signature, verifies the current durable exact Key, and consumes its
   Nonce before Policy/Risk. The GET organization header remains only a tenant
   selector; JWT claims grant no ATF role. Every response has a
@@ -320,10 +325,11 @@ implementation order are in ADR-0002.
    persists the exact archive immutably, and makes only an audited active
    pointer selectable. Gateway requests resolve that pointer and revalidate
    the archive/signature in one repeatable-read snapshot before evaluation.
-5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate` (or a
-   history-aware variant when the caller has verified events — see step 10) runs
-   the MVP rule set and returns a `Vec<RiskFinding>` (PRD §10.1.2: a denied
-   request never reaches Risk scoring).
+5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate_at` (or a
+   history-aware variant when the caller has verified events — see step 10)
+   runs one validated Rule Set and returns its exact version/hash plus
+   findings. A denied request never reaches Risk scoring, but its durable
+   `NOT_RUN` evidence still names the selected Rule Set.
 6. `atf-decision::decide` merges the two into ATF's own `Decision` enum
    (`PERMIT`/`DENY`/`REVIEW`/`ERROR`) per PRD §10.1/§10.2: Cedar `forbid` (or
    default-deny) -> `DENY`; otherwise a `Critical` Risk Finding -> `DENY`, a
@@ -397,8 +403,9 @@ complete Decision Engine:
   history in `services/gateway`);
   daily cumulative spend, first-time destination address, and order
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
-  signal and normalized fields, but each rule still needs an explicit
-  lifecycle accounting boundary and deterministic evaluation time.
+  signal and normalized fields. DS-021 makes a lifecycle accounting boundary
+  structurally mandatory and evaluates all rules at one explicit caller time;
+  that time/history still needs a durable DS-023 snapshot identity.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for
@@ -425,6 +432,6 @@ complete Decision Engine:
   recovery and operational scanning remain later gaps, not reasons to
   reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent`,
-  `atf-audit` and DS-019 Policy Bundle hashing. Any future deterministic JSON
-  hash must reuse them rather than re-deriving the `preserve_order`-feature
-  fix again.
+  `atf-audit`, DS-019 Policy Bundle hashing and DS-021 Risk Rule Set hashing.
+  Any future deterministic JSON hash must reuse them rather than re-deriving
+  the `preserve_order`-feature fix again.

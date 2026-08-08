@@ -33,12 +33,12 @@ real network request path, but no execution path or production secret.
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. Independent checkpoints, retention, and privileged-database threat controls remain later work |
-| 13 | Price oracle manipulation | Exposed: the vendor-price rule currently trusts `context.historical_vendor_median` supplied in the Intent; provenance, freshness, and trusted enrichment are not implemented |
+| 13 | Price oracle manipulation | Exposed: DS-021 now hash-binds the vendor-price rule, threshold and restrictive missing-data behavior, but the value still comes from untrusted Intent context; provenance, freshness and trusted enrichment are DS-022 work |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
 | 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, and the 24-hour rule counts only prior same-organization `PERMIT` decisions; deterministic snapshot time plus execution- and settlement-based accounting do not exist yet |
+| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, and the versioned DS-021 rule explicitly counts the `PERMITTED` boundary for the same organization/Agent/resource over 86,400 seconds. Durable snapshot identity does not exist yet |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
 | 20 | High-frequency small-order splitting to bypass per-transaction limits | Not applicable yet — cumulative-spend risk rules are Phase 2 |
 
@@ -89,6 +89,14 @@ secret. The realistic attack surface today includes:
   durable artifact. Offline installation remains a privileged deployment
   boundary, and dedicated publisher-key revocation plus multi-Bundle conflict
   analysis remain open.
+- **Malicious or ambiguous Risk configuration** — DS-021 requires one bounded
+  regular closed JSON artifact, rejects unknown keys, unsupported format/engine
+  versions, invalid thresholds/windows and non-canonical deny lists, then
+  domain-separates a canonical hash over every decision-affecting field.
+  Gateway startup fails if the configured artifact cannot validate, and Risk
+  evidence records its exact version/hash. The artifact is still process-local
+  rather than durable/organization-scoped, and external input provenance is
+  not yet enforced.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
   restart no longer clears history. The Gateway currently reloads and verifies

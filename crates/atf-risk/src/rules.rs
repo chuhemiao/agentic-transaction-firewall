@@ -5,9 +5,9 @@ use atf_core::{Amount, Timestamp};
 use atf_intent::TransactionIntent;
 use rust_decimal::Decimal;
 
-use crate::config::RiskConfig;
 use crate::finding::RiskFinding;
 use crate::history_rules;
+use crate::rule_set::{MissingDataBehavior, RiskEvaluation, RiskRuleSet};
 use crate::severity::Severity;
 
 /// Run every stateless MVP rule against `intent` and return the findings
@@ -18,61 +18,103 @@ use crate::severity::Severity;
 /// database, history, or external service lookup. Rules that need history —
 /// duplicate purchase, daily cumulative spend, first-time address, order
 /// frequency (PRD §12.2) — are `evaluate_with_history`'s job instead.
-pub fn evaluate(intent: &TransactionIntent, config: &RiskConfig) -> Vec<RiskFinding> {
-    let now = Timestamp::now();
-    [
-        request_expired(intent, now),
-        single_amount_cap(intent, config),
-        max_fee_ratio(intent, config),
-        vendor_price_deviation(intent, config),
-        high_risk_network_or_protocol(intent, config),
+pub fn evaluate(intent: &TransactionIntent, rule_set: &RiskRuleSet) -> RiskEvaluation {
+    evaluate_at(intent, rule_set, Timestamp::now())
+}
+
+/// Evaluate stateless rules at one caller-selected time. DS-023 will place
+/// this timestamp inside the immutable Evaluation Context; exposing it now
+/// prevents individual rules from sampling different clocks.
+pub fn evaluate_at(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    evaluated_at: Timestamp,
+) -> RiskEvaluation {
+    let rules = rule_set.rules();
+    let findings = [
+        request_expired(intent, &rules.request_expired, evaluated_at),
+        single_amount_cap(intent, &rules.single_amount_cap),
+        max_fee_ratio(intent, &rules.max_fee_ratio),
+        vendor_price_deviation(intent, &rules.vendor_price_deviation),
+        high_risk_network_or_protocol(intent, &rules.high_risk_network_or_protocol),
     ]
     .into_iter()
     .flatten()
-    .collect()
+    .collect();
+    rule_set.evaluation(findings)
 }
 
-/// Everything `evaluate` does, plus the history-dependent rules in
-/// `history_rules` that need to look at prior events in `ledger` (PRD
-/// §12.2). Callers that don't have a ledger (e.g. `atf-cli evaluate`, which
-/// is a one-shot local tool) should keep using `evaluate` instead —
-/// `services/gateway` is the reference caller of this function.
+/// Everything [`evaluate`] does, plus configured history-dependent rules.
 pub fn evaluate_with_history(
     intent: &TransactionIntent,
-    config: &RiskConfig,
+    rule_set: &RiskRuleSet,
     ledger: &AuditLedger,
-) -> Vec<RiskFinding> {
-    let mut findings = evaluate(intent, config);
-    findings.extend(history_rules::history_findings(intent, ledger));
-    findings
+) -> RiskEvaluation {
+    evaluate_with_history_at(intent, rule_set, ledger, Timestamp::now())
+}
+
+pub fn evaluate_with_history_at(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    ledger: &AuditLedger,
+    evaluated_at: Timestamp,
+) -> RiskEvaluation {
+    evaluate_with_events_at(intent, rule_set, ledger.iter(), evaluated_at)
 }
 
 /// Evaluate against Audit events that were loaded and verified by a durable
-/// store. This keeps history authority outside the Risk crate while preserving
-/// the same rule semantics as [`evaluate_with_history`].
+/// store. This keeps history authority outside the Risk crate.
 pub fn evaluate_with_events<'a>(
     intent: &TransactionIntent,
-    config: &RiskConfig,
+    rule_set: &RiskRuleSet,
     events: impl IntoIterator<Item = &'a AuditEvent>,
-) -> Vec<RiskFinding> {
-    let mut findings = evaluate(intent, config);
-    findings.extend(history_rules::history_findings_from_events(intent, events));
-    findings
+) -> RiskEvaluation {
+    evaluate_with_events_at(intent, rule_set, events, Timestamp::now())
 }
 
-fn request_expired(intent: &TransactionIntent, now: Timestamp) -> Option<RiskFinding> {
-    (intent.expires_at < now).then(|| RiskFinding {
+pub fn evaluate_with_events_at<'a>(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+    evaluated_at: Timestamp,
+) -> RiskEvaluation {
+    let mut result = evaluate_at(intent, rule_set, evaluated_at);
+    result
+        .findings
+        .extend(history_rules::history_findings_from_events(
+            intent,
+            rule_set,
+            events,
+            evaluated_at,
+        ));
+    result
+}
+
+fn request_expired(
+    intent: &TransactionIntent,
+    rule: &crate::rule_set::ToggleRule,
+    now: Timestamp,
+) -> Option<RiskFinding> {
+    (rule.enabled && intent.expires_at < now).then(|| RiskFinding {
         code: "REQUEST_EXPIRED".to_string(),
-        severity: Severity::Critical,
+        severity: rule.severity,
         message: format!("Intent expired at {} (now {now})", intent.expires_at),
     })
 }
 
-fn single_amount_cap(intent: &TransactionIntent, config: &RiskConfig) -> Option<RiskFinding> {
-    let cap = config.max_single_amount?;
+fn single_amount_cap(
+    intent: &TransactionIntent,
+    rule: &crate::rule_set::AmountCapRule,
+) -> Option<RiskFinding> {
+    if !rule.enabled {
+        return None;
+    }
+    let cap = rule
+        .max_amount
+        .expect("validated enabled amount-cap rules have a maximum");
     (intent.transaction.amount.as_decimal() > cap.as_decimal()).then(|| RiskFinding {
         code: "SINGLE_AMOUNT_CAP_EXCEEDED".to_string(),
-        severity: Severity::High,
+        severity: rule.severity,
         message: format!(
             "Amount {} exceeds the configured single-transaction cap of {cap}",
             intent.transaction.amount
@@ -80,66 +122,110 @@ fn single_amount_cap(intent: &TransactionIntent, config: &RiskConfig) -> Option<
     })
 }
 
-fn max_fee_ratio(intent: &TransactionIntent, config: &RiskConfig) -> Option<RiskFinding> {
-    let threshold_bps = config.max_fee_ratio_bps?;
-    let max_fee = intent.transaction.max_fee?;
-    let amount = intent.transaction.amount.as_decimal();
-    if amount.is_zero() {
+fn max_fee_ratio(
+    intent: &TransactionIntent,
+    rule: &crate::rule_set::BasisPointRule,
+) -> Option<RiskFinding> {
+    if !rule.enabled {
         return None;
     }
+    let Some(max_fee) = intent.transaction.max_fee else {
+        return missing_finding(
+            rule.missing_data,
+            rule.severity,
+            "MAX_FEE_DATA_MISSING",
+            "max_fee is unavailable for the enabled fee-ratio rule",
+        );
+    };
+    let amount = intent.transaction.amount.as_decimal();
+    if amount.is_zero() {
+        return missing_finding(
+            rule.missing_data,
+            rule.severity,
+            "MAX_FEE_DATA_MISSING",
+            "amount is zero for the enabled fee-ratio rule",
+        );
+    }
     let ratio_bps = ((max_fee.as_decimal() / amount) * Decimal::from(10_000)).round_dp(2);
-    (ratio_bps > Decimal::from(threshold_bps)).then(|| RiskFinding {
+    (ratio_bps > Decimal::from(rule.threshold_bps)).then(|| RiskFinding {
         code: "FEE_RATIO_TOO_HIGH".to_string(),
-        severity: Severity::High,
+        severity: rule.severity,
         message: format!(
-            "max_fee {max_fee} is {ratio_bps} bps of amount {}, over the {threshold_bps} bps threshold",
-            intent.transaction.amount
+            "max_fee {max_fee} is {ratio_bps} bps of amount {}, over the {} bps threshold",
+            intent.transaction.amount, rule.threshold_bps
         ),
     })
 }
 
-fn vendor_price_deviation(intent: &TransactionIntent, config: &RiskConfig) -> Option<RiskFinding> {
-    let threshold_bps = config.vendor_price_deviation_bps?;
-    let median = intent
-        .context
-        .get("historical_vendor_median")
-        .and_then(|v| v.as_str())
-        .and_then(|s| Amount::from_str(s).ok())?
-        .as_decimal();
-    if median.is_zero() {
+fn vendor_price_deviation(
+    intent: &TransactionIntent,
+    rule: &crate::rule_set::BasisPointRule,
+) -> Option<RiskFinding> {
+    if !rule.enabled {
         return None;
     }
+    let Some(median) = intent
+        .context
+        .get("historical_vendor_median")
+        .and_then(|value| value.as_str())
+        .and_then(|value| Amount::from_str(value).ok())
+        .map(|amount| amount.as_decimal())
+        .filter(|amount| *amount > Decimal::ZERO)
+    else {
+        return missing_finding(
+            rule.missing_data,
+            rule.severity,
+            "VENDOR_PRICE_DATA_MISSING",
+            "historical_vendor_median is unavailable for the enabled price-deviation rule",
+        );
+    };
     let amount = intent.transaction.amount.as_decimal();
     let deviation_bps = (((amount - median).abs() / median) * Decimal::from(10_000)).round_dp(2);
-    (deviation_bps > Decimal::from(threshold_bps)).then(|| RiskFinding {
+    (deviation_bps > Decimal::from(rule.threshold_bps)).then(|| RiskFinding {
         code: "VENDOR_PRICE_DEVIATION".to_string(),
-        severity: Severity::High,
+        severity: rule.severity,
         message: format!(
-            "Amount {} deviates from the historical vendor median {median} by {deviation_bps} bps, over the {threshold_bps} bps threshold",
-            intent.transaction.amount
+            "Amount {} deviates from the historical vendor median {median} by {deviation_bps} bps, over the {} bps threshold",
+            intent.transaction.amount, rule.threshold_bps
         ),
     })
 }
 
 fn high_risk_network_or_protocol(
     intent: &TransactionIntent,
-    config: &RiskConfig,
+    rule: &crate::rule_set::DenyListRule,
 ) -> Option<RiskFinding> {
-    let network_flagged = config
-        .high_risk_networks
+    if !rule.enabled {
+        return None;
+    }
+    let network_flagged = rule
+        .networks
         .iter()
-        .any(|n| n.eq_ignore_ascii_case(&intent.transaction.network));
-    let protocol_flagged = config
-        .high_risk_protocols
+        .any(|network| network.eq_ignore_ascii_case(&intent.transaction.network));
+    let protocol_flagged = rule
+        .protocols
         .iter()
-        .any(|p| p.eq_ignore_ascii_case(&intent.resource.protocol));
+        .any(|protocol| protocol.eq_ignore_ascii_case(&intent.resource.protocol));
     (network_flagged || protocol_flagged).then(|| RiskFinding {
         code: "HIGH_RISK_NETWORK_OR_PROTOCOL".to_string(),
-        severity: Severity::High,
+        severity: rule.severity,
         message: format!(
             "network `{}` or protocol `{}` is on the configured high-risk list",
             intent.transaction.network, intent.resource.protocol
         ),
+    })
+}
+
+fn missing_finding(
+    behavior: MissingDataBehavior,
+    severity: Severity,
+    code: &'static str,
+    message: &'static str,
+) -> Option<RiskFinding> {
+    (behavior == MissingDataBehavior::Finding).then(|| RiskFinding {
+        code: code.into(),
+        severity,
+        message: message.into(),
     })
 }
 
@@ -148,6 +234,13 @@ mod tests {
     use super::*;
     use atf_audit::{EventType, NewAuditEvent};
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
+
+    fn configured_rule_set(pointer: &str, value: serde_json::Value) -> RiskRuleSet {
+        let mut document: serde_json::Value =
+            serde_json::from_str(include_str!("../../../risk-rules/default.json")).unwrap();
+        *document.pointer_mut(pointer).unwrap() = value;
+        RiskRuleSet::from_json(&document.to_string()).unwrap()
+    }
 
     fn base_intent() -> TransactionIntent {
         TransactionIntent {
@@ -214,7 +307,7 @@ mod tests {
         )
         .chain(None);
 
-        let findings = evaluate_with_events(&intent, &RiskConfig::default(), [&prior]);
+        let findings = evaluate_with_events(&intent, &RiskRuleSet::default(), [&prior]);
 
         assert!(findings
             .iter()
@@ -225,7 +318,7 @@ mod tests {
     fn flags_expired_requests_as_critical() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2000-01-01T00:00:00Z").unwrap();
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(findings
             .iter()
             .any(|f| f.code == "REQUEST_EXPIRED" && f.severity == Severity::Critical));
@@ -235,14 +328,14 @@ mod tests {
     fn does_not_flag_a_future_request() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(!findings.iter().any(|f| f.code == "REQUEST_EXPIRED"));
     }
 
     #[test]
     fn single_amount_cap_disabled_by_default() {
         let intent = base_intent();
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(!findings
             .iter()
             .any(|f| f.code == "SINGLE_AMOUNT_CAP_EXCEEDED"));
@@ -252,11 +345,12 @@ mod tests {
     fn single_amount_cap_fires_when_configured() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
-        let config = RiskConfig {
-            max_single_amount: Some(Amount::from_str("10.00").unwrap()),
-            ..RiskConfig::default()
-        };
-        let findings = evaluate(&intent, &config);
+        let mut document: serde_json::Value =
+            serde_json::from_str(include_str!("../../../risk-rules/default.json")).unwrap();
+        document["rules"]["single_amount_cap"]["enabled"] = serde_json::json!(true);
+        document["rules"]["single_amount_cap"]["max_amount"] = serde_json::json!("10.00");
+        let rule_set = RiskRuleSet::from_json(&document.to_string()).unwrap();
+        let findings = evaluate(&intent, &rule_set);
         assert!(findings
             .iter()
             .any(|f| f.code == "SINGLE_AMOUNT_CAP_EXCEEDED"));
@@ -267,7 +361,7 @@ mod tests {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.transaction.max_fee = Some(Amount::from_str("5.00").unwrap()); // 40% of 12.50
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(findings.iter().any(|f| f.code == "FEE_RATIO_TOO_HIGH"));
     }
 
@@ -277,7 +371,7 @@ mod tests {
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.context = serde_json::json!({"historical_vendor_median": "8.50"});
         // (12.50 - 8.50) / 8.50 = ~47%, over the 30% default threshold.
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 
@@ -287,7 +381,7 @@ mod tests {
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.context = serde_json::json!({"historical_vendor_median": "12.00"});
         // (12.50 - 12.00) / 12.00 = ~4%, well under the 30% default threshold.
-        let findings = evaluate(&intent, &RiskConfig::default());
+        let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(!findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 
@@ -295,13 +389,139 @@ mod tests {
     fn flags_high_risk_network() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
-        let config = RiskConfig {
-            high_risk_networks: vec!["EIP155:8453".to_string()],
-            ..RiskConfig::default()
-        };
-        let findings = evaluate(&intent, &config);
+        let rule_set = configured_rule_set(
+            "/rules/high_risk_network_or_protocol/networks",
+            serde_json::json!(["eip155:8453"]),
+        );
+        let findings = evaluate(&intent, &rule_set);
         assert!(findings
             .iter()
             .any(|f| f.code == "HIGH_RISK_NETWORK_OR_PROTOCOL"));
+    }
+
+    #[test]
+    fn every_evaluation_returns_the_exact_rule_set_identity() {
+        let mut intent = base_intent();
+        intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
+        let rule_set = RiskRuleSet::default();
+
+        let result = evaluate_at(
+            &intent,
+            &rule_set,
+            Timestamp::from_str("2026-07-18T08:01:00Z").unwrap(),
+        );
+
+        assert_eq!(result.rule_set_version, rule_set.version());
+        assert_eq!(result.rule_set_hash, rule_set.rule_set_hash());
+    }
+
+    #[test]
+    fn configured_missing_data_behavior_is_executable_not_only_metadata() {
+        let mut intent = base_intent();
+        intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
+        intent.transaction.max_fee = None;
+        let strict = evaluate_at(
+            &intent,
+            &RiskRuleSet::default(),
+            Timestamp::from_str("2026-07-18T08:01:00Z").unwrap(),
+        );
+        assert!(strict
+            .iter()
+            .any(|finding| finding.code == "MAX_FEE_DATA_MISSING"));
+
+        let permissive_rule_set = configured_rule_set(
+            "/rules/max_fee_ratio/missing_data",
+            serde_json::json!("NOT_APPLICABLE"),
+        );
+        let permissive = evaluate_at(
+            &intent,
+            &permissive_rule_set,
+            Timestamp::from_str("2026-07-18T08:01:00Z").unwrap(),
+        );
+        assert!(!permissive
+            .iter()
+            .any(|finding| finding.code == "MAX_FEE_DATA_MISSING"));
+    }
+
+    #[test]
+    fn every_declared_accounting_boundary_selects_its_exact_lifecycle_fact() {
+        let prior_intent_id = "01J0000000000000000000H100";
+        let at = Timestamp::from_str("2026-07-18T08:01:00Z").unwrap();
+        let evaluated_at = Timestamp::from_str("2026-07-18T08:02:00Z").unwrap();
+        let received = NewAuditEvent::new(
+            EventType::IntentReceived,
+            at,
+            Some(prior_intent_id.into()),
+            serde_json::json!({
+                "organization_id": "alpha-lab",
+                "agent_id": "research-agent-01",
+                "resource_id": "btc-orderbook-2026-07-01"
+            }),
+        )
+        .chain(None);
+        let boundary_cases = [
+            (
+                "REQUESTED",
+                NewAuditEvent::new(
+                    EventType::IntentReceived,
+                    at,
+                    Some(prior_intent_id.into()),
+                    received.data.clone(),
+                )
+                .chain(None),
+            ),
+            (
+                "PERMITTED",
+                NewAuditEvent::new(
+                    EventType::DecisionRecorded,
+                    at,
+                    Some(prior_intent_id.into()),
+                    serde_json::json!({"decision": "PERMIT"}),
+                )
+                .chain(None),
+            ),
+            (
+                "EXECUTED",
+                NewAuditEvent::new(
+                    EventType::ExecutionConfirmed,
+                    at,
+                    Some(prior_intent_id.into()),
+                    serde_json::json!({}),
+                )
+                .chain(None),
+            ),
+            (
+                "SETTLED",
+                NewAuditEvent::new(
+                    EventType::SettlementVerified,
+                    at,
+                    Some(prior_intent_id.into()),
+                    serde_json::json!({}),
+                )
+                .chain(None),
+            ),
+        ];
+        let mut intent = base_intent();
+        intent.intent_id = "01J0000000000000000000H200".into();
+        intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
+
+        for (boundary, boundary_event) in boundary_cases {
+            let rule_set = configured_rule_set(
+                "/rules/duplicate_purchase/accounting_boundary",
+                serde_json::json!(boundary),
+            );
+            let result = evaluate_with_events_at(
+                &intent,
+                &rule_set,
+                [&received, &boundary_event],
+                evaluated_at,
+            );
+            assert!(
+                result
+                    .iter()
+                    .any(|finding| finding.code == "DUPLICATE_PURCHASE"),
+                "{boundary} must select the matching lifecycle event"
+            );
+        }
     }
 }

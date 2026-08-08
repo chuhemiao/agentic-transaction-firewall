@@ -3,7 +3,7 @@ use atf_gateway::{AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorA
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
 use atf_intent::TransactionIntent;
 use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
-use atf_risk::RiskConfig;
+use atf_risk::RiskRuleSet;
 use atf_store::{
     operator_subject_fingerprint, AuthenticatedAdmissionInput, OperatorKind, OperatorRegistration,
     OperatorRole, Store,
@@ -48,7 +48,7 @@ pub fn test_durable_policy_state(store: Store) -> AppState {
         "alpha-lab".into(),
         "development".into(),
         "atf-example-payments".into(),
-        RiskConfig::default(),
+        RiskRuleSet::default(),
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
             .expect("test identity context is canonical"),
@@ -79,7 +79,7 @@ fn test_state_with_policy_dir(store: Store, relative_dir: &Path) -> AppState {
                 bundle_dir.display()
             )
         }),
-        RiskConfig::default(),
+        RiskRuleSet::default(),
         store,
         IdentityGatewayConfig::new(AUDIENCE, ENVIRONMENT)
             .expect("test identity context is canonical"),
@@ -141,8 +141,10 @@ pub fn sample_intent_json(intent_id: &str, amount: &str) -> serde_json::Value {
             "network": "eip155:8453",
             "asset": "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
             "amount": amount,
-            "destination": "eip155:8453:0x1111111111111111111111111111111111111111"
-        }
+            "destination": "eip155:8453:0x1111111111111111111111111111111111111111",
+            "max_fee": "0.10"
+        },
+        "context": { "historical_vendor_median": amount }
     })
 }
 

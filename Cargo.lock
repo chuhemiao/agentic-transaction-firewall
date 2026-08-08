@@ -270,9 +270,11 @@ dependencies = [
  "atf-core",
  "atf-intent",
  "chrono",
+ "jsonschema",
  "rust_decimal",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

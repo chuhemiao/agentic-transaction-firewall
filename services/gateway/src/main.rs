@@ -2,7 +2,7 @@ use atf_core::Timestamp;
 use atf_gateway::{
     build_router, AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator,
 };
-use atf_risk::RiskConfig;
+use atf_risk::RiskRuleSet;
 use atf_store::Store;
 use std::time::Duration;
 
@@ -37,6 +37,16 @@ async fn main() {
         bundle_hash = active_policy.bundle.bundle_hash(),
         pointer_lifecycle_version = active_policy.lifecycle_version,
         "signed durable active Policy Bundle loaded"
+    );
+    let risk_rule_set_path = std::env::var("ATF_RISK_RULE_SET_PATH")
+        .expect("ATF_RISK_RULE_SET_PATH is required for versioned Risk evaluation");
+    let risk_rule_set = RiskRuleSet::from_file(std::path::Path::new(&risk_rule_set_path))
+        .expect("failed to load the configured Risk Rule Set");
+    tracing::info!(
+        risk_rule_set_version = risk_rule_set.version(),
+        risk_rule_set_hash = risk_rule_set.rule_set_hash(),
+        risk_engine_version = risk_rule_set.engine_version(),
+        "validated Risk Rule Set loaded"
     );
     let identity = IdentityGatewayConfig::new(
         std::env::var("ATF_IDENTITY_AUDIENCE")
@@ -76,7 +86,7 @@ async fn main() {
         policy_organization_id,
         deployment_environment,
         policy_bundle_id,
-        RiskConfig::default(),
+        risk_rule_set,
         store,
         identity,
         operator_auth,

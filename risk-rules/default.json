@@ -1,0 +1,40 @@
+{
+  "rule_set_format_version": "1",
+  "rule_set_version": "risk-rules-1.0.0",
+  "engine_version": "atf-risk-engine-v1",
+  "rules": {
+    "request_expired": {
+      "enabled": true,
+      "severity": "critical"
+    },
+    "single_amount_cap": {
+      "enabled": false,
+      "severity": "high",
+      "max_amount": null
+    },
+    "max_fee_ratio": {
+      "enabled": true,
+      "severity": "high",
+      "threshold_bps": 500,
+      "missing_data": "FINDING"
+    },
+    "vendor_price_deviation": {
+      "enabled": true,
+      "severity": "high",
+      "threshold_bps": 3000,
+      "missing_data": "FINDING"
+    },
+    "high_risk_network_or_protocol": {
+      "enabled": true,
+      "severity": "high",
+      "networks": [],
+      "protocols": []
+    },
+    "duplicate_purchase": {
+      "enabled": true,
+      "severity": "high",
+      "window_seconds": 86400,
+      "accounting_boundary": "PERMITTED"
+    }
+  }
+}

@@ -46,6 +46,12 @@ archive in one repeatable-read snapshot, rechecks the signature, Bundle hash,
 Schema, scope and expiry, and then evaluates that exact owned version. See
 [`policy-model.md`](policy-model.md) for installation and signing details.
 
+DS-021 additionally requires `ATF_RISK_RULE_SET_PATH`. Startup loads the
+bounded closed artifact and logs its version/hash/engine identity; invalid or
+unknown configuration fails before serving. Both executed and Policy-skipped
+Risk evidence record `risk_rule_set_version` and `risk_rule_set_hash`. See
+[`risk-rule-sets.md`](risk-rule-sets.md).
+
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS
 `ATF_OPERATOR_DISCOVERY_URL` and `ATF_OPERATOR_JWKS_URL`, plus an asymmetric

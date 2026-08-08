@@ -81,7 +81,8 @@ explicitly accepted on 2026-08-08 as DS-017; DS-018 now implements it with
 durable Operator/Role lifecycle, configured JWT/JWKS validation, typed
 principals and non-enumerating Decision-read RBAC. DS-019 now provides
 validated Policy Bundle identity, and DS-020 adds signed durable activation
-and rollback; the next task is DS-021.
+and rollback. DS-021 now adds the canonical versioned Risk Rule Set and exact
+identity in Risk results/evidence; the next task is DS-022.
 
 ### Present but incomplete or unwired
 
@@ -793,23 +794,29 @@ activation/rollback with `PolicyChanged` Audit evidence; never mutate a version.
 
 ### DS-021 — Version and hash the Risk Rule Set `[S]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Make enabled rules, thresholds, missing-data behavior and
 lifecycle accounting boundaries a canonical versioned artifact. Return its
 version/hash with every Risk result.
 
 - **Dependencies:** DS-019.
-- **Likely files:** `crates/atf-risk/src/config.rs`,
+- **Delivered files:** `risk-rules/default.json`,
+  `schemas/risk-rule-set.schema.json`, `crates/atf-risk/src/config.rs`,
   `crates/atf-risk/src/rule_set.rs`, `crates/atf-risk/src/lib.rs`,
-  `crates/atf-risk/tests/rule_set.rs`.
+  `crates/atf-risk/tests/rule_set.rs`, Gateway/Audit wiring and
+  `docs/risk-rule-sets.md`.
 - **Acceptance criteria:**
   1. Any decision-affecting config change changes the Rule Set hash.
   2. Unknown rule/config keys and invalid thresholds fail closed.
   3. Every history rule declares `REQUESTED`, `PERMITTED`, `EXECUTED` or `SETTLED`.
-- **Verification:** canonical hash mutation/config validation tests; full DoD.
+- **Verification:** canonical golden/hash mutation, unknown/invalid config,
+  missing-data execution, all accounting-boundary selectors, Gateway durable
+  evidence, real CLI/Gateway startup smoke and full DoD.
 
 ### DS-022 — Define provenance-bearing evidence `[M]`
+
+**Status:** Next.
 
 **Description:** Add typed evidence with source, source ID, observed/expiry
 times, evidence hash, optional signature/confidence and freshness status.

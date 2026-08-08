@@ -113,6 +113,27 @@ fn payload_parser_rejects_type_confusion_unknown_fields_and_versions() {
 }
 
 #[test]
+fn risk_rule_set_version_and_hash_are_an_atomic_compatibility_extension() {
+    let occurred_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
+    let legacy = NewAuditEvent::from_payload(
+        occurred_at,
+        Some("intent-1".into()),
+        AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
+            risk_rule_set_version: None,
+            risk_rule_set_hash: None,
+            outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
+        }),
+    )
+    .unwrap()
+    .chain(None);
+    assert!(legacy.typed_payload().is_ok());
+
+    let mut partial = legacy;
+    partial.data["risk_rule_set_version"] = serde_json::json!("risk-rules-1.0.0");
+    assert!(partial.typed_payload().is_err());
+}
+
+#[test]
 fn typed_events_apply_only_their_documented_lifecycle_effect() {
     let identity_verified = AuditPayload::IdentityVerified(IdentityVerifiedPayload {
         organization_id: "alpha-lab".into(),
@@ -138,6 +159,8 @@ fn typed_events_apply_only_their_documented_lifecycle_effect() {
         policy_ids: vec!["allow-budget".into()],
     });
     let risk = AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
+        risk_rule_set_version: None,
+        risk_rule_set_hash: None,
         outcome: OptionalModuleOutcome::Succeeded {
             result: vec![RiskFindingEvidence {
                 code: "DUPLICATE_PURCHASE".into(),

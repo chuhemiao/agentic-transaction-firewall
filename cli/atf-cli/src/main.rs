@@ -40,6 +40,9 @@ enum Command {
         /// Explicit evaluation time; defaults to the current time.
         #[arg(long)]
         evaluated_at: Option<Timestamp>,
+        /// Closed versioned Risk Rule Set artifact.
+        #[arg(long, default_value = "risk-rules/default.json")]
+        risk_rule_set: PathBuf,
     },
     /// Policy Bundle commands.
     Policy {
@@ -258,7 +261,14 @@ async fn main() -> std::process::ExitCode {
             policies,
             environment,
             evaluated_at,
-        } => run_evaluate(&intent_path, &policies, &environment, evaluated_at),
+            risk_rule_set,
+        } => run_evaluate(
+            &intent_path,
+            &policies,
+            &environment,
+            evaluated_at,
+            &risk_rule_set,
+        ),
         Command::Policy { action } => run_policy(action).await,
         Command::Identity { action } => run_identity(action).await,
         Command::Operator { action } => run_operator(action).await,
@@ -690,6 +700,7 @@ fn run_evaluate(
     policies_dir: &Path,
     environment: &str,
     evaluated_at: Option<Timestamp>,
+    risk_rule_set_path: &Path,
 ) -> Result<()> {
     let intent = read_intent(intent_path)?;
     let evaluated_at = evaluated_at.unwrap_or_else(Timestamp::now);
@@ -706,9 +717,16 @@ fn run_evaluate(
     let policy_result = bundle.evaluate_at(&intent, evaluated_at);
     // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
     // forbidden request terminates the merge before Risk is consulted.
+    let risk_rule_set =
+        atf_risk::RiskRuleSet::from_file(risk_rule_set_path).with_context(|| {
+            format!(
+                "loading Risk Rule Set from {}",
+                risk_rule_set_path.display()
+            )
+        })?;
     let risk_findings = match &policy_result {
         Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => {
-            atf_risk::evaluate(&intent, &atf_risk::RiskConfig::default())
+            atf_risk::evaluate_at(&intent, &risk_rule_set, evaluated_at).findings
         }
         _ => Vec::new(),
     };

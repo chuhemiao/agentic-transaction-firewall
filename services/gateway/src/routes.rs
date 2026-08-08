@@ -212,12 +212,14 @@ async fn create_intent(
                 Ok(chain) => chain,
                 Err(error) => return store_error_response(&request_id, "load Risk history", error),
             };
-            let findings = atf_risk::evaluate_with_events(
+            let result = atf_risk::evaluate_with_events_at(
                 &intent,
-                &state.risk_config,
+                &state.risk_rule_set,
                 chain.iter().map(|stored| &stored.event),
+                evaluated_at,
             );
-            let evidence = findings
+            let evidence = result
+                .findings
                 .iter()
                 .map(|finding| RiskFindingEvidence {
                     code: finding.code.clone(),
@@ -230,8 +232,10 @@ async fn create_intent(
                 })
                 .collect();
             (
-                findings,
+                result.findings,
                 RiskEvaluatedPayload {
+                    risk_rule_set_version: Some(result.rule_set_version),
+                    risk_rule_set_hash: Some(result.rule_set_hash),
                     outcome: OptionalModuleOutcome::Succeeded { result: evidence },
                 },
             )
@@ -239,6 +243,8 @@ async fn create_intent(
         Ok(_) => (
             Vec::new(),
             RiskEvaluatedPayload {
+                risk_rule_set_version: Some(state.risk_rule_set.version().into()),
+                risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_FORBID".into(),
                 },
@@ -247,6 +253,8 @@ async fn create_intent(
         Err(_) => (
             Vec::new(),
             RiskEvaluatedPayload {
+                risk_rule_set_version: Some(state.risk_rule_set.version().into()),
+                risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_ERROR".into(),
                 },
@@ -419,6 +427,8 @@ fn recovery_finalization(
                 policy_ids: Vec::new(),
             },
             risk: RiskEvaluatedPayload {
+                risk_rule_set_version: None,
+                risk_rule_set_hash: None,
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_ERROR".into(),
                 },

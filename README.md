@@ -70,14 +70,15 @@ Only the following crates are implemented so far:
   on every evaluation. Successful Policy output names the exact bundle
   ID/version/hash. DS-020 adds a detached, domain-separated strict Ed25519
   publisher proof and a bounded exact-byte archive for durable revalidation.
-- `crates/atf-risk` — a first Financial Risk Engine pass: deterministic,
-  stateless MVP rules (request expiry, single-transaction cap, fee ratio,
-  vendor price deviation, high-risk network/protocol), plus one
-  history-dependent rule (duplicate purchase within 24h). The Gateway runs it
-  over the organization's verified PostgreSQL Audit chain; local callers can
-  still supply an `atf-audit::AuditLedger`. It counts only prior
-  `DecisionRecorded(PERMIT)` events — a received or denied request is not
-  treated as a purchase.
+- `crates/atf-risk` — a closed Risk Rule Set artifact binds format/engine and
+  Rule Set versions, enabled states, severities, thresholds, canonical deny
+  lists, missing-data behavior, history windows and accounting boundaries into
+  a domain-separated canonical hash. Every `RiskEvaluation` returns the exact
+  version/hash with findings. The current rules cover request expiry,
+  single-transaction cap, fee ratio, vendor price deviation, high-risk
+  network/protocol and duplicate purchase. Gateway evaluates the latter over
+  the verified PostgreSQL Audit chain using the artifact's explicit
+  `PERMITTED` boundary.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only tamper detection (`verify_chain`), and version-1 typed payloads
   for all canonical PRD lifecycle/administrative events. Event-to-state
@@ -156,6 +157,8 @@ Only the following crates are implemented so far:
   Each new evaluation loads and fully revalidates the current signed durable
   active pointer in one repeatable-read snapshot, so an audited activation or
   rollback applies to the next request without restarting the Gateway.
+  Startup also loads one required closed Risk Rule Set artifact; each Risk
+  result and durable `RiskEvaluated` evidence carries its exact version/hash.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -205,13 +208,16 @@ raw Cedar directory loading with Schema-backed, scoped, time-bounded Policy
 Bundle manifests and deterministic file-bound bundle identities. `DS-020`
 adds detached publisher proof, migration 0007 immutable archives and active
 pointers, authorized install/activation/rollback, and per-request Gateway
-resolution of the exact current signed version.
+resolution of the exact current signed version. `DS-021` adds the closed
+versioned Risk Rule Set, stable canonical hash, executable missing-data and
+accounting-boundary semantics, and Rule Set identity in durable Risk evidence.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
 Rust profile validator),
 `policy-bundle.schema.json` (enforced by `atf-policy` while loading manifests),
 `policy-bundle-signature.schema.json` (the detached Ed25519 proof contract),
+`risk-rule-set.schema.json` (the closed DS-021 Risk artifact contract),
 `decision.schema.json` (validated in CI against real `atf-decision` output),
 and `audit-event.schema.json` (validated in CI against real `atf-audit`
 output).
@@ -245,8 +251,9 @@ semantics (evaluate only, never execute).
    `services/gateway`; a prior DENY does not poison a later valid request,
    and one organization's history cannot affect another. Daily cumulative
    spend, first-time destination address, and order frequency are still
-   not implemented; their configured lifecycle boundary (PERMITTED vs.
-   EXECUTED vs. SETTLED) must be explicit.
+   not implemented. DS-021 makes the current rule's `PERMITTED` boundary
+   explicit and requires every future history rule to declare `REQUESTED`,
+   `PERMITTED`, `EXECUTED`, or `SETTLED`.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
    verification (PRD §17.2).~~ Done as a library and hardened in DS-014: its
    in-memory registry verifies only the declared Key ID over canonical
@@ -348,9 +355,14 @@ semantics (evaluate only, never execute).
     to typed `PolicyChanged`. JWT-authenticated Admin routes recheck current
     `policy_author`/`org_admin`, and Gateway evaluation resolves the signed
     pointer per request.
-21. **Versioned Risk Rule Set. Next:** bind enabled rules, thresholds,
-    missing-data behavior and accounting boundaries into a deterministic
-    version/hash returned with every Risk result.
+21. ~~Versioned Risk Rule Set.~~ Done in DS-021: the closed artifact and
+    engine compatibility version bind enabled rules, severities, thresholds,
+    deny lists, missing-data behavior and all four lifecycle accounting
+    boundaries into a deterministic domain-separated hash. Every Risk result
+    and current Gateway Risk evidence names the exact Rule Set version/hash.
+22. **NEXT — Provenance-bearing evidence:** separate Agent context from
+    trusted financial evidence and fail closed on stale, tampered or
+    unauthorized privileged inputs.
 
 ### Remaining before Phase 2 can close out
 
@@ -409,12 +421,12 @@ semantics (evaluate only, never execute).
 - ~~Organization-scoped operator authentication/RBAC following accepted
   ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
   matrices remain future endpoint-specific work.
-- Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
-  Original/Counterfactual Replay.
+- Versioned `EvaluationContext` that durably pins the completed Policy/Risk
+  identities, Context Provenance, and Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API
   security controls.
-- The remaining history-dependent Risk rules after their PERMITTED,
-  EXECUTED, or SETTLED accounting boundary is explicit.
+- The remaining history-dependent Risk rules, each using the now-required
+  explicit lifecycle accounting boundary.
 
 The security-audit baseline and prioritized acceptance criteria are tracked
 in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
@@ -455,6 +467,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   ATF_DEPLOYMENT_ENVIRONMENT=development \
   ATF_POLICY_ORGANIZATION_ID=alpha-lab \
   ATF_POLICY_BUNDLE_ID=atf-example-payments \
+  ATF_RISK_RULE_SET_PATH=risk-rules/default.json \
   PORT=8080 cargo run -p atf-gateway
 
 # Provision Agent/public-key authority first; see docs/identity.md. POST then
@@ -466,7 +479,8 @@ cargo run -p atf-cli -- validate-intent examples/x402-research-agent/intent.json
 
 # Evaluate an intent against an example Cedar policy bundle
 cargo run -p atf-cli -- evaluate examples/x402-research-agent/intent.json \
-  --policies policies/examples --environment development
+  --policies policies/examples --environment development \
+  --risk-rule-set risk-rules/default.json
 ```
 
 ## Repository layout

@@ -118,6 +118,10 @@ order. The executable order is:
   authenticated Nonce replay protection.
 - [x] P0.5 Domain-separated Agent identity envelopes wired before Policy and
   Risk, with current durable exact-Key verification and typed request evidence.
+- [x] Versioned Risk Rule Set. DS-021 binds engine compatibility, enabled
+  rules, severities, thresholds, deny lists, missing-data behavior, history
+  windows and lifecycle accounting boundaries into a canonical hash returned
+  by every Risk result and recorded by current Gateway evidence.
 - [ ] P0.6 Versioned `EvaluationContext`; remove direct wall-clock and
   untrusted context reads from decision-making rules.
 - [ ] P0.7 Original and counterfactual deterministic replay.
@@ -131,10 +135,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-021` — make the Risk Rule Set a canonical
-versioned artifact binding enabled rules, thresholds, missing-data behavior and
-lifecycle accounting boundaries, and return its exact version/hash with every
-Risk result.
+**Immediate next task:** `DS-022` — define provenance-bearing evidence and a
+privileged-context firewall so Agent-provided financial context cannot silently
+act as trusted Risk input.
 
 ## Later releases
 

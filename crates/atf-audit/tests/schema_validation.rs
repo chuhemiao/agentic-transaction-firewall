@@ -116,6 +116,8 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
         (
             intent(),
             AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
+                risk_rule_set_version: Some(text("risk-rules-1.0.0")),
+                risk_rule_set_hash: Some(hash('a')),
                 outcome: OptionalModuleOutcome::Succeeded {
                     result: vec![RiskFindingEvidence {
                         code: text("DUPLICATE_PURCHASE"),

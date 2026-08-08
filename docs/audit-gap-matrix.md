@@ -243,11 +243,18 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** `atf-risk`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** five stateless rules and permitted-decision duplicate purchase exist; most PRD §12 rules, rule-set version/hash, missing-data handling, and action-specific rules do not.
+- **evidence:** five stateless rules and one duplicate-purchase rule execute
+  under a closed DS-021 artifact whose version/hash binds enabled state,
+  severity, thresholds, deny lists, explicit missing-data behavior and all
+  lifecycle accounting-boundary choices. Gateway evidence records that exact
+  identity. Most PRD §12 rules, durable Rule Set selection and trusted inputs
+  do not exist.
 - **security_impact:** common split-order, allowance, withdrawal, leverage, concentration, and velocity threats are unchecked.
 - **financial_impact:** budget, market, protocol, and execution-risk losses are not bounded.
 - **severity:** `HIGH`
-- **recommended_change:** implement versioned deterministic rules only after trusted context and lifecycle accounting boundaries exist.
+- **recommended_change:** add rules only against provenance-bearing immutable
+  context/snapshots and require their decision inputs plus accounting boundary
+  to remain inside the Rule Set identity.
 - **required_tests:** independent unit/boundary/missing-data/property tests per rule and fail-closed integration tests.
 - **dependencies:** EvaluationContext, provenance, persistence, lifecycle state.
 - **target_release:** Durable Shadow Mode and reference scenarios incrementally.
@@ -486,7 +493,8 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-021` is next: version and hash the Risk Rule Set, including missing-data
-behavior and lifecycle accounting boundaries. DS-019/DS-020 now provide the
-signed durable Policy identity later `EvaluationContext` and replay work will
-pin beside that Risk identity.
+`DS-022` is next: define provenance-bearing evidence and prevent Agent context
+from impersonating trusted financial inputs. DS-021 now supplies the closed
+versioned Risk Rule Set identity; DS-019/DS-020 supply the signed durable
+Policy identity that later `EvaluationContext` and replay work will pin beside
+trusted evidence snapshots.

@@ -101,8 +101,12 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   active pointers with exact rollback; install/activation/rollback atomically
   bind typed Audit and current Policy-role authorization, authenticated Admin
   API and per-request Gateway selection. Depends: DS-019.
-- [ ] **NEXT — DS-021:** version/hash Risk Rule Sets and accounting boundaries. Depends: DS-019.
-- [ ] **DS-022:** define provenance-bearing evidence and privileged-context firewall. Depends: DS-010, DS-021.
+- [x] **DS-021:** added the closed versioned Risk Rule Set artifact and public
+  Schema; canonical hashing binds engine compatibility, every decision field,
+  missing-data behavior and lifecycle accounting boundaries, and Gateway
+  evidence records the exact version/hash. Depends: DS-019.
+- [ ] **NEXT — DS-022:** define provenance-bearing evidence and
+  privileged-context firewall. Depends: DS-010, DS-021.
 - [ ] **DS-023:** persist immutable Evaluation Context snapshots. Depends: DS-020..DS-022.
 - [ ] **DS-024:** remove wall-clock and untrusted privileged inputs from evaluators. Depends: DS-023.
 - [ ] **DS-025:** emit strongly bound canonical Decisions and update Schema/Audit. Depends: DS-023, DS-024.

@@ -345,8 +345,20 @@
       "required": ["schema_version", "outcome"],
       "properties": {
         "schema_version": { "const": 1 },
+        "risk_rule_set_version": { "$ref": "#/$defs/nonEmpty" },
+        "risk_rule_set_hash": { "$ref": "#/$defs/sha256" },
         "outcome": { "$ref": "#/$defs/riskOutcome" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["risk_rule_set_version"] },
+          "then": { "required": ["risk_rule_set_hash"] }
+        },
+        {
+          "if": { "required": ["risk_rule_set_hash"] },
+          "then": { "required": ["risk_rule_set_version"] }
+        }
+      ]
     },
     "simulationCompleted": {
       "type": "object",

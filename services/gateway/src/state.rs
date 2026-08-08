@@ -3,7 +3,7 @@ use std::sync::Arc;
 use atf_core::Timestamp;
 use atf_intent::TransactionIntent;
 use atf_policy::{PolicyBundle, PolicyError, PolicyOutcome};
-use atf_risk::RiskConfig;
+use atf_risk::RiskRuleSet;
 use atf_store::Store;
 
 use crate::{IdentityGatewayConfig, OperatorAuthenticator};
@@ -15,7 +15,7 @@ use crate::{IdentityGatewayConfig, OperatorAuthenticator};
 #[derive(Clone)]
 pub struct AppState {
     policy_source: PolicySource,
-    pub risk_config: Arc<RiskConfig>,
+    pub risk_rule_set: Arc<RiskRuleSet>,
     pub store: Store,
     pub identity: Arc<IdentityGatewayConfig>,
     pub operator_auth: Arc<OperatorAuthenticator>,
@@ -34,14 +34,14 @@ enum PolicySource {
 impl AppState {
     pub fn new(
         policy_bundle: PolicyBundle,
-        risk_config: RiskConfig,
+        risk_rule_set: RiskRuleSet,
         store: Store,
         identity: IdentityGatewayConfig,
         operator_auth: OperatorAuthenticator,
     ) -> Self {
         Self {
             policy_source: PolicySource::Static(Arc::new(policy_bundle)),
-            risk_config: Arc::new(risk_config),
+            risk_rule_set: Arc::new(risk_rule_set),
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),
@@ -52,7 +52,7 @@ impl AppState {
         organization_id: String,
         environment: String,
         bundle_id: String,
-        risk_config: RiskConfig,
+        risk_rule_set: RiskRuleSet,
         store: Store,
         identity: IdentityGatewayConfig,
         operator_auth: OperatorAuthenticator,
@@ -63,7 +63,7 @@ impl AppState {
                 environment: environment.into(),
                 bundle_id: bundle_id.into(),
             },
-            risk_config: Arc::new(risk_config),
+            risk_rule_set: Arc::new(risk_rule_set),
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),

@@ -169,6 +169,14 @@ async fn posting_an_in_budget_intent_persists_decision_audit_and_evidence(
         "SUCCEEDED"
     );
     assert_eq!(
+        finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
+        "risk-rules-1.0.0"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["risk_rule_set_hash"],
+        "f16a028c749c061753cee5876d8325dbfb7e01fec3d6642ed08181d025dacbb5"
+    );
+    assert_eq!(
         finalized.evaluation.evidence["simulation"]["outcome"]["status"],
         "NOT_RUN"
     );
@@ -207,6 +215,10 @@ async fn posting_an_over_budget_intent_denies_and_records_risk_as_not_run(
     assert_eq!(
         finalized.evaluation.evidence["risk"]["outcome"]["reason_code"],
         "POLICY_FORBID"
+    );
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
+        "risk-rules-1.0.0"
     );
 
     store.close().await;

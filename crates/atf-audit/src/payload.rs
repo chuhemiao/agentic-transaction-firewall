@@ -132,6 +132,10 @@ pub struct RiskFindingEvidence {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RiskEvaluatedPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_rule_set_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_rule_set_hash: Option<String>,
     pub outcome: OptionalModuleOutcome<Vec<RiskFindingEvidence>>,
 }
 
@@ -652,6 +656,19 @@ impl AuditPayload {
             }
             Self::RiskEvaluated(value) => {
                 validate_optional_outcome(event_type, &value.outcome)?;
+                match (&value.risk_rule_set_version, &value.risk_rule_set_hash) {
+                    (Some(version), Some(hash)) => {
+                        nonempty(event_type, "risk_rule_set_version", version)?;
+                        sha256(event_type, "risk_rule_set_hash", hash)?;
+                    }
+                    (None, None) => {}
+                    _ => {
+                        return Err(invalid(
+                            event_type,
+                            "Risk Rule Set version and hash must appear together",
+                        ));
+                    }
+                }
                 if let OptionalModuleOutcome::Succeeded { result } = &value.outcome {
                     for finding in result {
                         nonempty(event_type, "finding.code", &finding.code)?;
