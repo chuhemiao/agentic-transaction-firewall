@@ -8,7 +8,8 @@ queue is [`../tasks/todo.md`](../tasks/todo.md). Gap evidence remains in
 `docs/audit-gap-matrix.md`, and the execution-last rationale is recorded in
 `docs/decisions/0001-durable-shadow-before-enforce.md`. The accepted
 durable-state transaction and Audit-chain contract is
-`docs/decisions/0002-durable-state-contract.md`.
+`docs/decisions/0002-durable-state-contract.md`; the accepted operator trust
+boundary is `docs/decisions/0003-operator-authentication.md`.
 
 ## Current release: Durable Shadow Mode
 
@@ -84,11 +85,14 @@ order. The executable order is:
   Agent/Key/Intent/idempotency tuple and persist typed verified, rejected and
   replay evidence. Exact retry, concurrent conflict, restart, tenant isolation
   and tamper tests are green.
-- [~] DS-017 Proposed ADR-0003 selects Gateway-validated short-lived RFC 9068
+- [x] DS-017 Accepted ADR-0003 selects Gateway-validated short-lived RFC 9068
   access tokens plus per-request PostgreSQL subject/organization-role
   authorization. Agent/operator principals are disjoint and no selector,
   proxy Header, anonymous path, or shared account grants authority. Explicit
-  maintainer approval remains open before DS-018.
+  maintainer approval was recorded on 2026-08-08.
+- [ ] DS-018 Implement the accepted verifier, durable operator/role lifecycle,
+  typed principals, organization-scoped Decision-read RBAC, and
+  non-enumerating denial behavior.
 
 - [x] P0.1 PostgreSQL persistence for accepted Intents, Decisions, and the
   append-only Audit chain. The Gateway has no process-local fallback, and real
@@ -121,12 +125,12 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next gate:** approve or revise Proposed
-[`ADR-0003`](decisions/0003-operator-authentication.md) for `DS-017`. It selects
-Gateway-validated short-lived JWT access tokens and PostgreSQL-authoritative
-organization roles. DS-018 must not start until that trust boundary is
-explicitly accepted; Decision reads and future Audit queries remain
-unauthenticated in the current runtime.
+**Immediate next task:** `DS-018` — implement accepted
+[`ADR-0003`](decisions/0003-operator-authentication.md) with Gateway-validated
+short-lived JWT access tokens, PostgreSQL-authoritative organization roles,
+typed principals, and non-enumerating Decision reads. Decision reads and
+future Audit queries remain unauthenticated in the current runtime until that
+implementation and its tests land.
 
 ## Later releases
 

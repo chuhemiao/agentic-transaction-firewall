@@ -15,9 +15,9 @@ or execution authority.
 
 The organization header used by the Decision read route is only a temporary
 tenant selector. It is not authentication or authorization; business routes
-must not be exposed to a shared or untrusted network before DS-017/DS-018.
+must not be exposed to a shared or untrusted network before DS-018.
 
-Proposed [`ADR-0003`](decisions/0003-operator-authentication.md) defines the
+Accepted [`ADR-0003`](decisions/0003-operator-authentication.md) defines the
 replacement trust boundary but is not implemented: Decision reads will require
 one RFC 9068 `Authorization: Bearer` access token that the Gateway validates,
 then an active PostgreSQL `auditor` or `org_admin` binding for the selected
@@ -107,9 +107,9 @@ Future operator authentication/authorization and dependency features add codes
 to this one envelope. Changing or removing an existing code
 or field is a compatibility decision and requires an explicit migration.
 
-## Proposed DS-018 operator error mapping
+## Accepted DS-018 operator error mapping
 
-These values are a prerequisite contract from Proposed ADR-0003, not current
+These values are a prerequisite contract from ADR-0003, not current
 runtime behavior:
 
 | HTTP | Code | Meaning |

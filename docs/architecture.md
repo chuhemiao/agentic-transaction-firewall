@@ -157,18 +157,18 @@ Agent Intent
   DS-014 domain-separated Identity Envelope and DS-015 durable Agent/Key
   lifecycle plus offline provisioning, and DS-016 authenticated Gateway/Nonce
   admission now exist. Additional action profiles and operator authorization
-  remain unimplemented. Proposed
+  remain unimplemented. Accepted
   [`ADR-0003`](decisions/0003-operator-authentication.md) fixes the intended
-  operator trust boundary, but it is not accepted or implemented yet.
+  operator trust boundary, but DS-018 has not implemented it yet.
 
 Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
 `deploy/`, and `fuzz/` is a scaffolded directory with a
 `README.md` describing what belongs there and which roadmap phase (PRD §31)
 will fill it in. None of it is wired into the Cargo workspace yet.
 
-## Proposed operator trust boundary (not implemented)
+## Accepted operator trust boundary (not implemented)
 
-ADR-0003 proposes that the Gateway act as an OAuth resource server and verify
+ADR-0003 requires that the Gateway act as an OAuth resource server and verify
 short-lived RFC 9068 JWT access tokens from one configured HTTPS issuer and
 audience. A verified external subject does not carry ATF authority by itself:
 PostgreSQL maps its issuer/subject fingerprint to one internal operator and
@@ -185,8 +185,9 @@ TLS terminates at a trusted ingress, while the ingress-to-Gateway hop must be
 private and protected from observation, injection, and replay. DS-034 owns the
 concrete proxy, Header/body/time/rate limits, and deployment tests. DS-018 owns
 the subject/role migration, offline provisioning, JWT/JWKS verifier, typed
-principals, Decision-read RBAC, and non-enumerating cross-tenant tests. Neither
-task may be presented as implemented while ADR-0003 remains Proposed.
+principals, Decision-read RBAC, and non-enumerating cross-tenant tests. The
+accepted design must not be presented as implemented before DS-018 passes
+those runtime checks.
 
 ## Accepted durable-state contract (partially implemented)
 
@@ -371,8 +372,8 @@ complete Decision Engine:
 - Agent Envelope verification, exact durable Key selection and atomic hashed
   Nonce consumption are wired before Policy/Risk. Process memory is not
   deployment authority. Operator/auditor authentication and authorization are
-  still absent. ADR-0003 proposes the DS-017 boundary; approval is required
-  before DS-018 implements it.
+  still absent. ADR-0003 fixes the accepted DS-017 boundary; DS-018 is the next
+  implementation task.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database and explicitly provisioned organizations; GET's
   organization header is not authenticated. It loads the full organization

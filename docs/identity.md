@@ -16,10 +16,10 @@ their validity at an explicit verification time.
 
 Initial operators use a local CLI with `DATABASE_URL`; DS-015 deliberately
 introduces no Admin HTTP endpoint or network credential model. Operator
-authentication and RBAC remain DS-017/DS-018. Proposed
+authentication and RBAC remain DS-018 implementation work. Accepted
 [`ADR-0003`](decisions/0003-operator-authentication.md) selects short-lived
 Gateway-validated JWT access tokens plus durable ATF organization-role
-bindings, but still requires maintainer approval and implementation.
+bindings, but the current Gateway still requires implementation.
 
 The two identity systems remain deliberately disjoint. This document's Agent
 Key proves one bounded signed Intent and cannot produce operator authority.
@@ -170,8 +170,8 @@ snapshot.verify_envelope(intent, envelope, signature, &context)?;
 
 - Always: fail closed, use explicit timestamps, parameterize SQL, verify Audit
   before returning identity state, and keep each mutation atomic.
-- Requires a later accepted and implemented design: Admin HTTP and operator
-  credentials/RBAC follow Proposed ADR-0003 and DS-018. Nonce consumption and
+- Requires later implementation: Admin HTTP and operator credentials/RBAC
+  follow accepted ADR-0003 and DS-018. Nonce consumption and
   Identity rejection mapping are already implemented for Agent admission.
 - Never: store private identity/execution keys, infer a Key by trial, revive a
   revoked/expired Agent, un-revoke a Key, trust process memory as authority, or

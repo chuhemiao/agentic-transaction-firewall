@@ -1,7 +1,9 @@
 # ADR-0003: Verify operator JWT access tokens at the Gateway and authorize from durable ATF bindings
 
-- **Status:** Proposed — maintainer approval required before DS-018
+- **Status:** Accepted
 - **Date:** 2026-08-08
+- **Accepted:** 2026-08-08
+- **Approval:** Explicit ATF maintainer approval recorded in the project task
 - **Decision owners:** ATF maintainers
 - **Supersedes:** None
 - **Related:** [PRD](../PRD.md), [Gateway API](../api.md), [identity](../identity.md), [architecture](../architecture.md), [threat model](../threat-model.md), [ADR-0002](0002-durable-state-contract.md)
@@ -291,13 +293,15 @@ privilege and turns compromise of either credential into broader authority.
 - DS-018 closes the application principal/RBAC gap only. DS-033/DS-034 and a
   production deployment review remain required before shared exposure.
 
-## Implementation and approval gates
+## Implementation gate
 
-This ADR stays **Proposed** until an ATF maintainer explicitly approves the
-reference mechanism and residual bearer-token window. DS-018 must not mark the
-trust boundary accepted on its own.
+The ATF maintainer explicitly approved the reference mechanism and residual
+bearer-token window on 2026-08-08. That approval closes the DS-017 design gate;
+it does not claim that operator authentication or RBAC exists in the current
+Gateway. DS-018 must implement and verify the accepted boundary before any
+business route is considered operator-protected.
 
-After approval, DS-018 should land one reviewable vertical slice:
+DS-018 should land one reviewable vertical slice:
 
 1. migration and `atf-store` APIs for immutable operator subjects and
    organization-role lifecycle;

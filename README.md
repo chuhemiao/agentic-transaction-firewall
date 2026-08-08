@@ -128,10 +128,10 @@ Only the following crates are implemented so far:
   durable Agent/Key, and consumes the Nonce before Policy/Risk. Rejections and
   conflicting replay produce typed durable evidence without admitting an
   Intent. Operator authentication and organization authorization are still
-  missing. Proposed
+  missing. Accepted
   [`ADR-0003`](docs/decisions/0003-operator-authentication.md) defines the
-  intended OAuth/JWT plus durable-role trust boundary, but it requires
-  maintainer approval and DS-018 implementation before changing that status.
+  OAuth/JWT plus durable-role trust boundary, but DS-018 implementation and
+  executable tests are still required before changing that runtime status.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -173,8 +173,8 @@ expired admissions. `DS-014` replaces raw-hash signatures with the canonical,
 domain-separated Identity Envelope and exact-key verification. `DS-015` adds
 durable Agent/key lifecycle, atomic operator Audit evidence and offline
 provisioning. `DS-016`, Gateway verification plus atomic Nonce consumption, is
-complete. `DS-017` now has a Proposed operator authentication trust-boundary
-ADR; maintainer approval is the next gate before DS-018 implementation.
+complete. `DS-017` accepted the operator authentication trust boundary in
+ADR-0003 on 2026-08-08; `DS-018` operator RBAC is the next implementation task.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -218,8 +218,9 @@ semantics (evaluate only, never execute).
    verification (PRD §17.2).~~ Done as a library and hardened in DS-014: its
    in-memory registry verifies only the declared Key ID over canonical
    domain-separated Envelope bytes, supports explicit rotation overlap, and
-   gates Agent status, organization, environment and lifetime. Still not
-   called from `services/gateway` — see item 8 and item 14.
+   gates Agent status, organization, environment and lifetime. DS-016 now
+   calls it from `services/gateway` against durable Agent/Key lifecycle and
+   atomic Nonce state; lifecycle provisioning remains offline.
 6. ~~`schemas/decision.schema.json` and `schemas/audit-event.schema.json`.~~
    Done: both validated in CI against real output (`atf-decision` and
    `atf-audit` respectively).
@@ -287,13 +288,16 @@ semantics (evaluate only, never execute).
     before Policy/Risk. Exact retries add no evidence; conflicting concurrent
     reuse has one winner; restart, tenant isolation and privileged-tamper tests
     fail closed without storing raw Nonces, Envelopes or signatures.
-17. **Operator authentication trust boundary.** Proposed in
+17. ~~Operator authentication trust boundary.~~ Done: accepted
     [`ADR-0003`](docs/decisions/0003-operator-authentication.md): the Gateway
     validates short-lived RFC 9068 access tokens, while PostgreSQL binds the
     external subject to current organization roles. Agent and operator
     principals are disjoint; selectors and proxy Headers grant no authority.
-    This item remains open pending explicit maintainer approval, then DS-018
-    implementation and tests.
+    Acceptance closes DS-017 only; it does not claim runtime protection.
+18. **Organization-scoped operator RBAC.** **Next:** implement the accepted
+    credential verifier, durable operator/role lifecycle, typed principals,
+    non-enumerating Decision reads, offline provisioning, and real HTTP/
+    PostgreSQL tests in DS-018.
 
 ### Remaining before Phase 2 can close out
 
@@ -347,6 +351,8 @@ semantics (evaluate only, never execute).
   storage.
 - ~~Wire `atf-identity` into Gateway admission before Policy/Risk.~~ Done in
   DS-016 with atomic Nonce consumption and request Identity/replay evidence.
+- Organization-scoped operator authentication/RBAC following accepted
+  ADR-0003; Decision reads remain unauthenticated until DS-018 lands.
 - Versioned `EvaluationContext`, Context Provenance, Policy/Risk hashes, and
   Original/Counterfactual Replay.
 - Organization-scoped Audit Query API, metrics, safe tracing, and API

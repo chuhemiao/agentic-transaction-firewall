@@ -77,8 +77,8 @@ Envelope and exact-key verifier. DS-015 added restart-safe Agent/Key lifecycle,
 atomic operator Audit evidence and offline provisioning. DS-016 added strict
 Gateway identity Headers/configuration, current durable exact-Key verification,
 atomic hashed-Nonce admission and typed rejection/replay evidence; the next
-task is DS-017. A Proposed ADR now exists; explicit maintainer approval is the
-remaining DS-017 gate before DS-018 begins.
+task is DS-018. ADR-0003 was explicitly accepted on 2026-08-08 and closes the
+DS-017 design gate without claiming runtime RBAC.
 
 ### Present but incomplete or unwired
 
@@ -335,8 +335,9 @@ readiness reflect dependency health.
 organizations are explicitly provisioned. POST uses the DS-004 admission and
 finalization transactions, Risk consumes verified durable Audit events, GET
 requires `X-ATF-Organization-ID`, and readiness checks live schema access. The
-header is only a transitional tenant selector until DS-017/DS-018 add an
-authenticated organization boundary. DS-012 now supplies atomic reservation,
+header is only a transitional tenant selector. ADR-0003 fixes the accepted
+authenticated organization boundary; DS-018 must implement it. DS-012 now
+supplies atomic reservation,
 lease/fencing and result binding; DS-013 now supplies exact completed retry and
 request-driven admitted-work recovery.
 
@@ -693,9 +694,9 @@ parsing and real signed HTTP verification cover the boundary.
 verified (for example local hashed service credentials or OIDC/JWT), how roles
 map to organizations, and where TLS termination/credential rotation live.
 
-- **Status:** `[~]` Proposed on 2026-08-08; threat review complete, explicit
-  maintainer approval pending.
-- **Proposed decision:** the Gateway verifies short-lived RFC 9068 JWT access
+- **Status:** Complete (2026-08-08); ADR-0003 explicitly accepted by the ATF
+  maintainer.
+- **Accepted decision:** the Gateway verifies short-lived RFC 9068 JWT access
   tokens from one configured issuer and audience. PostgreSQL maps the external
   subject fingerprint to an internal operator and current organization roles
   on every request. Agent/operator principals are disjoint; organization and
@@ -709,9 +710,11 @@ map to organizations, and where TLS termination/credential rotation live.
   2. Credential validation, rotation, revocation and tenant binding are specified.
   3. The reference mechanism has no anonymous/shared-account fallback.
 - **Verification:** cross-tenant/confused-deputy threat review is documented in
-  ADR-0003; human approval remains mandatory.
+  ADR-0003; explicit human maintainer approval was recorded on 2026-08-08.
 
 ### DS-018 — Enforce organization-scoped operator RBAC `[M]`
+
+**Status:** Next.
 
 **Description:** Implement the selected auth mechanism and a typed
 `RequestPrincipal`. Protect Decision reads and future Audit queries with
@@ -1371,7 +1374,7 @@ exists.
 | Idempotency retry versus one-time nonce | Verify signature first; atomically bind nonce to the one idempotency/Intent tuple; exact retry returns original | DS-016 |
 | Unknown Intent fields | Reject unknown core fields; only hash-bound `context`/`metadata` extensions | DS-008 |
 | Currently advertised but semantically unsupported actions | Reject until a versioned profile is implemented | DS-010 |
-| Operator identity provider | Proposed: Gateway-validated RFC 9068 JWT access token from one configured issuer/audience; PostgreSQL grants current ATF organization roles; no anonymous/shared/proxy-Header fallback | DS-017 approval |
+| Operator identity provider | Accepted: Gateway-validated RFC 9068 JWT access token from one configured issuer/audience; PostgreSQL grants current ATF organization roles; no anonymous/shared/proxy-Header fallback | DS-017 |
 | Policy signing-key custody | Gateway stores trusted public keys only; signing private key remains external | DS-020 |
 | Agent-provided vendor median | Never trusted for Permit; require provenance or return configured insufficient-data result | DS-022/DS-024 |
 | Audit external checkpoint/retention | Not required for C1 persistence; specify later without weakening append-only database evidence | C4 review |
