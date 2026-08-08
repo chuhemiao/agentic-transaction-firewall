@@ -43,7 +43,8 @@ Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
   the fail-closed pure transition validator, DS-022 provenance-bearing
-  Evidence envelopes, and the DS-023 immutable `EvaluationContext`. Evidence uses closed typed source/kind enums, bounded
+  Evidence envelopes, and the DS-023/DS-024 immutable `EvaluationContext`
+  evaluator boundary. Evidence uses closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
   the exact Intent/Profile, one evaluation time, Policy/Risk artifacts,
@@ -74,7 +75,9 @@ Only the following crates are implemented so far:
   Cedar Schema and every policy-file digest into a domain-separated canonical
   hash. Strict Cedar policy validation happens at load; Schema-backed request
   validation, scope/expiry rechecks and runtime-diagnostic rejection happen
-  on every evaluation. Successful Policy output names the exact bundle
+  on every evaluation. DS-024 requires the exact persisted Context binding
+  for Intent/Profile, environment, time and Bundle identity; no Policy entry
+  point samples the clock. Successful output names the exact bundle
   ID/version/hash. DS-020 adds a detached, domain-separated strict Ed25519
   publisher proof and a bounded exact-byte archive for durable revalidation.
 - `crates/atf-risk` — a closed Risk Rule Set artifact binds format/engine and
@@ -85,12 +88,13 @@ Only the following crates are implemented so far:
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol and duplicate purchase. Gateway evaluates the latter over
   the verified PostgreSQL Audit chain using the artifact's explicit
-  `PERMITTED` boundary. DS-022 adds `RiskContext`: raw Intent context is always
-  `AGENT_PROVIDED`; price, balance, position, spend, reputation, freshness and
-  simulation keys cannot become trusted inputs. Each `RiskContext` is bound to
-  the exact Intent hash and cannot be reused across requests. Vendor median now
-  requires fresh, hash-verified, allowlisted, scope-bound `ATF_ENRICHED`
-  evidence or returns an explicit restrictive finding.
+  `PERMITTED` boundary. DS-024 exposes only `evaluate_context`: it validates
+  the exact Intent/Profile, Rule Set and hash-chain prefix named by the
+  persisted Context, derives time and trusted Evidence solely from that
+  snapshot, and rejects later history. Raw Intent context is hash-bound but
+  never inspected for privileged values. Vendor median requires persisted,
+  fresh, hash-verified, allowlisted, scope-bound `ATF_ENRICHED` evidence;
+  enabled Rule Sets must emit a restrictive finding when it is absent.
 - `crates/atf-audit` — the Audit Ledger domain logic: hash-chained events,
   append-only tamper detection (`verify_chain`), and version-1 typed payloads
   for all canonical PRD lifecycle/administrative events. Event-to-state
@@ -239,6 +243,10 @@ immutable snapshot store and typed Audit evidence. Gateway pins the resolved
 Policy, Risk Rule Set, evaluation time, Agent-context hash, verified Evidence
 set/trust identity, market/Simulation availability and exact Audit-history
 prefix before evaluation; final Evaluation rows bind that context hash.
+`DS-024` removes all Policy/Risk clock-sampling and separately supplied
+privileged-input entry points. Both engines now validate and consume the
+persisted Context; Risk additionally verifies the exact Audit prefix and
+rejects Agent vendor values and post-snapshot history.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -274,8 +282,8 @@ semantics (evaluate only, never execute).
    `*.json` cases (inline intent + expected Cedar permit/forbid), runs them
    against a declared policy bundle, exits non-zero on any failure.
 4. ~~Risk rules that need history/state (PRD §12.2).~~ Partly done:
-   `atf_risk::evaluate_with_history`/`evaluate_with_events` add a
-   duplicate-purchase check
+   `atf_risk::evaluate_context` adds a duplicate-purchase check over the exact
+   Context-bound verified Audit prefix
    (same Organization + Agent + Resource within 24h, reading only prior
    `DecisionRecorded(PERMIT)` events) — verified end-to-end through
    `services/gateway`; a prior DENY does not poison a later valid request,
@@ -404,9 +412,14 @@ semantics (evaluate only, never execute).
     verified Evidence/trust selection, Audit-history prefix and explicit
     unavailable/`NOT_RUN` inputs; restart readers and finalization reverify all
     bindings and reject stale leases, conflicts and tampering.
-24. **NEXT — Context-only Policy/Risk:** remove evaluator wall-clock and
-    privileged ambient reads and prove repeated evaluation of one persisted
-    context produces byte-equivalent module output.
+24. ~~Context-only Policy/Risk.~~ Done in DS-024: the public evaluators accept
+    the immutable Context instead of separate time/Evidence inputs, validate
+    exact Intent/Profile/artifact/history bindings, reject history after the
+    snapshot, never read Agent vendor fields, and produce byte-equivalent
+    Policy/Risk output for repeated evaluation.
+25. **NEXT — Strongly bound canonical Decision:** bind Intent, Profile,
+    Policy, Risk, Context, Simulation, time and constraints into the Decision
+    hash and matching Audit evidence.
 
 ### Remaining before Phase 2 can close out
 
@@ -483,7 +496,7 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  context-only deterministic evaluation/replay, strongly bound Decisions,
+  deterministic replay, strongly bound Decisions,
   stateful Risk, Audit query/metrics, operational hardening, and security
   re-audit.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference

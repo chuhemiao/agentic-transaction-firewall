@@ -61,10 +61,11 @@ manifest contract, scope/time window, all file digests, canonical bundle hash,
 Cedar Schema and Cedar policies in strict mode. Warnings are rejected as well
 as errors.
 
-`PolicyBundle::evaluate_at` rechecks organization and expiry on every request,
-constructs the Cedar request with the same Schema, and treats any Cedar runtime
-diagnostic as an error. A successful `PolicyOutcome` carries `bundle_id`,
-`policy_version` and `bundle_hash` with its Permit/Forbid result.
+`PolicyBundle::evaluate` accepts the immutable `EvaluationContext`, rederives
+the Intent/Profile binding, checks environment, exact Bundle ID/version/hash
+and active time, constructs the Cedar request with the same Schema, and treats
+any Cedar runtime diagnostic as an error. A successful `PolicyOutcome` carries
+`bundle_id`, `policy_version` and `bundle_hash` with its Permit/Forbid result.
 
 Cedar documents that policy validation is a separate pre-authorization step
 and that requests must conform to the Schema contract:

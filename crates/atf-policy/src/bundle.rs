@@ -836,7 +836,7 @@ fn decode_lower_hex<const N: usize>(value: &str, label: &str) -> Result<[u8; N],
 
 fn validate_policies(schema: &Schema, policies: &PolicySet) -> Result<(), PolicyError> {
     // Cedar intentionally keeps policy validation separate from authorization;
-    // bundles must pass strict validation before they can reach evaluate_at.
+    // bundles must pass strict validation before they can reach evaluate.
     // Source: https://docs.cedarpolicy.com/policies/validation.html
     let result = Validator::new(schema.clone()).validate(policies, ValidationMode::Strict);
     let diagnostics = result

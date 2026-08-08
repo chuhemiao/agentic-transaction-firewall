@@ -7,5 +7,5 @@
 mod decide;
 mod types;
 
-pub use decide::decide;
+pub use decide::{decide, decide_with_risk_result};
 pub use types::{Decision, DecisionKind, Reason};

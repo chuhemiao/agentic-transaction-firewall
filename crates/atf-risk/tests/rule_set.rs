@@ -89,10 +89,6 @@ fn every_decision_affecting_configuration_change_changes_the_hash() {
             serde_json::json!("critical"),
         ),
         (
-            "/rules/vendor_price_deviation/missing_data",
-            serde_json::json!("NOT_APPLICABLE"),
-        ),
-        (
             "/rules/high_risk_network_or_protocol/enabled",
             serde_json::json!(false),
         ),
@@ -142,6 +138,19 @@ fn every_decision_affecting_configuration_change_changes_the_hash() {
     enabled_cap["rules"]["single_amount_cap"]["enabled"] = serde_json::json!(true);
     enabled_cap["rules"]["single_amount_cap"]["max_amount"] = serde_json::json!("10.00");
     assert_ne!(parse(&enabled_cap).rule_set_hash(), baseline_hash);
+}
+
+#[test]
+fn enabled_vendor_price_rule_cannot_silently_ignore_missing_trusted_data() {
+    let mut candidate = default_value();
+    candidate["rules"]["vendor_price_deviation"]["missing_data"] =
+        serde_json::json!("NOT_APPLICABLE");
+
+    assert!(RiskRuleSet::from_json(&candidate.to_string()).is_err());
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../schemas/risk-rule-set.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    assert!(!validator.is_valid(&candidate));
 }
 
 #[test]

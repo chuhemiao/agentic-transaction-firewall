@@ -1,7 +1,7 @@
 use atf_core::new_ulid;
 use atf_intent::TransactionIntent;
 use atf_policy::{PolicyDecision, PolicyError, PolicyOutcome};
-use atf_risk::{RiskFinding, Severity};
+use atf_risk::{RiskEvaluationError, RiskFinding, Severity};
 
 use crate::types::{Decision, DecisionKind, Reason};
 
@@ -28,9 +28,20 @@ pub fn decide(
     policy: Result<PolicyOutcome, PolicyError>,
     risk_findings: &[RiskFinding],
 ) -> Decision {
+    decide_with_risk_result(intent, policy, Ok(risk_findings))
+}
+
+/// Merge Policy with either a completed Risk result or a typed Risk module
+/// error. A Risk error after Policy Permit is terminal `ERROR`; it can never
+/// be represented by an empty finding list and accidentally become Permit.
+pub fn decide_with_risk_result(
+    intent: &TransactionIntent,
+    policy: Result<PolicyOutcome, PolicyError>,
+    risk: Result<&[RiskFinding], &RiskEvaluationError>,
+) -> Decision {
     let policy_outcome = match policy {
         Ok(outcome) => outcome,
-        Err(_) => return error_decision(intent),
+        Err(_) => return module_error_decision(intent, "POLICY_EVALUATION_ERROR", "Policy"),
     };
 
     let mut reasons: Vec<Reason> = policy_outcome
@@ -51,6 +62,11 @@ pub fn decide(
             reasons,
         };
     }
+
+    let risk_findings = match risk {
+        Ok(findings) => findings,
+        Err(error) => return module_error_decision(intent, error.code(), "Risk"),
+    };
 
     reasons.extend(risk_findings.iter().map(|finding| Reason {
         code: finding.code.clone(),
@@ -73,15 +89,15 @@ pub fn decide(
     }
 }
 
-fn error_decision(intent: &TransactionIntent) -> Decision {
+fn module_error_decision(intent: &TransactionIntent, code: &str, module: &str) -> Decision {
     Decision {
         decision_id: new_ulid(),
         intent_id: intent.intent_id.clone(),
         decision: DecisionKind::Error,
         reasons: vec![Reason {
-            code: "POLICY_EVALUATION_ERROR".to_string(),
+            code: code.to_string(),
             severity: "critical".to_string(),
-            message: "Policy evaluation failed safely.".to_string(),
+            message: format!("{module} evaluation failed safely."),
         }],
     }
 }
@@ -91,8 +107,6 @@ mod tests {
     use super::*;
     use atf_core::{Amount, Timestamp};
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
-    use atf_policy::{PolicyBundle, PolicyBundleLoadContext};
-    use std::path::Path;
     use std::str::FromStr;
 
     fn sample_intent(amount: &str) -> TransactionIntent {
@@ -150,53 +164,65 @@ mod tests {
         }
     }
 
+    fn policy(decision: PolicyDecision) -> Result<PolicyOutcome, PolicyError> {
+        Ok(PolicyOutcome {
+            decision,
+            policy_ids: vec!["test-policy".into()],
+            bundle_id: "test-bundle".into(),
+            policy_version: "1.0.0".into(),
+            bundle_hash: "a".repeat(64),
+        })
+    }
+
     #[test]
     fn permit_with_no_findings_maps_to_permit() {
-        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
-        let decision = decide(&intent, policy, &[]);
+        let decision = decide(&intent, policy(PolicyDecision::Permit), &[]);
         assert_eq!(decision.decision, DecisionKind::Permit);
         assert!(!decision.reasons.is_empty());
     }
 
     #[test]
     fn default_deny_maps_to_deny_regardless_of_risk() {
-        let bundle = policy_bundle();
         let intent = sample_intent("999.00");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
         // Even a critical finding must not matter once Policy already denied
         // (PRD §10.1.2: "终止合并，不再评估Risk").
-        let decision = decide(&intent, policy, &[finding(Severity::Critical)]);
+        let decision = decide(
+            &intent,
+            policy(PolicyDecision::Forbid),
+            &[finding(Severity::Critical)],
+        );
         assert_eq!(decision.decision, DecisionKind::Deny);
     }
 
     #[test]
     fn critical_risk_finding_overrides_policy_permit_to_deny() {
-        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
-        let decision = decide(&intent, policy, &[finding(Severity::Critical)]);
+        let decision = decide(
+            &intent,
+            policy(PolicyDecision::Permit),
+            &[finding(Severity::Critical)],
+        );
         assert_eq!(decision.decision, DecisionKind::Deny);
     }
 
     #[test]
     fn high_risk_finding_sends_a_permit_to_review() {
-        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
-        let decision = decide(&intent, policy, &[finding(Severity::High)]);
+        let decision = decide(
+            &intent,
+            policy(PolicyDecision::Permit),
+            &[finding(Severity::High)],
+        );
         assert_eq!(decision.decision, DecisionKind::Review);
     }
 
     #[test]
     fn info_and_medium_findings_do_not_block_permit() {
-        let bundle = policy_bundle();
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
         let decision = decide(
             &intent,
-            policy,
+            policy(PolicyDecision::Permit),
             &[finding(Severity::Info), finding(Severity::Medium)],
         );
         assert_eq!(decision.decision, DecisionKind::Permit);
@@ -204,13 +230,15 @@ mod tests {
 
     #[test]
     fn policy_evaluation_error_fails_closed_to_error_not_permit() {
-        let bundle = policy_bundle();
         // Cedar's `decimal` extension supports at most 4 fractional digits
         // (see atf-policy::mapping::decimal_value); an amount with finer
         // precision can't be turned into a Cedar context at all.
         let intent = sample_intent("12.123456");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
-        let decision = decide(&intent, policy, &[]);
+        let decision = decide(
+            &intent,
+            Err(PolicyError::ContextBuild("test error".into())),
+            &[],
+        );
         assert_eq!(decision.decision, DecisionKind::Error);
         assert_ne!(decision.decision, DecisionKind::Permit);
         assert_eq!(decision.reasons.len(), 1);
@@ -222,28 +250,26 @@ mod tests {
     }
 
     #[test]
-    fn decision_is_bound_to_the_intent_id() {
-        let bundle = policy_bundle();
+    fn risk_context_error_fails_closed_to_error_not_empty_findings_permit() {
         let intent = sample_intent("12.50");
-        let policy = bundle.evaluate_at(&intent, evaluation_time());
-        let decision = decide(&intent, policy, &[]);
+        let error = RiskEvaluationError::RuleSetMismatch;
+
+        let decision =
+            decide_with_risk_result(&intent, policy(PolicyDecision::Permit), Err(&error));
+
+        assert_eq!(decision.decision, DecisionKind::Error);
+        assert_eq!(decision.reasons.len(), 1);
+        assert_eq!(decision.reasons[0].code, "RISK_RULE_SET_MISMATCH");
+        assert_eq!(
+            decision.reasons[0].message,
+            "Risk evaluation failed safely."
+        );
+    }
+
+    #[test]
+    fn decision_is_bound_to_the_intent_id() {
+        let intent = sample_intent("12.50");
+        let decision = decide(&intent, policy(PolicyDecision::Permit), &[]);
         assert_eq!(decision.intent_id, intent.intent_id);
-    }
-
-    fn policy_bundle() -> PolicyBundle {
-        let evaluated_at = evaluation_time();
-        PolicyBundle::from_dir(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/examples"),
-            &PolicyBundleLoadContext {
-                organization_id: "alpha-lab".into(),
-                environment: "development".into(),
-                evaluated_at,
-            },
-        )
-        .unwrap()
-    }
-
-    fn evaluation_time() -> Timestamp {
-        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap()
     }
 }

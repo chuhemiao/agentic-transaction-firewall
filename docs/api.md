@@ -59,10 +59,12 @@ no production enricher, so the reference Rule Set returns a restrictive
 vendor-price insufficient-data finding rather than using
 `context.historical_vendor_median`. Trusted integrations construct the closed
 `evidence.schema.json` envelope, apply an exact local trust policy, and pass
-only `VerifiedEvidence` through `RiskContext`. DS-023 persists the exact
-verified Evidence/trust selection,
-Agent-context hash and evaluation time in the immutable Evaluation Context
-before Policy/Risk. See [`context-provenance.md`](context-provenance.md).
+only `VerifiedEvidence` into Evaluation Context construction. DS-023 persists
+the exact verified Evidence/trust selection, Agent-context hash and evaluation
+time before Policy/Risk. DS-024 makes `atf_policy::PolicyBundle::evaluate` and
+`atf_risk::evaluate_context` validate that immutable authority; Risk rejects
+any Audit prefix not ending at the Context snapshot. See
+[`context-provenance.md`](context-provenance.md).
 
 Gateway startup also requires `ATF_OPERATOR_ISSUER_ID`, exact
 `ATF_OPERATOR_ISSUER_URL`, `ATF_OPERATOR_AUDIENCE`, configured HTTPS

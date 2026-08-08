@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use atf_core::Timestamp;
+use atf_core::{EvaluationContext, Timestamp};
 use atf_intent::TransactionIntent;
 use atf_policy::{PolicyBundle, PolicyError, PolicyOutcome};
 use atf_risk::RiskRuleSet;
@@ -44,12 +44,12 @@ impl ResolvedPolicyBundle {
         }
     }
 
-    pub(crate) fn evaluate_at(
+    pub(crate) fn evaluate(
         &self,
         intent: &TransactionIntent,
-        evaluated_at: Timestamp,
+        context: &EvaluationContext,
     ) -> Result<PolicyOutcome, PolicyError> {
-        self.bundle().evaluate_at(intent, evaluated_at)
+        self.bundle().evaluate(intent, context)
     }
 }
 

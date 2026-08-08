@@ -103,7 +103,16 @@ fn run_case_inner(path: &Path) -> Result<CaseOutcome> {
     )
     .with_context(|| format!("loading policy bundle {}", case.policies.display()))?;
     let outcome = bundle
-        .evaluate_at(&intent, evaluated_at)
+        .evaluate(
+            &intent,
+            &crate::local_evaluation_context(
+                &intent,
+                &bundle,
+                &atf_risk::RiskRuleSet::default(),
+                evaluated_at,
+            )?
+            .0,
+        )
         .map_err(|e| anyhow::anyhow!("evaluating {}: {e}", path.display()))?;
 
     let passed = matches!(

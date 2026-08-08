@@ -153,6 +153,7 @@ name = "atf-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atf-audit",
  "atf-core",
  "atf-decision",
  "atf-identity",

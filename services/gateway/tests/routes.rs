@@ -263,7 +263,7 @@ async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
         .as_array()
         .unwrap()
         .iter()
-        .any(|reason| reason["code"] == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+        .any(|reason| reason["code"] == "VENDOR_PRICE_DATA_MISSING"));
     let finalized = store
         .load_finalized_decision("alpha-lab", "01J0000000000000000000PV00")
         .await?
@@ -276,7 +276,7 @@ async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
         .as_array()
         .unwrap()
         .iter()
-        .any(|finding| finding["code"] == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+        .any(|finding| finding["code"] == "VENDOR_PRICE_DATA_MISSING"));
 
     store.close().await;
     database.destroy().await?;

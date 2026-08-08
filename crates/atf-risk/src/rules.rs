@@ -1,118 +1,115 @@
-#[cfg(test)]
-use std::str::FromStr;
-
-use atf_audit::{AuditEvent, AuditLedger};
+use atf_audit::AuditEvent;
 #[cfg(test)]
 use atf_core::Amount;
-use atf_core::Timestamp;
-use atf_intent::TransactionIntent;
+use atf_core::{EvaluationContext, Timestamp};
+use atf_intent::{validate_profile, TransactionIntent};
 use rust_decimal::Decimal;
 
+use crate::context::{RiskContext, RiskContextIssue};
+use crate::error::RiskEvaluationError;
 use crate::finding::RiskFinding;
 use crate::history_rules;
 use crate::rule_set::{MissingDataBehavior, RiskEvaluation, RiskRuleSet};
 use crate::severity::Severity;
-use crate::{RiskContext, RiskContextIssue};
 
-/// Run every stateless MVP rule against `intent` and return the findings
-/// that fired.
-///
-/// This is a deliberately small, *stateless* rule set (PRD §12.1: "确定性优先"):
-/// every rule here can be decided from the Intent (plus `now`) alone, with no
-/// database, history, or external service lookup. Rules that need history —
-/// duplicate purchase, daily cumulative spend, first-time address, order
-/// frequency (PRD §12.2) — are `evaluate_with_history`'s job instead.
-pub fn evaluate(intent: &TransactionIntent, rule_set: &RiskRuleSet) -> RiskEvaluation {
-    evaluate_at(intent, rule_set, Timestamp::now())
-}
-
-/// Evaluate stateless rules at one caller-selected time. DS-023 persists this
-/// timestamp inside the immutable Evaluation Context; DS-024 will make that
-/// context the evaluator's sole source of decision-affecting inputs.
-pub fn evaluate_at(
+/// Evaluate the exact Intent, Rule Set, Evidence and Audit prefix bound by one
+/// immutable Evaluation Context. All decision-affecting inputs are validated
+/// before a rule runs; a mismatch is an error and must fail closed upstream.
+pub fn evaluate_context<'a>(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,
-    evaluated_at: Timestamp,
-) -> RiskEvaluation {
-    let context = RiskContext::agent_only(intent);
-    evaluate_with_context_at(intent, rule_set, &context, evaluated_at)
-}
-
-pub fn evaluate_with_context_at(
-    intent: &TransactionIntent,
-    rule_set: &RiskRuleSet,
-    context: &RiskContext,
-    evaluated_at: Timestamp,
-) -> RiskEvaluation {
+    evaluation_context: &EvaluationContext,
+    events: impl IntoIterator<Item = &'a AuditEvent>,
+) -> Result<RiskEvaluation, RiskEvaluationError> {
+    let events = events.into_iter().collect::<Vec<_>>();
+    validate_context_binding(intent, rule_set, evaluation_context, &events)?;
+    let context = RiskContext::from_evaluation_context(intent, evaluation_context);
+    let evaluated_at = evaluation_context.evaluation_time();
     let rules = rule_set.rules();
-    let findings = [
+    let mut findings = [
         request_expired(intent, &rules.request_expired, evaluated_at),
         single_amount_cap(intent, &rules.single_amount_cap),
         max_fee_ratio(intent, &rules.max_fee_ratio),
-        vendor_price_deviation(intent, context, &rules.vendor_price_deviation),
+        vendor_price_deviation(intent, &context, &rules.vendor_price_deviation),
         high_risk_network_or_protocol(intent, &rules.high_risk_network_or_protocol),
     ]
     .into_iter()
     .flatten()
-    .collect();
-    rule_set.evaluation(findings)
+    .collect::<Vec<_>>();
+    findings.extend(history_rules::history_findings_from_events(
+        intent,
+        rule_set,
+        events.iter().copied(),
+        evaluated_at,
+    ));
+    Ok(rule_set.evaluation(findings))
 }
 
-/// Everything [`evaluate`] does, plus configured history-dependent rules.
-pub fn evaluate_with_history(
+fn validate_context_binding(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,
-    ledger: &AuditLedger,
-) -> RiskEvaluation {
-    evaluate_with_history_at(intent, rule_set, ledger, Timestamp::now())
-}
-
-pub fn evaluate_with_history_at(
-    intent: &TransactionIntent,
-    rule_set: &RiskRuleSet,
-    ledger: &AuditLedger,
-    evaluated_at: Timestamp,
-) -> RiskEvaluation {
-    evaluate_with_events_at(intent, rule_set, ledger.iter(), evaluated_at)
-}
-
-/// Evaluate against Audit events that were loaded and verified by a durable
-/// store. This keeps history authority outside the Risk crate.
-pub fn evaluate_with_events<'a>(
-    intent: &TransactionIntent,
-    rule_set: &RiskRuleSet,
-    events: impl IntoIterator<Item = &'a AuditEvent>,
-) -> RiskEvaluation {
-    evaluate_with_events_at(intent, rule_set, events, Timestamp::now())
-}
-
-pub fn evaluate_with_events_at<'a>(
-    intent: &TransactionIntent,
-    rule_set: &RiskRuleSet,
-    events: impl IntoIterator<Item = &'a AuditEvent>,
-    evaluated_at: Timestamp,
-) -> RiskEvaluation {
-    let context = RiskContext::agent_only(intent);
-    evaluate_with_events_and_context_at(intent, rule_set, &context, events, evaluated_at)
-}
-
-pub fn evaluate_with_events_and_context_at<'a>(
-    intent: &TransactionIntent,
-    rule_set: &RiskRuleSet,
-    context: &RiskContext,
-    events: impl IntoIterator<Item = &'a AuditEvent>,
-    evaluated_at: Timestamp,
-) -> RiskEvaluation {
-    let mut result = evaluate_with_context_at(intent, rule_set, context, evaluated_at);
-    result
-        .findings
-        .extend(history_rules::history_findings_from_events(
-            intent,
-            rule_set,
-            events,
-            evaluated_at,
+    context: &EvaluationContext,
+    events: &[&AuditEvent],
+) -> Result<(), RiskEvaluationError> {
+    if context.intent_id() != intent.intent_id || context.intent_hash() != intent.canonical_hash() {
+        return Err(RiskEvaluationError::ContextBinding(
+            "Intent ID/hash binding does not match".into(),
         ));
-    result
+    }
+    context.verify_agent_context(&intent.context).map_err(|_| {
+        RiskEvaluationError::ContextBinding("Agent context hash does not match".into())
+    })?;
+    let profile = validate_profile(intent).map_err(|error| {
+        RiskEvaluationError::ContextBinding(format!("Intent Profile is invalid: {error}"))
+    })?;
+    if context.profile_id() != profile.id() || context.profile_version() != profile.version() {
+        return Err(RiskEvaluationError::ContextBinding(
+            "Intent Profile binding does not match".into(),
+        ));
+    }
+    let Some(actual) = context.risk().available_parts() else {
+        return Err(RiskEvaluationError::RuleSetUnavailable);
+    };
+    let expected = (
+        rule_set.engine_version(),
+        rule_set.version(),
+        rule_set.rule_set_hash(),
+    );
+    if actual != expected {
+        return Err(RiskEvaluationError::RuleSetMismatch);
+    }
+
+    let expected_sequence =
+        usize::try_from(context.history().through_sequence()).map_err(|_| {
+            RiskEvaluationError::HistoryBinding("snapshot sequence exceeds this platform".into())
+        })?;
+    if events.len() != expected_sequence {
+        return Err(RiskEvaluationError::HistoryBinding(
+            "event count does not equal snapshot sequence".into(),
+        ));
+    }
+    let mut previous_hash = None;
+    for event in events {
+        if event.prev_event_hash != previous_hash {
+            return Err(RiskEvaluationError::HistoryBinding(
+                "Audit predecessor link is invalid".into(),
+            ));
+        }
+        previous_hash = Some(event.canonical_hash());
+    }
+    let expected_snapshot_id = format!(
+        "audit-chain:{}:{}",
+        intent.principal.organization_id,
+        context.history().through_sequence()
+    );
+    if context.history().snapshot_id() != expected_snapshot_id
+        || previous_hash.as_deref() != Some(context.history().snapshot_hash())
+    {
+        return Err(RiskEvaluationError::HistoryBinding(
+            "snapshot ID/hash does not match the supplied Audit prefix".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn request_expired(
@@ -265,7 +262,99 @@ fn missing_finding(
 mod tests {
     use super::*;
     use atf_audit::{EventType, NewAuditEvent};
+    use atf_core::{
+        EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
+        RepositorySnapshot, SimulationReference, VersionedArtifactReference,
+    };
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
+    use std::str::FromStr;
+
+    fn default_evaluation_time() -> Timestamp {
+        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap()
+    }
+
+    fn evaluate(intent: &TransactionIntent, rule_set: &RiskRuleSet) -> RiskEvaluation {
+        evaluate_at(intent, rule_set, default_evaluation_time())
+    }
+
+    fn evaluate_at(
+        intent: &TransactionIntent,
+        rule_set: &RiskRuleSet,
+        evaluated_at: Timestamp,
+    ) -> RiskEvaluation {
+        evaluate_with_events_at(intent, rule_set, [], evaluated_at)
+    }
+
+    fn evaluate_with_events<'a>(
+        intent: &TransactionIntent,
+        rule_set: &RiskRuleSet,
+        events: impl IntoIterator<Item = &'a AuditEvent>,
+    ) -> RiskEvaluation {
+        evaluate_with_events_at(intent, rule_set, events, default_evaluation_time())
+    }
+
+    fn evaluate_with_events_at<'a>(
+        intent: &TransactionIntent,
+        rule_set: &RiskRuleSet,
+        events: impl IntoIterator<Item = &'a AuditEvent>,
+        evaluated_at: Timestamp,
+    ) -> RiskEvaluation {
+        let mut events = events.into_iter().cloned().collect::<Vec<_>>();
+        if events.is_empty() {
+            events.push(
+                NewAuditEvent::new(
+                    EventType::IdentityVerified,
+                    evaluated_at,
+                    Some(intent.intent_id.clone()),
+                    serde_json::json!({}),
+                )
+                .chain(None),
+            );
+        }
+        let mut previous_hash = None;
+        for event in &mut events {
+            event.prev_event_hash = previous_hash;
+            previous_hash = Some(event.canonical_hash());
+        }
+        let profile = validate_profile(intent).unwrap();
+        let sequence = u64::try_from(events.len()).unwrap();
+        let context = EvaluationContext::new(EvaluationContextInput {
+            evaluation_id: "01J0000000000000000000EVAL".into(),
+            intent_id: intent.intent_id.clone(),
+            intent_hash: intent.canonical_hash(),
+            evaluation_time: evaluated_at,
+            environment: "development".into(),
+            profile_id: profile.id().into(),
+            profile_version: profile.version().into(),
+            policy: VersionedArtifactReference::unavailable("POLICY_NOT_USED").unwrap(),
+            risk: VersionedArtifactReference::available(
+                rule_set.engine_version(),
+                rule_set.version(),
+                rule_set.rule_set_hash(),
+            )
+            .unwrap(),
+            context_snapshot_id: "01J0000000000000000000SNAP".into(),
+            agent_context: intent.context.clone(),
+            evidence: Vec::new(),
+            evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+                "TRUST_POLICY_NOT_CONFIGURED",
+            )
+            .unwrap(),
+            history: RepositorySnapshot::new(
+                format!(
+                    "audit-chain:{}:{sequence}",
+                    intent.principal.organization_id
+                ),
+                sequence,
+                previous_hash.unwrap(),
+            )
+            .unwrap(),
+            market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
+            simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+        })
+        .unwrap();
+        super::evaluate_context(intent, rule_set, &context, events.iter()).unwrap()
+    }
 
     fn configured_rule_set(pointer: &str, value: serde_json::Value) -> RiskRuleSet {
         let mut document: serde_json::Value =
@@ -303,7 +392,7 @@ mod tests {
                 protocol: "x402".into(),
                 venue: None,
                 resource_id: "btc-orderbook-2026-07-01".into(),
-                resource_type: None,
+                resource_type: Some("dataset".into()),
             },
             transaction: Transaction {
                 network: "eip155:8453".into(),
@@ -328,7 +417,7 @@ mod tests {
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         let prior = NewAuditEvent::new(
             EventType::DecisionRecorded,
-            Timestamp::now(),
+            Timestamp::from_str("2026-08-08T11:59:00Z").unwrap(),
             Some("01J0000000000000000000N100".into()),
             serde_json::json!({
                 "decision": "PERMIT",
@@ -398,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_agent_vendor_price_context_as_insufficient_data() {
+    fn treats_agent_vendor_price_context_as_missing_trusted_data() {
         let mut intent = base_intent();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
         intent.context = serde_json::json!({"historical_vendor_median": "8.50"});
@@ -406,7 +495,7 @@ mod tests {
         let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(findings
             .iter()
-            .any(|f| f.code == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+            .any(|f| f.code == "VENDOR_PRICE_DATA_MISSING"));
         assert!(!findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 
@@ -419,7 +508,7 @@ mod tests {
         let findings = evaluate(&intent, &RiskRuleSet::default());
         assert!(findings
             .iter()
-            .any(|f| f.code == "VENDOR_PRICE_INSUFFICIENT_DATA"));
+            .any(|f| f.code == "VENDOR_PRICE_DATA_MISSING"));
         assert!(!findings.iter().any(|f| f.code == "VENDOR_PRICE_DEVIATION"));
     }
 

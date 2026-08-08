@@ -39,7 +39,9 @@ Optional-input rules declare either:
   the missing field as outside that rule.
 
 The reference artifact uses `FINDING` for missing `max_fee` and vendor median,
-so absent data does not silently preserve Permit.
+so absent data does not silently preserve Permit. DS-024 makes this mandatory
+for every enabled `vendor_price_deviation` rule; `NOT_APPLICABLE` is accepted
+there only while that rule is disabled.
 
 History rules must declare exactly one boundary:
 
@@ -56,12 +58,15 @@ event to its immutable `IntentReceived` subject fields by Intent ID.
 
 Gateway requires `ATF_RISK_RULE_SET_PATH` and fails startup if the artifact is
 missing or invalid. `atf evaluate` accepts `--risk-rule-set` and defaults to
-the reference file. Gateway evaluates stateless and history rules at one
-caller-selected evaluation time, then persists the version/hash in canonical
-Evaluation and Audit evidence.
+the reference file. Gateway evaluates stateless and history rules through
+`evaluate_context` after the immutable Context has been persisted. The
+evaluator obtains time, verified Evidence and repository boundary from that
+Context, verifies the supplied Audit prefix and returns the version/hash in
+canonical Evaluation and Audit evidence.
 
 DS-021 does not yet make the artifact durable or organization-scoped. DS-022
 now supplies provenance-bearing Evidence and the privileged-context firewall:
 the vendor rule no longer reads Agent context and requires fresh verified,
 scope-bound ATF evidence. DS-023 persists the exact Evaluation Context;
-DS-024 removes the remaining convenience APIs that sample wall-clock time.
+DS-024 removes the former clock/time/context convenience APIs and rejects
+Intent, Rule Set or Audit-prefix substitutions before rule execution.

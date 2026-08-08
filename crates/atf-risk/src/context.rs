@@ -1,25 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use atf_core::{
-    Amount, EvidenceEnvelope, EvidenceError, EvidenceKind, EvidenceSource, EvidenceTrustPolicy,
-    Timestamp, VerifiedEvidence,
-};
+use atf_core::{Amount, EvaluationContext, EvidenceEnvelope, EvidenceKind, EvidenceSource};
 use atf_intent::TransactionIntent;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskContextIssue {
     Missing,
-    AgentProvided,
-    EvidenceInvalid,
-    HashMismatch,
-    UntrustedSource,
-    KindNotAllowed,
-    SignatureMissing,
-    SignatureKeyUnknown,
-    SignatureInvalid,
-    NotYetValid,
-    Stale,
     Ambiguous,
     InputSourceNotAllowed,
     ValueInvalid,
@@ -31,16 +18,6 @@ impl RiskContextIssue {
     pub const fn code(self) -> &'static str {
         match self {
             Self::Missing => "EVIDENCE_MISSING",
-            Self::AgentProvided => "AGENT_PROVIDED_PRIVILEGED_INPUT",
-            Self::EvidenceInvalid => "EVIDENCE_INVALID",
-            Self::HashMismatch => "EVIDENCE_HASH_MISMATCH",
-            Self::UntrustedSource => "EVIDENCE_UNTRUSTED_SOURCE",
-            Self::KindNotAllowed => "EVIDENCE_KIND_NOT_ALLOWED",
-            Self::SignatureMissing => "EVIDENCE_SIGNATURE_MISSING",
-            Self::SignatureKeyUnknown => "EVIDENCE_SIGNATURE_KEY_UNKNOWN",
-            Self::SignatureInvalid => "EVIDENCE_SIGNATURE_INVALID",
-            Self::NotYetValid => "EVIDENCE_NOT_YET_VALID",
-            Self::Stale => "EVIDENCE_STALE",
             Self::Ambiguous => "EVIDENCE_AMBIGUOUS",
             Self::InputSourceNotAllowed => "EVIDENCE_INPUT_SOURCE_NOT_ALLOWED",
             Self::ValueInvalid => "EVIDENCE_VALUE_INVALID",
@@ -53,9 +30,7 @@ impl RiskContextIssue {
 #[derive(Debug, Clone)]
 pub struct RiskContext {
     intent_hash: String,
-    verified: BTreeMap<EvidenceKind, Vec<VerifiedEvidence>>,
-    issues: BTreeMap<EvidenceKind, RiskContextIssue>,
-    rejected_agent_keys: BTreeSet<String>,
+    verified: BTreeMap<EvidenceKind, Vec<EvidenceEnvelope>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,56 +51,20 @@ enum HistoricalVendorMedianMetric {
 }
 
 impl RiskContext {
-    pub fn from_evidence<'a>(
+    pub(crate) fn from_evaluation_context(
         intent: &TransactionIntent,
-        evidence: impl IntoIterator<Item = &'a EvidenceEnvelope>,
-        trust_policy: &EvidenceTrustPolicy,
-        evaluated_at: Timestamp,
+        evaluation_context: &EvaluationContext,
     ) -> Self {
-        let mut context = Self::agent_only(intent);
-        for envelope in evidence {
-            match trust_policy.verify(envelope, evaluated_at) {
-                Ok(verified) => {
-                    let values = context.verified.entry(verified.kind()).or_default();
-                    if !values
-                        .iter()
-                        .any(|existing| existing.evidence_hash() == verified.evidence_hash())
-                    {
-                        values.push(verified);
-                    }
-                }
-                Err(error) => {
-                    context.record_issue(
-                        envelope.kind(),
-                        RiskContextIssue::from_evidence_error(&error),
-                    );
-                }
-            }
+        let mut verified = BTreeMap::<EvidenceKind, Vec<EvidenceEnvelope>>::new();
+        for envelope in evaluation_context.evidence_envelopes() {
+            verified
+                .entry(envelope.kind())
+                .or_default()
+                .push(envelope.clone());
         }
-        context
-    }
-
-    pub fn verified(&self, kind: EvidenceKind) -> &[VerifiedEvidence] {
-        self.verified.get(&kind).map_or(&[], Vec::as_slice)
-    }
-
-    pub fn rejected_agent_keys(&self) -> impl Iterator<Item = &str> {
-        self.rejected_agent_keys.iter().map(String::as_str)
-    }
-
-    pub(crate) fn agent_only(intent: &TransactionIntent) -> Self {
-        let rejected_agent_keys = intent
-            .context
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(key, _)| privileged_kind(key).map(|_| key.clone()))
-            .collect();
         Self {
             intent_hash: intent.canonical_hash(),
-            verified: BTreeMap::new(),
-            issues: BTreeMap::new(),
-            rejected_agent_keys,
+            verified,
         }
     }
 
@@ -137,8 +76,12 @@ impl RiskContext {
             return Err(RiskContextIssue::ContextIntentMismatch);
         }
         let mut matches = Vec::new();
-        let mut candidate_issue = self.issues.get(&EvidenceKind::Price).copied();
-        for evidence in self.verified(EvidenceKind::Price) {
+        let mut candidate_issue = None;
+        for evidence in self
+            .verified
+            .get(&EvidenceKind::Price)
+            .map_or(&[][..], Vec::as_slice)
+        {
             if evidence.source() != EvidenceSource::AtfEnriched {
                 candidate_issue = Some(best_issue(
                     candidate_issue,
@@ -168,83 +111,20 @@ impl RiskContext {
         }
         match matches.as_slice() {
             [amount] => Ok(*amount),
-            [] => {
-                if let Some(issue) = candidate_issue {
-                    Err(issue)
-                } else if self.agent_has_kind(EvidenceKind::Price) {
-                    Err(RiskContextIssue::AgentProvided)
-                } else {
-                    Err(RiskContextIssue::Missing)
-                }
-            }
+            [] => Err(candidate_issue.unwrap_or(RiskContextIssue::Missing)),
             _ => Err(RiskContextIssue::Ambiguous),
         }
     }
-
-    fn agent_has_kind(&self, kind: EvidenceKind) -> bool {
-        self.rejected_agent_keys
-            .iter()
-            .any(|key| privileged_kind(key) == Some(kind))
-    }
-
-    fn record_issue(&mut self, kind: EvidenceKind, issue: RiskContextIssue) {
-        self.issues
-            .entry(kind)
-            .and_modify(|current| *current = best_issue(Some(*current), issue))
-            .or_insert(issue);
-    }
 }
-
-fn privileged_kind(key: &str) -> Option<EvidenceKind> {
-    match key {
-        "historical_vendor_median" | "price" | "market_price" => Some(EvidenceKind::Price),
-        "balance" | "account_balance" => Some(EvidenceKind::Balance),
-        "position" | "positions" => Some(EvidenceKind::Position),
-        "leverage" => Some(EvidenceKind::Leverage),
-        "cumulative_spend" | "daily_cumulative_spend" | "daily_spend" => {
-            Some(EvidenceKind::CumulativeSpend)
-        }
-        "protocol_risk" => Some(EvidenceKind::ProtocolRisk),
-        "address_reputation" | "reputation" => Some(EvidenceKind::AddressReputation),
-        "market_data_freshness" | "staleness_ms" => Some(EvidenceKind::MarketDataFreshness),
-        "simulation_result" | "simulation" => Some(EvidenceKind::SimulationResult),
-        _ => None,
-    }
-}
-
 impl RiskContextIssue {
-    fn from_evidence_error(error: &EvidenceError) -> Self {
-        match error {
-            EvidenceError::HashMismatch => Self::HashMismatch,
-            EvidenceError::UntrustedSource => Self::UntrustedSource,
-            EvidenceError::KindNotAllowed => Self::KindNotAllowed,
-            EvidenceError::MissingSignature => Self::SignatureMissing,
-            EvidenceError::UnknownSignatureKey => Self::SignatureKeyUnknown,
-            EvidenceError::SignatureInvalid => Self::SignatureInvalid,
-            EvidenceError::NotYetValid => Self::NotYetValid,
-            EvidenceError::Stale => Self::Stale,
-            EvidenceError::Json(_) | EvidenceError::Invalid(_) => Self::EvidenceInvalid,
-        }
-    }
-
     const fn priority(self) -> u8 {
         match self {
             Self::Ambiguous => 0,
-            Self::HashMismatch => 1,
-            Self::SignatureInvalid => 2,
-            Self::SignatureMissing => 3,
-            Self::SignatureKeyUnknown => 4,
-            Self::UntrustedSource => 5,
-            Self::KindNotAllowed => 6,
-            Self::NotYetValid => 7,
-            Self::Stale => 8,
-            Self::EvidenceInvalid => 9,
-            Self::InputSourceNotAllowed => 10,
-            Self::ValueInvalid => 11,
-            Self::ScopeMismatch => 12,
-            Self::ContextIntentMismatch => 13,
-            Self::AgentProvided => 14,
-            Self::Missing => 15,
+            Self::InputSourceNotAllowed => 1,
+            Self::ValueInvalid => 2,
+            Self::ScopeMismatch => 3,
+            Self::ContextIntentMismatch => 4,
+            Self::Missing => 5,
         }
     }
 }

@@ -269,27 +269,29 @@ principals and non-enumerating Decision-read RBAC.
   with typed source/kind, source ID, observation/expiry, numeric-free value,
   confidence, canonical hash, optional strict Ed25519 proof and derived
   freshness. Exact source/kind allowlists alone construct `VerifiedEvidence`.
-  `RiskContext` binds the exact Intent hash and separates nine privileged Agent
-  input classes; the current vendor rule accepts only a fresh, hash-verified,
-  exact-scope `ATF_ENRICHED` median. Agent overrides, cross-Intent context
-  reuse, stale/tampered/unsigned/ambiguous or wrongly scoped evidence produce
-  explicit restrictive findings. Real Gateway and PostgreSQL coverage proves
-  Agent median cannot preserve Permit. DS-023 persists the exact verified
+  DS-024's Context-only Risk entry point separates nine privileged Agent input
+  classes without inspecting their raw values; the current vendor rule accepts
+  only a fresh, hash-verified, exact-scope `ATF_ENRICHED` median persisted in
+  Context. Agent overrides and cross-Intent/artifact/history reuse fail closed;
+  stale/tampered/unsigned Evidence cannot enter Context, and ambiguous or
+  wrongly scoped values produce restrictive findings. Real Gateway and
+  PostgreSQL coverage proves Agent median cannot preserve Permit. DS-023
+  persists the exact verified
   envelopes, trust-policy identity, Agent-context hash, evaluation time and
   Audit-history prefix in one immutable canonical Evaluation Context before
   Policy/Risk, with typed Audit, fencing, restart and tamper verification.
 - **security_impact:** the requester no longer controls the current vendor
   comparison input, and persisted snapshots cannot be silently substituted.
-  Production enrichers are absent and DS-024 must ensure every evaluator uses
-  only the typed snapshot boundary.
+  Production enrichers are absent. DS-024 now ensures every evaluator uses
+  only the typed snapshot boundary and rejects Intent/artifact/history
+  substitution before rule execution.
 - **financial_impact:** current price-context manipulation becomes REVIEW;
   balance/position/spend/reputation/simulation rules remain unimplemented.
 - **severity:** `HIGH`
-- **recommended_change:** make every evaluator context-only in DS-024;
+- **recommended_change:** retain the DS-024 context-only evaluator boundary;
   production enrichers must never reconstruct authority from Agent fields.
 - **required_tests:** source allowlist, stale/missing evidence, hash/signature mismatch, Agent override rejection.
-- **dependencies:** DS-024 context-only evaluator cutover and production
-  enrichment.
+- **dependencies:** production enrichment; DS-024 evaluator cutover is complete.
 - **target_release:** Durable Shadow Mode P0.8.
 - **acceptance_criteria:** every decision-affecting external value has recorded provenance/freshness and untrusted sources cannot overwrite it.
 
@@ -515,6 +517,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-024` is next: make Policy and Risk consume only the persisted Evaluation
-Context, remove ambient time and separately supplied privileged inputs, and
-prove repeated evaluation of one snapshot produces byte-equivalent outputs.
+`DS-025` is next: bind the exact Intent, Profile, Policy, Risk, Evaluation
+Context, Simulation state, time and constraints into one canonical Decision
+hash and matching Audit evidence.

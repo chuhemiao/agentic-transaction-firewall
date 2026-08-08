@@ -7,6 +7,14 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-024 context-only deterministic Policy/Risk evaluation. Public evaluators
+  no longer sample time or accept separately supplied privileged values;
+  Context binding covers Intent/Profile/artifact identity, while Risk verifies
+  the exact Audit prefix and rejects later history. Agent vendor fields are
+  never inspected, enabled vendor rules require a missing-data finding, and
+  repeated evaluation produces byte-equivalent module output. Typed Risk
+  Context failures merge to terminal `Decision(ERROR)` rather than treating
+  an absent finding list as Permit.
 - DS-023 immutable Evaluation Context: a closed canonical Schema/type binds
   Intent/Profile, one evaluation time, Policy/Risk artifacts, Agent-context
   hash, exact verified Evidence/trust-policy hash, Audit-history prefix and

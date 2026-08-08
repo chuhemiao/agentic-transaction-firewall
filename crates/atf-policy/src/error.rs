@@ -89,6 +89,9 @@ pub enum PolicyError {
     #[error("the authoritative Policy Bundle is unavailable")]
     Unavailable,
 
+    #[error("Evaluation Context does not authorize this Policy evaluation: {0}")]
+    EvaluationContext(String),
+
     #[error("failed to build Cedar request from intent: {0}")]
     RequestBuild(String),
 

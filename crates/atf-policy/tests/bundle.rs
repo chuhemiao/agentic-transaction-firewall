@@ -3,7 +3,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use atf_core::Timestamp;
+use atf_core::{
+    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
+};
 use atf_policy::{
     policy_bundle_signature_message, PolicyBundle, PolicyBundleArtifact, PolicyBundleLoadContext,
     PolicyBundleSignature, PolicyDecision, PolicyError,
@@ -27,6 +31,41 @@ fn load_context(organization_id: &str, evaluated_at: &str) -> PolicyBundleLoadCo
 fn fixture_intent() -> atf_intent::TransactionIntent {
     let raw = include_str!("../../../examples/x402-research-agent/intent.json");
     atf_intent::validate(raw).expect("the example Intent is valid")
+}
+
+fn evaluation_context(
+    bundle: &PolicyBundle,
+    intent: &atf_intent::TransactionIntent,
+    evaluated_at: Timestamp,
+) -> EvaluationContext {
+    let profile = atf_intent::validate_profile(intent).unwrap();
+    EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: "01J0000000000000000000EVAL".into(),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time: evaluated_at,
+        environment: bundle.environment().into(),
+        profile_id: profile.id().into(),
+        profile_version: profile.version().into(),
+        policy: VersionedArtifactReference::available(
+            bundle.bundle_id(),
+            bundle.policy_version(),
+            bundle.bundle_hash(),
+        )
+        .unwrap(),
+        risk: VersionedArtifactReference::unavailable("RISK_NOT_USED").unwrap(),
+        context_snapshot_id: "01J0000000000000000000SNAP".into(),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )
+        .unwrap(),
+        history: RepositorySnapshot::new("audit-chain:alpha-lab:1", 1, "0".repeat(64)).unwrap(),
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+    })
+    .unwrap()
 }
 
 fn copy_fixture() -> PathBuf {
@@ -59,9 +98,9 @@ fn loads_a_scoped_schema_validated_bundle_with_deterministic_identity() {
         "87276dc9ae9b5cfd09bc664fc12a7a6d1bdc6cec3f847644239b27a368478373"
     );
 
-    let outcome = first
-        .evaluate_at(&fixture_intent(), context.evaluated_at)
-        .unwrap();
+    let intent = fixture_intent();
+    let evaluation_context = evaluation_context(&first, &intent, context.evaluated_at);
+    let outcome = first.evaluate(&intent, &evaluation_context).unwrap();
     assert_eq!(outcome.decision, PolicyDecision::Permit);
     assert_eq!(outcome.bundle_id, "atf-example-payments");
     assert_eq!(outcome.policy_version, "1.0.0");
@@ -181,18 +220,23 @@ fn cedar_schema_validation_rejects_invalid_policies_and_requests() {
 
     let context = load_context("alpha-lab", "2026-08-08T12:00:00Z");
     let bundle = PolicyBundle::from_dir(&fixture_dir(), &context).unwrap();
-    let mut unsupported = fixture_intent();
+    let valid = fixture_intent();
+    let bound_context = evaluation_context(&bundle, &valid, context.evaluated_at);
+    let mut unsupported = valid;
     unsupported.action.operation = "unsupported_action".into();
     let error = bundle
-        .evaluate_at(&unsupported, context.evaluated_at)
-        .expect_err("requests must conform to the Bundle's Cedar Schema");
-    assert!(matches!(error, PolicyError::RequestBuild(_)));
+        .evaluate(&unsupported, &bound_context)
+        .expect_err("an Intent outside the persisted Context must fail closed");
+    assert!(matches!(error, PolicyError::EvaluationContext(_)));
 
+    let intent = fixture_intent();
+    let expired_context = evaluation_context(
+        &bundle,
+        &intent,
+        Timestamp::from_str("2100-01-01T00:00:00Z").unwrap(),
+    );
     let error = bundle
-        .evaluate_at(
-            &fixture_intent(),
-            Timestamp::from_str("2100-01-01T00:00:00Z").unwrap(),
-        )
+        .evaluate(&intent, &expired_context)
         .expect_err("expiry is rechecked for every evaluation");
     assert!(matches!(error, PolicyError::Inactive { .. }));
 }

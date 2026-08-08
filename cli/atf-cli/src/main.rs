@@ -4,7 +4,12 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use atf_core::Timestamp;
+use atf_audit::{AuditEvent, EventType};
+use atf_core::{
+    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
+};
 use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
 use clap::{Parser, Subcommand};
 
@@ -714,9 +719,6 @@ fn run_evaluate(
     )
     .with_context(|| format!("loading policy bundle from {}", policies_dir.display()))?;
 
-    let policy_result = bundle.evaluate_at(&intent, evaluated_at);
-    // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
-    // forbidden request terminates the merge before Risk is consulted.
     let risk_rule_set =
         atf_risk::RiskRuleSet::from_file(risk_rule_set_path).with_context(|| {
             format!(
@@ -724,9 +726,16 @@ fn run_evaluate(
                 risk_rule_set_path.display()
             )
         })?;
+    let (evaluation_context, history) =
+        local_evaluation_context(&intent, &bundle, &risk_rule_set, evaluated_at)?;
+    let policy_result = bundle.evaluate(&intent, &evaluation_context);
+    // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
+    // forbidden request terminates the merge before Risk is consulted.
     let risk_findings = match &policy_result {
         Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => {
-            atf_risk::evaluate_at(&intent, &risk_rule_set, evaluated_at).findings
+            atf_risk::evaluate_context(&intent, &risk_rule_set, &evaluation_context, history.iter())
+                .context("evaluating Risk from the local Evaluation Context")?
+                .findings
         }
         _ => Vec::new(),
     };
@@ -734,4 +743,55 @@ fn run_evaluate(
     let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
     println!("{}", serde_json::to_string_pretty(&decision)?);
     Ok(())
+}
+
+fn local_evaluation_context(
+    intent: &atf_intent::TransactionIntent,
+    bundle: &atf_policy::PolicyBundle,
+    risk_rule_set: &atf_risk::RiskRuleSet,
+    evaluated_at: Timestamp,
+) -> Result<(EvaluationContext, Vec<AuditEvent>)> {
+    let profile = atf_intent::validate_profile(intent)
+        .map_err(|error| anyhow::anyhow!("resolving Intent Profile: {error}"))?;
+    let history = vec![AuditEvent {
+        event_id: "cli-evaluation-anchor-v1".into(),
+        event_type: EventType::IdentityVerified,
+        occurred_at: evaluated_at,
+        intent_id: Some(intent.intent_id.clone()),
+        prev_event_hash: None,
+        data: serde_json::json!({}),
+    }];
+    let context = EvaluationContext::new(EvaluationContextInput {
+        evaluation_id: format!("cli-evaluation-{}", intent.intent_id),
+        intent_id: intent.intent_id.clone(),
+        intent_hash: intent.canonical_hash(),
+        evaluation_time: evaluated_at,
+        environment: bundle.environment().into(),
+        profile_id: profile.id().into(),
+        profile_version: profile.version().into(),
+        policy: VersionedArtifactReference::available(
+            bundle.bundle_id(),
+            bundle.policy_version(),
+            bundle.bundle_hash(),
+        )?,
+        risk: VersionedArtifactReference::available(
+            risk_rule_set.engine_version(),
+            risk_rule_set.version(),
+            risk_rule_set.rule_set_hash(),
+        )?,
+        context_snapshot_id: format!("cli-context-{}", intent.intent_id),
+        agent_context: intent.context.clone(),
+        evidence: Vec::new(),
+        evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+            "TRUST_POLICY_NOT_CONFIGURED",
+        )?,
+        history: RepositorySnapshot::new(
+            format!("audit-chain:{}:1", intent.principal.organization_id),
+            1,
+            history[0].canonical_hash(),
+        )?,
+        market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
+        simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
+    })?;
+    Ok((context, history))
 }

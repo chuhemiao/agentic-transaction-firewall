@@ -54,10 +54,15 @@ fn duplicate_purchase_within_24h(
 ) -> Option<RiskFinding> {
     let rule_set = RiskRuleSet::default();
     let rule = &rule_set.rules().duplicate_purchase;
+    let latest_event_time = ledger
+        .iter()
+        .map(|event| event.occurred_at)
+        .max()
+        .unwrap_or(intent.created_at);
     duplicate_purchase_with_events(
         intent,
         ledger.iter(),
-        Timestamp::now(),
+        Timestamp::from_datetime(latest_event_time.as_datetime() + chrono::Duration::hours(1)),
         rule.window_seconds,
         rule.accounting_boundary,
         rule.severity,

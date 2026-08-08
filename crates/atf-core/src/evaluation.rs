@@ -581,6 +581,10 @@ impl EvaluationContext {
         &self.document.agent_context_hash
     }
 
+    pub fn evidence_trust_policy(&self) -> &EvidenceTrustPolicyReference {
+        &self.document.evidence_trust_policy
+    }
+
     /// Verify that the Agent-provided context retained by the immutable Intent
     /// is the exact value represented by this snapshot.
     pub fn verify_agent_context(
@@ -600,6 +604,10 @@ impl EvaluationContext {
 
     pub fn history(&self) -> &RepositorySnapshot {
         &self.document.history
+    }
+
+    pub fn market_data(&self) -> &ExternalSnapshotReference {
+        &self.document.market_data
     }
 
     pub fn simulation(&self) -> &SimulationReference {

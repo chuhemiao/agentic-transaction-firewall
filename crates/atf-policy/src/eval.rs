@@ -1,6 +1,7 @@
-use atf_core::Timestamp;
-use atf_intent::TransactionIntent;
+use atf_core::EvaluationContext;
+use atf_intent::{validate_profile, TransactionIntent};
 use cedar_policy::{Authorizer, Decision as CedarDecision, Entities};
+use serde::{Deserialize, Serialize};
 
 use crate::bundle::PolicyBundle;
 use crate::error::PolicyError;
@@ -9,13 +10,15 @@ use crate::mapping::build_request;
 /// Cedar's own Allow/Deny, renamed to the vocabulary PRD §11 uses for the
 /// Policy Kernel specifically (as opposed to ATF's overall PERMIT/DENY/
 /// REVIEW/ERROR Decision in `atf-decision`, PRD §10.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PolicyDecision {
     Permit,
     Forbid,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyOutcome {
     pub decision: PolicyDecision,
     /// Ids of the policies that contributed to the decision (PRD §10 `reasons`).
@@ -26,12 +29,16 @@ pub struct PolicyOutcome {
 }
 
 impl PolicyBundle {
-    pub fn evaluate_at(
+    /// Evaluate one Intent using only inputs bound by an immutable Evaluation
+    /// Context. The executable Bundle remains a separate in-memory value, but
+    /// its exact identity, scope and active time must match the Context before
+    /// Cedar is invoked.
+    pub fn evaluate(
         &self,
         intent: &TransactionIntent,
-        evaluated_at: Timestamp,
+        context: &EvaluationContext,
     ) -> Result<PolicyOutcome, PolicyError> {
-        self.validate_evaluation_scope(&intent.principal.organization_id, evaluated_at)?;
+        validate_context_binding(self, intent, context)?;
         let request = build_request(intent, &self.schema)?;
         let entities = Entities::empty();
         let authorizer = Authorizer::new();
@@ -65,10 +72,55 @@ impl PolicyBundle {
     }
 }
 
+fn validate_context_binding(
+    bundle: &PolicyBundle,
+    intent: &TransactionIntent,
+    context: &EvaluationContext,
+) -> Result<(), PolicyError> {
+    if context.intent_id() != intent.intent_id || context.intent_hash() != intent.canonical_hash() {
+        return Err(PolicyError::EvaluationContext(
+            "Intent ID/hash binding does not match".into(),
+        ));
+    }
+    context
+        .verify_agent_context(&intent.context)
+        .map_err(|_| PolicyError::EvaluationContext("Agent context hash does not match".into()))?;
+    let profile = validate_profile(intent).map_err(|error| {
+        PolicyError::EvaluationContext(format!("Intent Profile is invalid: {error}"))
+    })?;
+    if context.profile_id() != profile.id() || context.profile_version() != profile.version() {
+        return Err(PolicyError::EvaluationContext(
+            "Intent Profile binding does not match".into(),
+        ));
+    }
+    if context.environment() != bundle.environment()
+        || intent.principal.organization_id != bundle.organization_id()
+    {
+        return Err(PolicyError::ScopeMismatch {
+            expected_organization_id: bundle.organization_id().into(),
+            expected_environment: bundle.environment().into(),
+        });
+    }
+    let expected = (
+        bundle.bundle_id(),
+        bundle.policy_version(),
+        bundle.bundle_hash(),
+    );
+    if context.policy().available_parts() != Some(expected) {
+        return Err(PolicyError::EvaluationContext(
+            "Policy Bundle identity does not match".into(),
+        ));
+    }
+    bundle.validate_evaluation_scope(&intent.principal.organization_id, context.evaluation_time())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atf_core::{Amount, Timestamp};
+    use atf_core::{
+        Amount, EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
+        RepositorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
+    };
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
     use std::path::Path;
     use std::str::FromStr;
@@ -102,7 +154,7 @@ mod tests {
                 protocol: "x402".into(),
                 venue: None,
                 resource_id: "btc-orderbook-2026-07-01".into(),
-                resource_type: None,
+                resource_type: Some("dataset".into()),
             },
             transaction: Transaction {
                 network: "eip155:8453".into(),
@@ -123,9 +175,9 @@ mod tests {
     #[test]
     fn permits_within_budget() {
         let bundle = example_bundle();
-        let outcome = bundle
-            .evaluate_at(&sample_intent("12.50", true), evaluation_time())
-            .unwrap();
+        let intent = sample_intent("12.50", true);
+        let context = evaluation_context(&bundle, &intent);
+        let outcome = bundle.evaluate(&intent, &context).unwrap();
         assert_eq!(outcome.decision, PolicyDecision::Permit);
         assert!(!outcome.policy_ids.is_empty());
     }
@@ -133,22 +185,37 @@ mod tests {
     #[test]
     fn denies_over_budget_by_default() {
         let bundle = example_bundle();
+        let intent = sample_intent("50.00", true);
+        let context = evaluation_context(&bundle, &intent);
         // No permit matches (amount exceeds 20), and no forbid matches either
         // (human_authorized is true) — Cedar's default-deny applies.
-        let outcome = bundle
-            .evaluate_at(&sample_intent("50.00", true), evaluation_time())
-            .unwrap();
+        let outcome = bundle.evaluate(&intent, &context).unwrap();
         assert_eq!(outcome.decision, PolicyDecision::Forbid);
     }
 
     #[test]
     fn forbid_overrides_permit() {
         let bundle = example_bundle();
+        let intent = sample_intent("12.50", false);
+        let context = evaluation_context(&bundle, &intent);
         // Within budget, but not human-authorized -> explicit forbid wins.
-        let outcome = bundle
-            .evaluate_at(&sample_intent("12.50", false), evaluation_time())
-            .unwrap();
+        let outcome = bundle.evaluate(&intent, &context).unwrap();
         assert_eq!(outcome.decision, PolicyDecision::Forbid);
+    }
+
+    #[test]
+    fn repeated_evaluation_of_one_snapshot_is_byte_equivalent() {
+        let bundle = example_bundle();
+        let intent = sample_intent("12.50", true);
+        let context = evaluation_context(&bundle, &intent);
+
+        let first = bundle.evaluate(&intent, &context).unwrap();
+        let second = bundle.evaluate(&intent, &context).unwrap();
+
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
     }
 
     fn example_bundle() -> PolicyBundle {
@@ -166,5 +233,36 @@ mod tests {
 
     fn evaluation_time() -> Timestamp {
         Timestamp::from_str("2026-08-08T12:00:00Z").unwrap()
+    }
+
+    fn evaluation_context(bundle: &PolicyBundle, intent: &TransactionIntent) -> EvaluationContext {
+        let profile = validate_profile(intent).unwrap();
+        EvaluationContext::new(EvaluationContextInput {
+            evaluation_id: "01J0000000000000000000EVAL".into(),
+            intent_id: intent.intent_id.clone(),
+            intent_hash: intent.canonical_hash(),
+            evaluation_time: evaluation_time(),
+            environment: bundle.environment().into(),
+            profile_id: profile.id().into(),
+            profile_version: profile.version().into(),
+            policy: VersionedArtifactReference::available(
+                bundle.bundle_id(),
+                bundle.policy_version(),
+                bundle.bundle_hash(),
+            )
+            .unwrap(),
+            risk: VersionedArtifactReference::unavailable("RISK_NOT_USED").unwrap(),
+            context_snapshot_id: "01J0000000000000000000SNAP".into(),
+            agent_context: intent.context.clone(),
+            evidence: Vec::new(),
+            evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
+                "TRUST_POLICY_NOT_CONFIGURED",
+            )
+            .unwrap(),
+            history: RepositorySnapshot::new("audit-chain:alpha-lab:1", 1, "0".repeat(64)).unwrap(),
+            market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
+            simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
+        })
+        .unwrap()
     }
 }

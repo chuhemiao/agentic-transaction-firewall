@@ -848,11 +848,13 @@ DS-022 已实现本节的类型与当前 Risk 消费边界：
 Kind、Source ID、Observed/Expires、无 JSON Number 的 Value、Confidence、
 Canonical Hash 和可选 Ed25519 Proof；`EvidenceTrustPolicy` 以精确
 Source/Source ID/Kind Allowlist 与同一次 Evaluation Time 计算 Freshness，只有
-全部通过才产生 `VerifiedEvidence`。`atf-risk::RiskContext` 将 Agent Context
-中的 Price、Balance、Position、Leverage、Spend、Protocol Risk、Reputation、
-Freshness 与 Simulation Key 隔离；当前 Vendor Median 只接受精确 Scope 的
+全部通过才产生 `VerifiedEvidence`。Agent Context 中的 Price、Balance、
+Position、Leverage、Spend、Protocol Risk、Reputation、Freshness 与 Simulation
+Key 均不构成权威输入；当前 Vendor Median 只接受精确 Scope 的
 `ATF_ENRICHED` Evidence。DS-023 已在评估前持久化精确 Verified Evidence、
-Trust Policy Identity、Agent Context Hash 与 Evaluation Time；生产 Enricher
+Trust Policy Identity、Agent Context Hash 与 Evaluation Time；DS-024 已让
+Policy/Risk 只从该 Context 取得时间、可信 Evidence 与版本身份，并验证精确
+Audit Prefix。启用 Vendor Rule 时缺失可信数据必须产生 Finding。生产 Enricher
 仍属于后续工作。
 
 Decision-affecting Context 分为 `AGENT_PROVIDED`、`ATF_ENRICHED`、`ORACLE_PROVIDED`、`ADAPTER_PROVIDED`、`ADMIN_PROVIDED` 和 `SIGNED_EXTERNAL_EVIDENCE`。每个值必须记录 `source`、`source_id`、`observed_at`、`expires_at`、`evidence_hash`、可选签名、置信度与 Freshness Status。
@@ -1853,7 +1855,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
    Public Schema 绑定 Engine Compatibility、所有决策配置、Missing-data
    Behavior 和 Lifecycle Accounting Boundary，Risk Result/Evidence 返回精确
    Version/Hash。
-6. **P0.6 EvaluationContext（持久化已完成）**：DS-023 已在 Policy/Risk 前将时间、版本、Snapshot、Evidence/Trust、History 与显式不可用状态写入不可变 Canonical Context，并由 `ContextEnriched` 与最终 Evaluation Hash 绑定；DS-024 仍需完成 Context-only Evaluator。
+6. **P0.6 EvaluationContext（已完成）**：DS-023 已在 Policy/Risk 前将时间、版本、Snapshot、Evidence/Trust、History 与显式不可用状态写入不可变 Canonical Context，并由 `ContextEnriched` 与最终 Evaluation Hash 绑定；DS-024 已移除 Evaluator 的 Wall-clock 与独立特权输入入口，校验 Intent/Profile/Artifact/History 绑定并保证相同 Snapshot 的模块输出字节一致。
 7. **P0.7 Deterministic Replay**：Original 与 Counterfactual Replay。
 8. **P0.8 Context Provenance（类型、防火墙与持久化已完成）**：DS-022 已实现可信来源、Freshness、签名/Hash 校验和 Agent 不可覆盖规则；DS-023 已持久化精确 Evidence/Trust Snapshot，生产 Enricher 仍属于后续工作。
 9. **P0.9 Policy Bundle Versioning（已完成）**：DS-019 落地 Manifest、

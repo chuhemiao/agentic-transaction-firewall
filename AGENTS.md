@@ -56,7 +56,8 @@ If you're asked to "continue" or "keep going through the TODO list":
   adds the closed Evidence/verification contract in `atf-core` and the
   privileged Agent-context firewall in `atf-risk`; DS-023 persists immutable
   Evaluation Context snapshots before Policy/Risk and binds final Evaluations
-  to them.
+  to them; DS-024 makes both evaluators validate and consume that Context
+  without ambient time or separate privileged inputs.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

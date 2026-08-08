@@ -1,6 +1,6 @@
 # Context Provenance and Trusted Evidence
 
-Status: DS-022 and DS-023 implemented (2026-08-08)
+Status: DS-022 through DS-024 implemented (2026-08-08)
 
 Authority: `docs/PRD.md` §4.2.7, §12.3, §12.5 and §12.6
 
@@ -12,9 +12,9 @@ local trust policy. A self-declared source name never grants authority.
 
 DS-022 defines the evidence envelope and the Risk privileged-context firewall.
 DS-023 persists the exact verified envelopes, trust-policy identity, Agent
-context hash and evaluation time inside the immutable Evaluation Context;
-DS-024 will remove the remaining evaluator convenience APIs that sample
-wall-clock time or accept separately supplied privileged inputs.
+context hash and evaluation time inside the immutable Evaluation Context.
+DS-024 makes that persisted Context the evaluator authority: Policy and Risk
+have no clock-sampling or separately supplied privileged-input entry points.
 
 ## Evidence contract
 
@@ -62,10 +62,12 @@ caller; it is returned only by successful verification and internally retains
 the actual verifier policy hash. Evaluation Context construction rejects a
 claimed trust-policy reference that differs from any retained verifier hash.
 
-`RiskContext` records the canonical hash of the Intent from which it was
-constructed. Reusing that context with any different Intent fails closed, so
-callers cannot bypass Agent-key classification by substituting a context built
-for another request.
+Policy and Risk rederive the Intent hash and Profile and verify the Context's
+Agent-context hash before execution. Policy also verifies environment, active
+time and exact Bundle ID/version/hash. Risk verifies the exact Rule Set
+engine/version/hash plus every predecessor link, event count and tail hash of
+the Audit prefix named by `RepositorySnapshot`. A different Intent, artifact,
+or history boundary fails closed before any rule runs.
 
 ## Privileged-context firewall
 
@@ -84,14 +86,17 @@ allowlisted `ATF_ENRICHED` source whose typed value binds:
 - exact asset;
 - a positive canonical `Amount` string.
 
-An Agent value cannot overwrite a verified value. Without a verified value,
-ordinary absence follows the Rule Set's declared missing-data behavior;
-present-but-untrusted, stale, tampered, ambiguous, wrongly scoped or invalid
-evidence always emits an explicit fail-closed insufficient-data finding.
+An Agent value cannot overwrite a verified value because the Risk evaluator
+never reads privileged keys from raw Intent context. Only Evidence already
+verified and embedded in the Context enters its internal typed input. When the
+vendor rule is enabled, Rule Set validation requires `missing_data=FINDING`,
+so absence cannot silently preserve Permit. Ambiguous, wrongly scoped or
+invalid typed values emit an explicit fail-closed insufficient-data finding;
+stale, tampered or untrusted envelopes cannot enter a valid Context.
 
 ## Verification
 
-DS-022 is complete only when tests prove:
+The DS-022 through DS-024 boundary is covered by tests that prove:
 
 1. the public Schema and Rust type reject unknown/invalid fields and JSON
    numeric values;
@@ -99,7 +104,10 @@ DS-022 is complete only when tests prove:
 3. source/kind allowlists, freshness and strict Ed25519 verification execute;
 4. Agent price/balance/position/spend/reputation/simulation keys cannot become
    trusted inputs or overwrite verified evidence;
-5. stale, tampered, unsigned-required, wrongly scoped and ambiguous evidence
-   produces explicit restrictive Risk findings;
-6. the full repository Definition of Done and real CLI/Gateway smoke paths are
+5. stale, tampered and unsigned-required evidence cannot enter a Context, while
+   wrongly scoped and ambiguous persisted values produce restrictive findings;
+6. the same Context produces byte-equivalent Policy/Risk output, wall-clock and
+   post-snapshot Audit state cannot affect it, and artifact/history mismatch
+   fails closed;
+7. the full repository Definition of Done and real CLI/Gateway smoke paths are
    clean.

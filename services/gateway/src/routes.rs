@@ -13,7 +13,7 @@ use atf_audit::{
     RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
 };
 use atf_core::{
-    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicy, EvidenceTrustPolicyReference,
+    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
     ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
     VersionedArtifactReference,
 };
@@ -207,7 +207,7 @@ async fn create_intent(
     }
 
     let policy_result = match &resolved_policy {
-        Ok(policy) => policy.evaluate_at(&intent, evaluated_at),
+        Ok(policy) => policy.evaluate(&intent, &evaluation_context),
         Err(_) => Err(atf_policy::PolicyError::Unavailable),
     };
     let policy_evidence = match &policy_result {
@@ -246,42 +246,58 @@ async fn create_intent(
     };
 
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
-    let (risk_findings, risk_evidence) = match &policy_result {
+    let (risk_findings, risk_evidence, risk_error) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
-            let risk_context = atf_risk::RiskContext::from_evidence(
-                &intent,
-                [],
-                &EvidenceTrustPolicy::default(),
-                evaluated_at,
-            );
-            let result = atf_risk::evaluate_with_events_and_context_at(
+            let result = atf_risk::evaluate_context(
                 &intent,
                 &state.risk_rule_set,
-                &risk_context,
+                &evaluation_context,
                 chain.iter().map(|stored| &stored.event),
-                evaluated_at,
             );
-            let evidence = result
-                .findings
-                .iter()
-                .map(|finding| RiskFindingEvidence {
-                    code: finding.code.clone(),
-                    severity: match finding.severity {
-                        atf_risk::Severity::Info => RiskSeverity::Info,
-                        atf_risk::Severity::Medium => RiskSeverity::Medium,
-                        atf_risk::Severity::High => RiskSeverity::High,
-                        atf_risk::Severity::Critical => RiskSeverity::Critical,
-                    },
-                })
-                .collect();
-            (
-                result.findings,
-                RiskEvaluatedPayload {
-                    risk_rule_set_version: Some(result.rule_set_version),
-                    risk_rule_set_hash: Some(result.rule_set_hash),
-                    outcome: OptionalModuleOutcome::Succeeded { result: evidence },
-                },
-            )
+            match result {
+                Ok(result) => {
+                    let evidence = result
+                        .findings
+                        .iter()
+                        .map(|finding| RiskFindingEvidence {
+                            code: finding.code.clone(),
+                            severity: match finding.severity {
+                                atf_risk::Severity::Info => RiskSeverity::Info,
+                                atf_risk::Severity::Medium => RiskSeverity::Medium,
+                                atf_risk::Severity::High => RiskSeverity::High,
+                                atf_risk::Severity::Critical => RiskSeverity::Critical,
+                            },
+                        })
+                        .collect();
+                    (
+                        result.findings,
+                        RiskEvaluatedPayload {
+                            risk_rule_set_version: Some(result.rule_set_version),
+                            risk_rule_set_hash: Some(result.rule_set_hash),
+                            outcome: OptionalModuleOutcome::Succeeded { result: evidence },
+                        },
+                        None,
+                    )
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        request_id = request_id.as_str(),
+                        error_code = error.code(),
+                        "Risk evaluation failed closed"
+                    );
+                    (
+                        Vec::new(),
+                        RiskEvaluatedPayload {
+                            risk_rule_set_version: Some(state.risk_rule_set.version().into()),
+                            risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                            outcome: OptionalModuleOutcome::Error {
+                                error_code: error.code().into(),
+                            },
+                        },
+                        Some(error),
+                    )
+                }
+            }
         }
         Ok(_) => (
             Vec::new(),
@@ -292,6 +308,7 @@ async fn create_intent(
                     reason_code: "POLICY_FORBID".into(),
                 },
             },
+            None,
         ),
         Err(_) => (
             Vec::new(),
@@ -302,6 +319,7 @@ async fn create_intent(
                     reason_code: "POLICY_ERROR".into(),
                 },
             },
+            None,
         ),
     };
     evaluator_lease = match state
@@ -315,7 +333,10 @@ async fn create_intent(
         }
     };
 
-    let decision = atf_decision::decide(&intent, policy_result, &risk_findings);
+    let decision = match risk_error.as_ref() {
+        Some(error) => atf_decision::decide_with_risk_result(&intent, policy_result, Err(error)),
+        None => atf_decision::decide(&intent, policy_result, &risk_findings),
+    };
     let finalized = match state
         .store
         .finalize_decision(FinalizationInput {

@@ -84,7 +84,8 @@ validated Policy Bundle identity, and DS-020 adds signed durable activation
 and rollback. DS-021 now adds the canonical versioned Risk Rule Set and exact
 identity in Risk results/evidence. DS-022 adds provenance-bearing Evidence and
 the privileged-context firewall. DS-023 now persists one immutable Evaluation
-Context before Policy/Risk; the next task is DS-024.
+Context before Policy/Risk. DS-024 now makes that persisted Context the only
+decision-input authority consumed by both evaluators; the next task is DS-025.
 
 ### Present but incomplete or unwired
 
@@ -98,10 +99,10 @@ Context before Policy/Risk; the next task is DS-024.
   deterministic version/hash, detached Ed25519 signature, immutable archive,
   active pointer and immediate rollback. The selected artifact is now bound in
   the durable Evaluation Context, but not yet in the strongly bound Decision.
-- Risk's versioned entry points use one explicit caller time and accept only
-  verified, provenance-bearing vendor evidence. Gateway now pins the exact
-  inputs into a durable Evaluation Context; legacy convenience entry points
-  still sample the wall clock or accept separately supplied inputs.
+- Policy and Risk now expose only Context-authorized evaluation entry points.
+  Gateway pins the exact inputs before execution; time, Evidence, artifact
+  identity and Audit boundary are taken from that Context, while mismatch and
+  later history fail closed.
 - Gateway Policy/Risk/Simulation evidence is canonical, typed, and emitted as
   intermediate events. Current admissions emit `IdentityVerified`; the old
   `IdentityVerificationSkipped` branch is compatibility-only.
@@ -873,7 +874,7 @@ evaluation.
 
 ### DS-024 — Make Policy and Risk evaluation context-only `[M]`
 
-**Status:** Next.
+**Status:** Complete (2026-08-08).
 
 **Description:** Remove direct `Timestamp::now()` and privileged Agent-context
 reads from evaluators. Query history relative to `evaluation_time`; missing
@@ -883,11 +884,22 @@ trusted vendor data returns a configured finding, never implicit Permit.
 - **Likely files:** `crates/atf-risk/src/rules.rs`,
   `crates/atf-risk/src/history_rules.rs`, `crates/atf-risk/src/lib.rs`,
   `crates/atf-policy/src/eval.rs`, `crates/atf-risk/tests/determinism.rs`.
+- **Delivered boundary:** Policy validates Intent/Profile/environment/time and
+  exact Bundle identity from `EvaluationContext`. Risk validates the same
+  Intent/Profile binding, exact Rule Set identity and the complete hash-chain
+  prefix named by `RepositorySnapshot`; it reads time and verified Evidence
+  only from Context. Raw Agent vendor keys are never inspected, and enabled
+  vendor rules must emit a missing-data finding. Typed Context/Rule Set/history
+  failures merge to terminal `Decision(ERROR)` rather than empty-findings
+  Permit.
 - **Acceptance criteria:**
   1. Evaluators perform no wall-clock/random/unrecorded environment reads.
   2. Agent-supplied vendor median cannot suppress or create a trusted finding.
   3. Repeated evaluation of one snapshot yields byte-equivalent module results.
-- **Verification:** frozen-clock independence and repeated-output tests; source scan for forbidden reads; full DoD.
+- **Verification:** byte-equivalent repeated Policy/Risk outputs, Agent median
+  independence, trusted Evidence, artifact/Intent/history mismatch and
+  post-snapshot-history rejection; evaluator source scan for wall-clock,
+  randomness and environment reads; CLI/Gateway smoke and full DoD.
 
 ### DS-025 — Produce a strongly bound canonical Decision `[M]`
 

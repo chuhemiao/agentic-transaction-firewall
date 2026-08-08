@@ -65,8 +65,9 @@ Agent Intent
   manifest binds bundle ID/version, organization/environment, active window,
   Cedar Schema and exact policy files into a domain-separated canonical hash.
   Loader checks JSON Schema, safe/sorted paths, file digests, unlisted Cedar
-  files, Bundle hash and strict Cedar policy validation. `evaluate_at` rechecks
-  organization/expiry, validates the request against the same Cedar Schema,
+  files, Bundle hash and strict Cedar policy validation. DS-024's `evaluate`
+  validates the persisted Context's Intent/Profile/environment/time and exact
+  Bundle identity, validates the request against the same Cedar Schema,
   rejects runtime diagnostics and returns the exact bundle identity. DS-020
   adds a bounded exact-byte archive and detached Ed25519 proof over the
   domain-separated Key-ID/Bundle-Hash message; durable restore repeats all
@@ -76,21 +77,24 @@ Agent Intent
 - **`atf-risk`** — DS-021 loads a closed, bounded Rule Set JSON artifact whose
   format/engine versions, enabled rules, severities, thresholds, canonical
   deny lists, missing-data behavior, history windows and accounting boundaries
-  form one domain-separated canonical hash. `evaluate*` returns
-  `RiskEvaluation { rule_set_version, rule_set_hash, findings }` and accepts a
-  single explicit time through its `*_at` variants. Stateless rules cover
+  form one domain-separated canonical hash. DS-024 replaces the former
+  `evaluate*`/`*_at` family with one `evaluate_context` entry point returning
+  `RiskEvaluation { rule_set_version, rule_set_hash, findings }`. It validates
+  the exact Intent/Profile/Rule Set and verified Audit prefix named by the
+  immutable Context and reads evaluation time and Evidence only from it.
+  Stateless rules cover
   request expiry, single-transaction cap, fee ratio, vendor price deviation
   and high-risk network/protocol. Duplicate purchase reads verified durable
   Audit history using an explicit `PERMITTED` boundary; the engine can select
   `REQUESTED`, `PERMITTED`, `EXECUTED`, or `SETTLED` lifecycle facts.
-  DS-022 adds a typed `RiskContext` that accepts only core-verified evidence,
-  binds itself to the exact Intent hash, classifies raw Intent context as
-  Agent-provided, and requires exact organization/resource/asset-bound ATF
-  evidence for vendor median. Agent overrides, cross-Intent context reuse and
-  invalid/stale/ambiguous evidence produce explicit restrictive findings.
-  *Implemented (partial — artifact/evidence persistence, durable
-  snapshots, daily cumulative spend, first-time destination and frequency
-  rules remain later work).*
+  DS-022/DS-024 keep the internal typed Risk input restricted to Evidence
+  already verified and persisted by `EvaluationContext`; raw Intent context is
+  checked only as one hash and privileged keys are never inspected. Vendor
+  median requires exact organization/resource/asset-bound ATF Evidence, and an
+  enabled vendor rule cannot configure missing trusted data as not applicable.
+  *Implemented (partial — production enrichment, durable bounded history
+  queries, daily cumulative spend, first-time destination and frequency rules
+  remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 37 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -352,17 +356,19 @@ implementation order are in ADR-0002.
    §14.2).
 4. `atf-policy::PolicyBundle::from_dir` validates the scoped, time-bounded
    manifest, exact files, Bundle hash, Cedar Schema and policies before use.
-   `evaluate_at` Schema-validates the Intent's principal/action/resource/
-   context, then returns Cedar Permit/Forbid plus policy IDs and the exact
-   bundle ID/version/hash.
+   After DS-023 persists an immutable input snapshot, DS-024's `evaluate`
+   verifies its Intent/Profile/environment/time and exact Bundle binding,
+   Schema-validates the Intent's principal/action/resource/context, then
+   returns Cedar Permit/Forbid plus policy IDs and Bundle ID/version/hash.
    DS-020 installation additionally validates the detached publisher proof,
    persists the exact archive immutably, and makes only an audited active
    pointer selectable. Gateway requests resolve that pointer and revalidate
    the archive/signature in one repeatable-read snapshot before evaluation.
-5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate_at` (or a
-   history-aware variant when the caller has verified events — see step 10)
-   runs one validated Rule Set and returns its exact version/hash plus
-   findings. A denied request never reaches Risk scoring, but its durable
+5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate_context`
+   validates the same Context's Intent/Profile/Rule Set and exact verified
+   Audit prefix, then runs the rules using only its time and Evidence. It
+   returns the exact Rule Set version/hash plus findings. A denied request
+   never reaches Risk scoring, but its durable
    `NOT_RUN` evidence still names the selected Rule Set. DS-022 prevents raw
    Agent context from supplying privileged Risk inputs; the current vendor
    median consumes only fresh verified, scope-bound `ATF_ENRICHED` evidence.
@@ -439,16 +445,18 @@ complete Decision Engine:
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.
 - Risk rules that need history/state (PRD §12.2) — duplicate purchase is
-  done (`atf_risk::evaluate_with_events`, wired to verified PostgreSQL Audit
-  history in `services/gateway`);
+  done (`atf_risk::evaluate_context`, wired to the Context-bound verified
+  PostgreSQL Audit prefix in `services/gateway`);
   daily cumulative spend, first-time destination address, and order
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
   DS-022 removes the current vendor rule's untrusted Agent-context read, and
   DS-023 now durably pins the evaluation time, verified Evidence/trust
-  selection and history boundary. DS-024 must make evaluator APIs consume only
-  that context rather than separately supplied values.
+  selection and history boundary. DS-024 now makes both evaluators consume
+  that Context, rejects mismatched artifacts/Intent/history and prevents later
+  Audit events from entering the snapshot. DS-028 will replace full-chain
+  loading with bounded durable snapshot queries.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

@@ -29,7 +29,7 @@ use std::{
 };
 
 pub const AUDIENCE: &str = "atf-gateway";
-pub const ENVIRONMENT: &str = "test";
+pub const ENVIRONMENT: &str = "development";
 pub const AGENT_ID: &str = "research-agent-01";
 pub const KEY_ID: &str = "identity-key-01";
 pub const OPERATOR_ISSUER: &str = "https://issuer.example.test";
@@ -110,6 +110,7 @@ pub fn test_risk_rule_set() -> RiskRuleSet {
         serde_json::from_str(include_str!("../../../../risk-rules/default.json"))
             .expect("default Risk Rule Set is JSON");
     document["rule_set_version"] = serde_json::json!(TEST_RISK_RULE_SET_VERSION);
+    document["rules"]["vendor_price_deviation"]["enabled"] = serde_json::json!(false);
     document["rules"]["vendor_price_deviation"]["missing_data"] =
         serde_json::json!("NOT_APPLICABLE");
     RiskRuleSet::from_json(&document.to_string()).expect("test Risk Rule Set is valid")

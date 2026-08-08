@@ -61,6 +61,20 @@
         "missing_data": { "$ref": "#/$defs/missingData" }
       }
     },
+    "vendorPriceRule": {
+      "allOf": [
+        { "$ref": "#/$defs/basisPointRule" },
+        {
+          "if": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          },
+          "then": {
+            "properties": { "missing_data": { "const": "FINDING" } }
+          }
+        }
+      ]
+    },
     "denyListRule": {
       "type": "object",
       "additionalProperties": false,
@@ -106,7 +120,7 @@
         "request_expired": { "$ref": "#/$defs/toggleRule" },
         "single_amount_cap": { "$ref": "#/$defs/amountCapRule" },
         "max_fee_ratio": { "$ref": "#/$defs/basisPointRule" },
-        "vendor_price_deviation": { "$ref": "#/$defs/basisPointRule" },
+        "vendor_price_deviation": { "$ref": "#/$defs/vendorPriceRule" },
         "high_risk_network_or_protocol": { "$ref": "#/$defs/denyListRule" },
         "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" }
       }

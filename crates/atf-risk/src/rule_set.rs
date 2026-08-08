@@ -241,6 +241,13 @@ fn validate_document(document: &RiskRuleSetDocument) -> Result<(), RiskRuleSetEr
             return invalid(format!("{name}.threshold_bps exceeds {MAX_BASIS_POINTS}"));
         }
     }
+    if rules.vendor_price_deviation.enabled
+        && rules.vendor_price_deviation.missing_data != MissingDataBehavior::Finding
+    {
+        return invalid(
+            "enabled vendor_price_deviation must emit a FINDING when trusted data is missing",
+        );
+    }
     let history = &rules.duplicate_purchase;
     if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&history.window_seconds) {
         return invalid(format!(
