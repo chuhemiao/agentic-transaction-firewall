@@ -1,6 +1,6 @@
 # Context Provenance and Trusted Evidence
 
-Status: DS-022 through DS-024 implemented; DS-028 history boundary integrated (2026-08-09)
+Status: DS-022 through DS-024 implemented; DS-028..DS-030 history families integrated (2026-08-09)
 
 Authority: `docs/PRD.md` §4.2.7, §12.3, §12.5 and §12.6
 
@@ -66,10 +66,11 @@ Policy and Risk rederive the Intent hash and Profile and verify the Context's
 Agent-context hash before execution. Policy also verifies environment, active
 time and exact Bundle ID/version/hash. Risk verifies the exact Rule Set
 engine/version/hash and requires its typed `RiskHistorySnapshot` repository
-boundary to equal the `RepositorySnapshot` named by Context. The duplicate
-query must also match the Intent's organization/Agent/resource/current ID, the
-Context time, and the Rule Set window/accounting boundary. A different Intent,
-artifact, query or history boundary fails closed before any rule runs.
+boundary to equal the `RepositorySnapshot` named by Context. Duplicate,
+daily-spend and first-destination queries must also match their exact
+Intent-derived subject, the Context time, and the Rule Set's window,
+normalizer and accounting boundary. A different Intent, artifact, query or
+history boundary fails closed before any rule runs.
 
 ## Privileged-context firewall
 

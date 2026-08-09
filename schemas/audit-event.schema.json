@@ -484,7 +484,8 @@
       "properties": {
         "repository": { "$ref": "#/$defs/repositorySnapshot" },
         "duplicate_purchase": { "$ref": "#/$defs/duplicatePurchaseHistory" },
-        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendHistory" }
+        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendHistory" },
+        "first_destination": { "$ref": "#/$defs/firstDestinationHistory" }
       }
     },
     "repositorySnapshot": {
@@ -575,6 +576,70 @@
         "asset": { "type": "string", "minLength": 3, "maxLength": 256, "pattern": "^[A-Za-z0-9._:%/-]+$" },
         "amount": { "$ref": "#/$defs/amount" },
         "decision_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "firstDestinationHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "result"],
+      "properties": {
+        "query": { "$ref": "#/$defs/firstDestinationQuery" },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/firstDestinationMatch" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "firstDestinationQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organization_id", "current_intent_id", "profile_id", "profile_version", "normalizer_id", "normalizer_version", "destination", "evaluation_time", "accounting_boundary"],
+      "properties": {
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "current_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "profile_id": { "$ref": "#/$defs/nonEmpty" },
+        "profile_version": { "$ref": "#/$defs/nonEmpty" },
+        "normalizer_id": { "const": "atf.agent-commerce.payment.destination.eip155" },
+        "normalizer_version": { "const": "1" },
+        "destination": { "$ref": "#/$defs/destinationNormalization" },
+        "evaluation_time": { "type": "string", "format": "date-time" },
+        "accounting_boundary": { "const": "PERMITTED" }
+      }
+    },
+    "destinationNormalization": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "value"],
+          "properties": {
+            "status": { "const": "AVAILABLE" },
+            "value": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[a-z0-9._:%-]+$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code"],
+          "properties": {
+            "status": { "const": "UNAVAILABLE" },
+            "reason_code": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "firstDestinationMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_id", "decision_id", "boundary_event_id", "boundary_sequence", "occurred_at"],
+      "properties": {
+        "intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "boundary_event_id": { "$ref": "#/$defs/nonEmpty" },
+        "boundary_sequence": { "type": "integer", "minimum": 1 },
+        "occurred_at": { "type": "string", "format": "date-time" }
       }
     },
     "simulationCompleted": {

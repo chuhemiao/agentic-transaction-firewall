@@ -237,12 +237,13 @@ fn missing_finding(
 mod tests {
     use super::*;
     use atf_core::{
-        AccountingBoundary, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
-        DuplicatePurchaseMatch, DuplicatePurchaseQuery, EvaluationContextInput,
-        EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
-        RiskHistorySnapshot, SimulationReference, VersionedArtifactReference,
+        AccountingBoundary, DailySpendHistory, DailySpendQuery, DestinationNormalization,
+        DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
+        EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
+        FirstDestinationHistory, FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot,
+        SimulationReference, VersionedArtifactReference,
     };
-    use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
+    use atf_intent::{normalize_destination, Action, Mandate, Principal, Resource, Transaction};
     use std::str::FromStr;
 
     fn default_evaluation_time() -> Timestamp {
@@ -348,7 +349,31 @@ mod tests {
             )
             .unwrap()
         });
-        let history = RiskHistorySnapshot::with_daily_spend(repository, duplicate, daily).unwrap();
+        let first = rule_set.first_destination_enabled().then(|| {
+            let destination = match normalize_destination(intent) {
+                Ok(value) => DestinationNormalization::available(value.value()).unwrap(),
+                Err(error) => DestinationNormalization::unavailable(error.code()).unwrap(),
+            };
+            FirstDestinationHistory::new(
+                FirstDestinationQuery::new(
+                    &intent.principal.organization_id,
+                    &intent.intent_id,
+                    profile.id(),
+                    profile.version(),
+                    rule_set.first_destination_normalizer_id().unwrap(),
+                    rule_set.first_destination_normalizer_version().unwrap(),
+                    destination,
+                    evaluated_at,
+                    rule_set.first_destination_accounting_boundary().unwrap(),
+                )
+                .unwrap(),
+                None,
+            )
+            .unwrap()
+        });
+        let history =
+            RiskHistorySnapshot::with_first_destination(repository, duplicate, daily, first)
+                .unwrap();
         super::evaluate_context(intent, rule_set, &context, &history).unwrap()
     }
 

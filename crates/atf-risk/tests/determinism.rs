@@ -1,12 +1,13 @@
 use std::str::FromStr;
 
 use atf_core::{
-    AccountingBoundary, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
-    DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
-    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
-    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
+    AccountingBoundary, DailySpendHistory, DailySpendQuery, DestinationNormalization,
+    DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, FirstDestinationHistory,
+    FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
 };
-use atf_intent::{validate_profile, TransactionIntent};
+use atf_intent::{normalize_destination, validate_profile, TransactionIntent};
 use atf_risk::{evaluate_context, RiskEvaluationError, RiskRuleSet};
 
 fn timestamp(value: &str) -> Timestamp {
@@ -88,10 +89,28 @@ fn fixture() -> (
         0,
     )
     .unwrap();
-    let history = RiskHistorySnapshot::with_daily_spend(
+    let normalized = normalize_destination(&intent).unwrap();
+    let first_destination = FirstDestinationHistory::new(
+        FirstDestinationQuery::new(
+            &intent.principal.organization_id,
+            &intent.intent_id,
+            profile.id(),
+            profile.version(),
+            rule_set.first_destination_normalizer_id().unwrap(),
+            rule_set.first_destination_normalizer_version().unwrap(),
+            DestinationNormalization::available(normalized.value()).unwrap(),
+            context.evaluation_time(),
+            rule_set.first_destination_accounting_boundary().unwrap(),
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let history = RiskHistorySnapshot::with_first_destination(
         repository,
         Some(duplicate_purchase),
         Some(daily_spend),
+        Some(first_destination),
     )
     .unwrap();
     (intent, rule_set, context, history)

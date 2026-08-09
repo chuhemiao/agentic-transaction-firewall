@@ -139,6 +139,31 @@
         }
       ]
     },
+    "firstDestinationRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "normalizer_id", "normalizer_version", "accounting_boundary", "missing_data"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "normalizer_id": { "const": "atf.agent-commerce.payment.destination.eip155" },
+        "normalizer_version": { "const": "1" },
+        "accounting_boundary": { "$ref": "#/$defs/accountingBoundary" },
+        "missing_data": { "$ref": "#/$defs/missingData" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "severity": { "enum": ["high", "critical"] },
+              "accounting_boundary": { "const": "PERMITTED" },
+              "missing_data": { "const": "FINDING" }
+            }
+          }
+        }
+      ]
+    },
     "rules": {
       "type": "object",
       "additionalProperties": false,
@@ -157,7 +182,8 @@
         "vendor_price_deviation": { "$ref": "#/$defs/vendorPriceRule" },
         "high_risk_network_or_protocol": { "$ref": "#/$defs/denyListRule" },
         "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" },
-        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendRule" }
+        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendRule" },
+        "first_time_destination": { "$ref": "#/$defs/firstDestinationRule" }
       }
     }
   }

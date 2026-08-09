@@ -1,10 +1,13 @@
 use atf_audit::AuditPayload;
 use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
-    DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
+    DecisionKind, DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
+    DuplicatePurchaseQuery, FirstDestinationHistory, FirstDestinationMatch, FirstDestinationQuery,
     RepositorySnapshot, RiskHistorySnapshot, Timestamp, MAX_DAILY_SPEND_ASSET_GROUPS,
 };
-use atf_intent::TransactionIntent;
+use atf_intent::{
+    normalize_destination, normalize_destination_value, validate_profile, TransactionIntent,
+};
 use atf_risk::RiskRuleSet;
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
@@ -96,14 +99,204 @@ impl Store {
         } else {
             None
         };
-        let snapshot = RiskHistorySnapshot::with_daily_spend(
+        let first_destination = if rule_set.first_destination_enabled() {
+            Some(
+                query_first_destination(
+                    &mut transaction,
+                    intent,
+                    rule_set,
+                    evaluation_time,
+                    &repository,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let snapshot = RiskHistorySnapshot::with_first_destination(
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
+            first_destination,
         )?;
         transaction.commit().await?;
         Ok(snapshot)
     }
+}
+
+async fn query_first_destination(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    evaluation_time: Timestamp,
+    repository: &RepositorySnapshot,
+) -> Result<FirstDestinationHistory, StoreError> {
+    let boundary = rule_set
+        .first_destination_accounting_boundary()
+        .ok_or_else(|| StoreError::InvalidRepositoryInput {
+            reason: "enabled first-destination rule lacks an accounting boundary".into(),
+        })?;
+    if boundary != AccountingBoundary::Permitted {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "durable first-destination queries require PERMITTED accounting".into(),
+        });
+    }
+    let normalizer_id = rule_set.first_destination_normalizer_id().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled first-destination rule lacks a normalizer ID".into(),
+        }
+    })?;
+    let normalizer_version = rule_set
+        .first_destination_normalizer_version()
+        .ok_or_else(|| StoreError::InvalidRepositoryInput {
+            reason: "enabled first-destination rule lacks a normalizer version".into(),
+        })?;
+    let profile = validate_profile(intent).map_err(|error| StoreError::InvalidRepositoryInput {
+        reason: format!("first-destination Intent Profile is invalid: {error}"),
+    })?;
+    let destination = match normalize_destination(intent) {
+        Ok(destination) => DestinationNormalization::available(destination.value())?,
+        Err(error) => DestinationNormalization::unavailable(error.code())?,
+    };
+    let query = FirstDestinationQuery::new(
+        &intent.principal.organization_id,
+        &intent.intent_id,
+        profile.id(),
+        profile.version(),
+        normalizer_id,
+        normalizer_version,
+        destination,
+        evaluation_time,
+        boundary,
+    )?;
+    let Some(normalized_destination) = query.destination().value() else {
+        return FirstDestinationHistory::new(query, None).map_err(StoreError::from);
+    };
+    let row: Option<AuditEventRow> = sqlx::query_as(
+        r#"
+        SELECT
+            sequence,
+            event_id,
+            event_type,
+            schema_version,
+            occurred_at,
+            intent_id,
+            evaluation_id,
+            decision_id,
+            previous_event_hash::text AS previous_event_hash,
+            event_hash::text AS event_hash,
+            canonical_event,
+            canonical_event_bytes
+        FROM audit_events
+        WHERE organization_id = $1
+          AND event_type = 'DecisionRecorded'
+          AND sequence <= $2
+          AND occurred_at <= $3
+          AND intent_id <> $4
+          AND canonical_event -> 'data' ->> 'decision' = 'PERMIT'
+          AND canonical_event -> 'data' ->> 'organization_id' = $1
+          AND canonical_event #>> '{data,binding,profile,id}' = $5
+          AND canonical_event #>> '{data,binding,profile,version}' = $6
+          AND lower(canonical_event #>> '{data,binding,execution_constraints,destination}') = $7
+        ORDER BY occurred_at DESC, sequence DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&intent.principal.organization_id)
+    .bind(i64::try_from(repository.through_sequence()).map_err(|_| {
+        corrupt(
+            &intent.principal.organization_id,
+            "Audit sequence exceeds i64",
+        )
+    })?)
+    .bind(query.evaluation_time().as_datetime())
+    .bind(&intent.intent_id)
+    .bind(query.profile_id())
+    .bind(query.profile_version())
+    .bind(normalized_destination)
+    .fetch_optional(&mut **transaction)
+    .await?;
+
+    let result = row
+        .map(|row| verify_first_destination_row(&intent.principal.organization_id, &query, row))
+        .transpose()?;
+    FirstDestinationHistory::new(query, result).map_err(StoreError::from)
+}
+
+fn verify_first_destination_row(
+    organization_id: &str,
+    query: &FirstDestinationQuery,
+    row: AuditEventRow,
+) -> Result<FirstDestinationMatch, StoreError> {
+    let event = verify_row_contents(organization_id, &row)?;
+    let payload = event.typed_payload()?;
+    let AuditPayload::DecisionRecorded(recorded) = payload else {
+        return Err(corrupt(
+            organization_id,
+            "first-destination query returned a non-Decision event",
+        ));
+    };
+    if recorded.organization_id != organization_id || recorded.decision != DecisionKind::Permit {
+        return Err(corrupt(
+            organization_id,
+            "first-destination query returned mismatched typed evidence",
+        ));
+    }
+    let binding = recorded.binding.as_deref().ok_or_else(|| {
+        corrupt(
+            organization_id,
+            "first-destination Decision lacks current binding evidence",
+        )
+    })?;
+    let destination = binding
+        .execution_constraints
+        .destination
+        .as_deref()
+        .ok_or_else(|| {
+            corrupt(
+                organization_id,
+                "first-destination Decision lacks destination",
+            )
+        })?;
+    if recorded.destination.as_deref() != Some(destination)
+        || binding.profile.id != query.profile_id()
+        || binding.profile.version != query.profile_version()
+        || !destination.starts_with(&format!("{}:", binding.execution_constraints.network))
+    {
+        return Err(corrupt(
+            organization_id,
+            "first-destination Decision binding disagrees with its typed fields",
+        ));
+    }
+    let normalized =
+        normalize_destination_value(&binding.profile.id, &binding.profile.version, destination)
+            .map_err(|_| {
+                corrupt(
+                    organization_id,
+                    "first-destination Decision cannot be normalized by its bound Profile",
+                )
+            })?;
+    if query.destination().value() != Some(normalized.value()) {
+        return Err(corrupt(
+            organization_id,
+            "first-destination Decision does not match the normalized query key",
+        ));
+    }
+    let intent_id = row
+        .intent_id
+        .ok_or_else(|| corrupt(organization_id, "Decision history lacks intent_id"))?;
+    let decision_id = row
+        .decision_id
+        .ok_or_else(|| corrupt(organization_id, "Decision history lacks decision_id"))?;
+    FirstDestinationMatch::new(
+        intent_id,
+        decision_id,
+        row.event_id,
+        u64::try_from(row.sequence)
+            .map_err(|_| corrupt(organization_id, "negative Audit sequence"))?,
+        Timestamp::from_datetime(row.occurred_at),
+    )
+    .map_err(StoreError::from)
 }
 
 async fn query_daily_spend(

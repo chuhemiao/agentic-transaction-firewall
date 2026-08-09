@@ -47,7 +47,7 @@ pub use risk::StoredRiskRuleSet;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 12;
+pub const CURRENT_SCHEMA_VERSION: i32 = 13;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

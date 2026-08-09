@@ -7,6 +7,15 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-030 normalized first-time destination Risk. A versioned Payment EIP-155
+  normalizer derives one lowercase history key from legacy lowercase or valid
+  EIP-55 checksum-case input without rewriting the signed Intent. Migration
+  0013 supports an organization/Profile/destination/time query over prior
+  `DecisionRecorded(PERMIT)` evidence; Store re-verifies the typed event,
+  Decision/Intent binding and normalizer output. Risk records the exact query
+  and optional match, while prior DENY/cross-tenant rows and invalid or
+  unsupported destinations cannot silently establish familiarity.
+
 - DS-029 asset-aware daily cumulative-spend Risk. Migration 0012 adds the
   bounded permitted-spend index; Store captures a repeatable-read,
   organization/Agent/time/sequence-scoped PostgreSQL `NUMERIC` aggregate by

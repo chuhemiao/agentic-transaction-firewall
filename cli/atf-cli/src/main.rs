@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use atf_core::{
-    sha256_hex, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
-    DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
-    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
-    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
+    sha256_hex, DailySpendHistory, DailySpendQuery, DestinationNormalization,
+    DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, FirstDestinationHistory,
+    FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
+    VersionedArtifactReference,
 };
 use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
 use clap::{Parser, Subcommand};
@@ -1085,12 +1086,43 @@ fn local_evaluation_context(
         Some(history) => Some(history?),
         None => None,
     };
+    let first_destination = risk_rule_set.first_destination_enabled().then(|| {
+        let destination = match atf_intent::normalize_destination(intent) {
+            Ok(destination) => DestinationNormalization::available(destination.value())?,
+            Err(error) => DestinationNormalization::unavailable(error.code())?,
+        };
+        FirstDestinationHistory::new(
+            FirstDestinationQuery::new(
+                &intent.principal.organization_id,
+                &intent.intent_id,
+                profile.id(),
+                profile.version(),
+                risk_rule_set
+                    .first_destination_normalizer_id()
+                    .expect("validated enabled first-destination rule has a normalizer ID"),
+                risk_rule_set
+                    .first_destination_normalizer_version()
+                    .expect("validated enabled first-destination rule has a normalizer version"),
+                destination,
+                evaluated_at,
+                risk_rule_set
+                    .first_destination_accounting_boundary()
+                    .expect("validated enabled first-destination rule has a boundary"),
+            )?,
+            None,
+        )
+    });
+    let first_destination = match first_destination {
+        Some(history) => Some(history?),
+        None => None,
+    };
     Ok((
         context,
-        RiskHistorySnapshot::with_daily_spend(
+        RiskHistorySnapshot::with_first_destination(
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
+            first_destination,
         )?,
     ))
 }

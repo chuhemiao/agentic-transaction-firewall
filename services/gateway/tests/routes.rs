@@ -35,7 +35,27 @@ fn daily_spend_rule_set(max_amount: &str) -> RiskRuleSet {
     document["rules"]["vendor_price_deviation"]["missing_data"] =
         serde_json::json!("NOT_APPLICABLE");
     document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
+    document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(false);
     document["rules"]["daily_cumulative_spend"]["max_amount"] = serde_json::json!(max_amount);
+    RiskRuleSet::from_json(&document.to_string()).unwrap()
+}
+
+fn first_destination_rule_set(enabled: bool) -> RiskRuleSet {
+    let mut document: serde_json::Value =
+        serde_json::from_str(include_str!("../../../risk-rules/default.json")).unwrap();
+    document["rule_set_version"] = serde_json::json!(if enabled {
+        "risk-rules-first-destination-enabled-v1"
+    } else {
+        "risk-rules-first-destination-disabled-v1"
+    });
+    document["rules"]["max_fee_ratio"]["enabled"] = serde_json::json!(false);
+    document["rules"]["max_fee_ratio"]["missing_data"] = serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["vendor_price_deviation"]["enabled"] = serde_json::json!(false);
+    document["rules"]["vendor_price_deviation"]["missing_data"] =
+        serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
+    document["rules"]["daily_cumulative_spend"]["enabled"] = serde_json::json!(false);
+    document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(enabled);
     RiskRuleSet::from_json(&document.to_string()).unwrap()
 }
 
@@ -285,7 +305,7 @@ async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
         .expect("restrictive Decision must be durable");
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        "risk-rules-1.1.0"
+        "risk-rules-1.2.0"
     );
     assert!(finalized.evaluation.evidence["risk"]["outcome"]["result"]
         .as_array()
@@ -1086,6 +1106,158 @@ async fn missing_cross_asset_quote_cannot_produce_a_gateway_permit() -> Result<(
         .unwrap()
         .iter()
         .any(|reason| reason["code"] == "DAILY_SPEND_QUOTE_MISSING"));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn first_destination_uses_organization_scoped_normalized_permit_history(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("first_destination").await?;
+    let store = database.connect().await?;
+    let disabled = build_router(test_state_with_risk(
+        store.clone(),
+        first_destination_rule_set(false),
+    ));
+
+    let prior_id = "01J0000000000000000000F101";
+    let mut prior = sample_intent_json(prior_id, "12.50");
+    prior["resource"]["resource_id"] = serde_json::json!("first-destination-prior");
+    prior["transaction"]["destination"] =
+        serde_json::json!("eip155:8453:0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");
+    assert_eq!(
+        body_json(disabled.oneshot(post_intent_value_request(prior)).await?).await?["decision"],
+        "PERMIT"
+    );
+
+    let enabled_rule_set = first_destination_rule_set(true);
+    let enabled = build_router(test_state_with_risk(
+        store.clone(),
+        enabled_rule_set.clone(),
+    ));
+    let familiar_id = "01J0000000000000000000F102";
+    let mut familiar = sample_intent_json(familiar_id, "12.50");
+    familiar["resource"]["resource_id"] = serde_json::json!("first-destination-familiar");
+    familiar["transaction"]["destination"] =
+        serde_json::json!("eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed");
+    let familiar_decision = body_json(
+        enabled
+            .clone()
+            .oneshot(post_intent_value_request(familiar))
+            .await?,
+    )
+    .await?;
+    assert_eq!(familiar_decision["decision"], "PERMIT");
+    assert!(!familiar_decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "FIRST_TIME_DESTINATION"));
+
+    let mut first = sample_intent_json("01J0000000000000000000F103", "12.50");
+    first["resource"]["resource_id"] = serde_json::json!("first-destination-new");
+    first["transaction"]["destination"] =
+        serde_json::json!("eip155:8453:0x2222222222222222222222222222222222222222");
+    let first_decision =
+        body_json(enabled.oneshot(post_intent_value_request(first)).await?).await?;
+    assert_eq!(first_decision["decision"], "REVIEW");
+    assert!(first_decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "FIRST_TIME_DESTINATION"));
+
+    let finalized = store
+        .load_finalized_decision("alpha-lab", familiar_id)
+        .await?
+        .expect("familiar destination Decision is durable");
+    let first_history = &finalized.evaluation.evidence["risk"]["history"]["first_destination"];
+    assert_eq!(
+        first_history["query"]["destination"]["value"],
+        "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
+    );
+    assert_eq!(first_history["query"]["accounting_boundary"], "PERMITTED");
+    assert_eq!(first_history["result"]["intent_id"], prior_id);
+
+    database.seed_organization("beta-lab").await?;
+    let mut beta: atf_intent::TransactionIntent =
+        serde_json::from_value(sample_intent_json("01J0000000000000000000F104", "12.50"))?;
+    beta.principal.organization_id = "beta-lab".into();
+    beta.transaction.destination =
+        Some("eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed".into());
+    let beta_history = store
+        .capture_risk_history(&beta, &enabled_rule_set, Timestamp::now_millis())
+        .await?;
+    let beta_first = beta_history.first_destination().unwrap();
+    assert_eq!(beta_first.query().organization_id(), "beta-lab");
+    assert!(beta_first.result().is_none());
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn denied_or_unnormalizable_destination_cannot_become_familiar_or_permit(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("first_destination_fail_closed").await?;
+    let store = database.connect().await?;
+    let denied = build_router(test_state_with_forbid_all_policy(store.clone()));
+    let destination = "eip155:8453:0x3333333333333333333333333333333333333333";
+
+    let mut denied_intent = sample_intent_json("01J0000000000000000000G101", "12.50");
+    denied_intent["resource"]["resource_id"] = serde_json::json!("denied-destination-prior");
+    denied_intent["transaction"]["destination"] = serde_json::json!(destination);
+    assert_eq!(
+        body_json(
+            denied
+                .oneshot(post_intent_value_request(denied_intent))
+                .await?
+        )
+        .await?["decision"],
+        "DENY"
+    );
+
+    let enabled = build_router(test_state_with_risk(
+        store.clone(),
+        first_destination_rule_set(true),
+    ));
+    let mut after_deny = sample_intent_json("01J0000000000000000000G102", "12.50");
+    after_deny["resource"]["resource_id"] = serde_json::json!("denied-destination-current");
+    after_deny["transaction"]["destination"] = serde_json::json!(destination);
+    let after_deny = body_json(
+        enabled
+            .clone()
+            .oneshot(post_intent_value_request(after_deny))
+            .await?,
+    )
+    .await?;
+    assert_eq!(after_deny["decision"], "REVIEW");
+    assert!(after_deny["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "FIRST_TIME_DESTINATION"));
+
+    let mut unsupported = sample_intent_json("01J0000000000000000000G103", "12.50");
+    unsupported["resource"]["resource_id"] = serde_json::json!("unsupported-destination");
+    unsupported["transaction"]["network"] = serde_json::json!("chainstd:1");
+    unsupported["transaction"]["asset"] = serde_json::json!("chainstd:1/assetstd:coin");
+    unsupported["transaction"]["destination"] = serde_json::json!("chainstd:1:account");
+    let unsupported = body_json(
+        enabled
+            .oneshot(post_intent_value_request(unsupported))
+            .await?,
+    )
+    .await?;
+    assert_eq!(unsupported["decision"], "REVIEW");
+    assert!(unsupported["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "FIRST_DESTINATION_NORMALIZATION_FAILED"));
 
     store.close().await;
     database.destroy().await?;

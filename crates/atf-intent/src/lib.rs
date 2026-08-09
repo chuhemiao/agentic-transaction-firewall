@@ -1,6 +1,7 @@
 //! The canonical Transaction Intent (PRD §9): its Rust type, JSON Schema
 //! validation, and canonical hashing.
 
+mod destination;
 mod error;
 mod hash;
 mod profile;
@@ -9,6 +10,11 @@ mod semantic;
 mod types;
 mod validate;
 
+pub use destination::{
+    normalize_destination, normalize_destination_value, DestinationNormalizationError,
+    ProfileNormalizedDestination, PAYMENT_DESTINATION_NORMALIZER_ID,
+    PAYMENT_DESTINATION_NORMALIZER_VERSION,
+};
 pub use error::{IntentError, SemanticErrorCode, SemanticValidationErrors, SemanticViolation};
 pub use profile::{
     validate_profile, IntentProfile, AGENT_COMMERCE_PAYMENT_PROFILE,

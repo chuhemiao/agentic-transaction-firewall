@@ -60,6 +60,9 @@ If you're asked to "continue" or "keep going through the TODO list":
   without ambient time or separate privileged inputs; DS-025 emits a closed,
   domain-separated canonical Decision v1 and makes Store/Audit verify the same
   Intent/Profile/artifact/snapshot/Simulation/time/constraint bindings.
+  DS-028..DS-030 add typed bounded duplicate-purchase, daily-spend and
+  normalized first-destination history snapshots backed by migrations
+  0011..0013; Risk and both Replay modes consume those exact snapshots.
 - Every other directory (`crates/atf-simulator`, `crates/atf-approval`,
   `crates/atf-adapter-*`, `services/policy-server`, `services/*-server`,
   `sdk/*`, etc.) is an empty stub with just a `README.md` saying what

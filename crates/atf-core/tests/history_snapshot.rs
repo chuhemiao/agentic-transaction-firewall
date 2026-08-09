@@ -2,8 +2,9 @@ use std::str::FromStr;
 
 use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
-    DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery, RepositorySnapshot,
-    RiskHistorySnapshot, Timestamp,
+    DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
+    DuplicatePurchaseQuery, FirstDestinationHistory, FirstDestinationMatch, FirstDestinationQuery,
+    RepositorySnapshot, RiskHistorySnapshot, Timestamp,
 };
 
 fn at(value: &str) -> Timestamp {
@@ -218,4 +219,152 @@ fn legacy_history_without_daily_spend_remains_byte_compatible() {
         serde_json::from_value::<RiskHistorySnapshot>(encoded).unwrap(),
         snapshot
     );
+}
+
+fn first_destination_query(normalization: DestinationNormalization) -> FirstDestinationQuery {
+    FirstDestinationQuery::new(
+        "alpha-lab",
+        "01J0000000000000000000NOW0",
+        "atf.agent-commerce.payment",
+        "1.0",
+        "atf.agent-commerce.payment.destination.eip155",
+        "1",
+        normalization,
+        at("2026-08-09T12:00:00Z"),
+        AccountingBoundary::Permitted,
+    )
+    .unwrap()
+}
+
+#[test]
+fn first_destination_snapshot_records_profile_normalizer_and_prior_permit() {
+    let normalized = DestinationNormalization::available(
+        "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+    )
+    .unwrap();
+    let prior = FirstDestinationMatch::new(
+        "01J0000000000000000000OLD0",
+        "01J0000000000000000000DEC0",
+        "01J0000000000000000000EVT0",
+        40,
+        at("2026-08-09T11:00:00Z"),
+    )
+    .unwrap();
+    let history =
+        FirstDestinationHistory::new(first_destination_query(normalized), Some(prior.clone()))
+            .unwrap();
+    let snapshot =
+        RiskHistorySnapshot::with_first_destination(repository(), None, None, Some(history))
+            .unwrap();
+
+    let query = snapshot.first_destination().unwrap().query();
+    assert_eq!(query.organization_id(), "alpha-lab");
+    assert_eq!(query.profile_id(), "atf.agent-commerce.payment");
+    assert_eq!(query.profile_version(), "1.0");
+    assert_eq!(
+        query.normalizer_id(),
+        "atf.agent-commerce.payment.destination.eip155"
+    );
+    assert_eq!(query.normalizer_version(), "1");
+    assert_eq!(query.accounting_boundary(), AccountingBoundary::Permitted);
+    assert_eq!(snapshot.first_destination().unwrap().result(), Some(&prior));
+
+    let encoded = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(
+        encoded["first_destination"]["query"]["destination"]["status"],
+        "AVAILABLE"
+    );
+    assert_eq!(
+        encoded["first_destination"]["query"]["destination"]["value"],
+        "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
+    );
+    assert_eq!(
+        serde_json::from_value::<RiskHistorySnapshot>(encoded).unwrap(),
+        snapshot
+    );
+}
+
+#[test]
+fn unavailable_destination_is_recorded_but_cannot_claim_familiarity() {
+    assert!(
+        serde_json::from_value::<DestinationNormalization>(serde_json::json!({
+            "status": "AVAILABLE",
+            "value": "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+            "unexpected": true
+        }))
+        .is_err()
+    );
+    assert!(DestinationNormalization::available(
+        "eip155:8453:0x5AaeB6053F3E94C9b9A09f33669435E7Ef1BeAed"
+    )
+    .is_err());
+
+    let unavailable =
+        DestinationNormalization::unavailable("DESTINATION_NORMALIZATION_NAMESPACE_UNSUPPORTED")
+            .unwrap();
+    let query = first_destination_query(unavailable);
+    assert!(FirstDestinationHistory::new(
+        query.clone(),
+        Some(
+            FirstDestinationMatch::new(
+                "01J0000000000000000000OLD0",
+                "01J0000000000000000000DEC0",
+                "01J0000000000000000000EVT0",
+                40,
+                at("2026-08-09T11:00:00Z"),
+            )
+            .unwrap(),
+        ),
+    )
+    .is_err());
+
+    let history = FirstDestinationHistory::new(query, None).unwrap();
+    let encoded = serde_json::to_value(
+        RiskHistorySnapshot::with_first_destination(repository(), None, None, Some(history))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        encoded["first_destination"]["query"]["destination"]["status"],
+        "UNAVAILABLE"
+    );
+    assert_eq!(
+        encoded["first_destination"]["query"]["destination"]["reason_code"],
+        "DESTINATION_NORMALIZATION_NAMESPACE_UNSUPPORTED"
+    );
+}
+
+#[test]
+fn first_destination_result_must_precede_context_and_repository_boundaries() {
+    let normalized = DestinationNormalization::available(
+        "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+    )
+    .unwrap();
+    for (intent_id, sequence, occurred_at) in [
+        ("01J0000000000000000000NOW0", 40, "2026-08-09T11:00:00Z"),
+        ("01J0000000000000000000OLD0", 43, "2026-08-09T11:00:00Z"),
+        ("01J0000000000000000000OLD0", 40, "2026-08-09T12:00:00.001Z"),
+    ] {
+        let history = FirstDestinationHistory::new(
+            first_destination_query(normalized.clone()),
+            Some(
+                FirstDestinationMatch::new(
+                    intent_id,
+                    "01J0000000000000000000DEC0",
+                    "01J0000000000000000000EVT0",
+                    sequence,
+                    at(occurred_at),
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+        assert!(RiskHistorySnapshot::with_first_destination(
+            repository(),
+            None,
+            None,
+            Some(history)
+        )
+        .is_err());
+    }
 }

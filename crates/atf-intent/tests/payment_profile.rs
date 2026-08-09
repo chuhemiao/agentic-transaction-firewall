@@ -1,6 +1,7 @@
 use atf_intent::{
-    validate, validate_profile, AGENT_COMMERCE_PAYMENT_PROFILE_ID,
-    AGENT_COMMERCE_PAYMENT_PROFILE_VERSION,
+    normalize_destination, validate, validate_profile, AGENT_COMMERCE_PAYMENT_PROFILE_ID,
+    AGENT_COMMERCE_PAYMENT_PROFILE_VERSION, PAYMENT_DESTINATION_NORMALIZER_ID,
+    PAYMENT_DESTINATION_NORMALIZER_VERSION,
 };
 use serde_json::{json, Value};
 
@@ -206,4 +207,61 @@ fn caip_boundaries_are_accepted_without_normalization() {
     escaped["transaction"]["asset"] = json!("eip155:8453/erc20:token%2Falias");
     escaped["transaction"]["destination"] = json!("eip155:8453:account%2Falias");
     validate(&escaped.to_string()).expect("uppercase percent-encoded octets are valid");
+}
+
+#[test]
+fn eip155_destination_normalizer_deduplicates_legacy_and_checksum_case() {
+    let mut checksum = payment_value();
+    checksum["transaction"]["destination"] =
+        json!("eip155:8453:0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");
+    let checksum_intent = validate(&checksum.to_string()).unwrap();
+    let normalized = normalize_destination(&checksum_intent).unwrap();
+
+    assert_eq!(normalized.profile_id(), AGENT_COMMERCE_PAYMENT_PROFILE_ID);
+    assert_eq!(
+        normalized.profile_version(),
+        AGENT_COMMERCE_PAYMENT_PROFILE_VERSION
+    );
+    assert_eq!(
+        normalized.normalizer_id(),
+        PAYMENT_DESTINATION_NORMALIZER_ID
+    );
+    assert_eq!(
+        normalized.normalizer_version(),
+        PAYMENT_DESTINATION_NORMALIZER_VERSION
+    );
+    assert_eq!(
+        normalized.value(),
+        "eip155:8453:0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
+    );
+
+    let mut lowercase = checksum;
+    lowercase["transaction"]["destination"] = json!(normalized.value());
+    let lowercase_intent = validate(&lowercase.to_string()).unwrap();
+    assert_eq!(
+        normalize_destination(&lowercase_intent).unwrap(),
+        normalized
+    );
+}
+
+#[test]
+fn destination_normalizer_rejects_bad_checksum_and_unsupported_namespace() {
+    let mut bad_checksum = payment_value();
+    bad_checksum["transaction"]["destination"] =
+        json!("eip155:8453:0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");
+    let bad_checksum = validate(&bad_checksum.to_string()).unwrap();
+    assert_eq!(
+        normalize_destination(&bad_checksum).unwrap_err().code(),
+        "DESTINATION_NORMALIZATION_INVALID"
+    );
+
+    let mut unsupported = payment_value();
+    unsupported["transaction"]["network"] = json!("chainstd:1");
+    unsupported["transaction"]["asset"] = json!("chainstd:1/assetstd:coin");
+    unsupported["transaction"]["destination"] = json!("chainstd:1:account");
+    let unsupported = validate(&unsupported.to_string()).unwrap();
+    assert_eq!(
+        normalize_destination(&unsupported).unwrap_err().code(),
+        "DESTINATION_NORMALIZATION_NAMESPACE_UNSUPPORTED"
+    );
 }

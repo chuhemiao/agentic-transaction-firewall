@@ -139,6 +139,11 @@ order. The executable order is:
   `PERMITTED` boundary, valuation asset, limit and window; Store records a
   fixed-point per-asset aggregate at the Context repository boundary, and
   missing direct verified quote evidence produces a restrictive finding.
+- [x] DS-030 Normalized first-time destination. The Payment Profile's
+  versioned EIP-155 normalizer derives a lowercase organization-wide history
+  key without changing signed Intent bytes; Store returns at most one verified
+  prior permit at the Context boundary, and DENY/cross-tenant/unsafe
+  normalization cannot establish familiarity or silently preserve Permit.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -153,8 +158,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-030` — add normalized first-time destination Risk
-over the DS-028 bounded durable snapshot boundary.
+**Immediate next task:** `DS-031` — add business request/order frequency Risk
+over an explicit `REQUESTED` bounded durable snapshot boundary.
 
 ## Later releases
 

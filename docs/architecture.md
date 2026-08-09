@@ -35,9 +35,10 @@ Agent Intent
   context-snapshot and overall hashes. It binds the Intent/Profile, one time,
   Policy/Risk artifacts, sorted fresh verified Evidence and trust identity,
   an exact Audit-history prefix, external snapshot availability and explicit
-  Simulation `NOT_RUN`. DS-028/DS-029 add the closed `RiskHistorySnapshot`
-  contract: repository boundary plus exact typed duplicate and daily-spend
-  query inputs/results, with backward-compatible optional families. *Implemented.*
+  Simulation `NOT_RUN`. DS-028..DS-030 add the closed `RiskHistorySnapshot`
+  contract: repository boundary plus exact typed duplicate, daily-spend and
+  first-destination query inputs/results, with backward-compatible optional
+  families. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -50,6 +51,10 @@ Agent Intent
   `payment/purchase_api_resource`, requires a typed resource, validates and
   same-chain binds CAIP-2/10/19 identifiers, and forbids contract/trading
   fields. Every other action pair returns `UNSUPPORTED_INTENT_PROFILE`.
+  DS-030 adds a versioned Payment EIP-155 history normalizer which accepts
+  legacy lowercase or valid EIP-55 checksum case and derives a lowercase key
+  without mutating the canonical signed Intent; unsafe or unsupported input is
+  represented as unavailable.
   Structural, common-semantic, and the one supported Profile contract are
   *implemented*; additional profiles remain planned.
 - **`atf-identity`** — Agent registration records (`AgentRecord`,
@@ -95,13 +100,17 @@ Agent Intent
   the Rule Set's valuation asset. Only verified organization-scoped
   `ATF_ENRICHED` quote Evidence can convert assets; missing/ambiguous quotes,
   unresolved asset bindings and non-exact arithmetic emit restrictive findings.
+  DS-030 adds a High/Critical first-destination rule over organization-wide,
+  exact-Profile, exact-normalizer `PERMITTED` history. The evaluator recomputes
+  the normalized key and rejects substituted queries; no prior permit, invalid
+  checksum and unsupported namespaces produce explicit restrictive findings.
   DS-022/DS-024 keep the internal typed Risk input restricted to Evidence
   already verified and persisted by `EvaluationContext`; raw Intent context is
   checked only as one hash and privileged keys are never inspected. Vendor
   median requires exact organization/resource/asset-bound ATF Evidence, and an
   enabled vendor rule cannot configure missing trusted data as not applicable.
-  *Implemented (partial — production enrichment, first-time destination and
-  frequency rules remain later work).*
+  *Implemented (partial — production enrichment and frequency rules remain
+  later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 40 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -175,6 +184,11 @@ Agent Intent
   same transaction groups PostgreSQL `NUMERIC` totals by exact bound asset,
   reports missing legacy asset bindings and rejects more than 256 groups; the
   full Audit chain is verified at the captured repository boundary before Risk.
+  Migration 0013 adds the partial permitted first-destination index by
+  organization, Profile, lowercase destination, time and sequence. Store
+  verifies the selected typed Decision event and canonical row, checks its
+  Intent/Profile/destination bindings, re-runs the versioned normalizer and
+  returns at most one prior permit under the same repeatable-read boundary.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
@@ -182,7 +196,9 @@ Agent Intent
   `atf policy test/install/activate/rollback`, `atf risk install`,
   `atf replay original/counterfactual`, plus offline `atf identity` Agent/public-key
   provision/status/revoke and `atf operator` subject/status/role commands.
-  *Implemented (partial PRD command set).*
+  *Implemented (partial PRD command set). `atf evaluate` currently needs an
+  explicit millisecond-aligned `--evaluated-at`; the higher-precision default
+  is a known pre-C4 CLI integration gap.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
   durable admission -> immutable Evaluation Context -> Policy -> (if permitted)
@@ -499,11 +515,11 @@ complete Decision Engine:
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.
-- Risk rules that need history/state (PRD §12.2) — duplicate purchase and
-  asset-aware daily cumulative spend are done (`atf_risk::evaluate_context`,
+- Risk rules that need history/state (PRD §12.2) — duplicate purchase,
+  asset-aware daily cumulative spend and first-time destination are done
+  (`atf_risk::evaluate_context`,
   wired to the Context-bound bounded PostgreSQL history snapshot in
-  `services/gateway`); first-time destination address and order frequency are
-  not. `DecisionRecorded` now provides a reliable PERMIT
+  `services/gateway`); order frequency is not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
   DS-022 removes the current vendor rule's untrusted Agent-context read, and
@@ -518,6 +534,11 @@ complete Decision Engine:
   snapshot observes every completed Decision, while missing-quote tests prove
   absent valuation evidence cannot Permit; atomic in-flight budget reservation
   remains a separate Budget-domain gap.
+  DS-030 records the exact organization/Profile/normalizer/destination and
+  `PERMITTED` boundary, compares organization-wide history, and re-verifies
+  any match against its durable Intent and Decision. Lowercase and valid EIP-55
+  spellings deduplicate; DENY/cross-tenant rows do not, and unavailable
+  normalization cannot preserve Permit.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

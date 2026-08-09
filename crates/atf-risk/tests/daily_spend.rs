@@ -27,6 +27,7 @@ fn rule_set(max_amount: &str) -> RiskRuleSet {
     document["rules"]["vendor_price_deviation"]["missing_data"] =
         serde_json::json!("NOT_APPLICABLE");
     document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
+    document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(false);
     document["rules"]["daily_cumulative_spend"] = serde_json::json!({
         "enabled": true,
         "severity": "high",

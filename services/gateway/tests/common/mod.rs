@@ -118,6 +118,7 @@ pub fn test_risk_rule_set() -> RiskRuleSet {
     document["rules"]["vendor_price_deviation"]["enabled"] = serde_json::json!(false);
     document["rules"]["vendor_price_deviation"]["missing_data"] =
         serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(false);
     RiskRuleSet::from_json(&document.to_string()).expect("test Risk Rule Set is valid")
 }
 

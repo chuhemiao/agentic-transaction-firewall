@@ -1033,6 +1033,8 @@ using durable, snapshot-bounded history and fixed-point asset-aware sums.
 
 ### DS-030 — Add first-time destination risk `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add a `PERMITTED`-boundary first-destination rule using a
 profile-normalized destination identifier and organization-scoped history.
 
@@ -1045,6 +1047,16 @@ profile-normalized destination identifier and organization-scoped history.
   2. Prior DENY and another organization do not establish familiarity.
   3. Unsupported/un-normalizable destination fails closed.
 - **Verification:** normalization, tenant and outcome-history tests; full DoD.
+
+- **Delivered boundary:** the versioned Payment normalizer accepts legacy
+  lowercase and valid EIP-55 checksum-case EIP-155 addresses, derives one
+  lowercase organization-wide history key and never mutates signed Intent
+  bytes. Migration 0013 indexes prior `DecisionRecorded(PERMIT)` rows by exact
+  Profile/destination/time. Store captures the optional prior permit at the
+  Context repository boundary and re-verifies the typed event, Decision
+  binding and normalizer output. Prior DENY/cross-tenant rows cannot establish
+  familiarity; invalid checksum or unsupported namespaces become explicit
+  unavailable snapshot evidence and a restrictive finding.
 
 ### DS-031 — Add order/request frequency risk `[S]`
 

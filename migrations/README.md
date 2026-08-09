@@ -99,6 +99,14 @@ window at the same repeatable-read repository boundary, uses PostgreSQL
 bound asset and fails closed above 256 asset groups. Schema compatibility
 advances to reader/writer version 12.
 
+Migration 0013 adds DS-030's partial expression index over prior
+`DecisionRecorded(PERMIT)` evidence by organization, exact bound Profile,
+lowercase destination, occurrence time and sequence. Store uses the index only
+after deriving the versioned Payment EIP-155 history key, then re-verifies the
+selected typed event, Decision/Intent binding and normalizer output at the
+captured repeatable-read repository boundary. Schema compatibility advances to
+reader/writer version 13.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

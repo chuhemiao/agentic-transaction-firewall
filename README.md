@@ -46,8 +46,8 @@ Only the following crates are implemented so far:
   Evidence envelopes, the DS-023/DS-024 immutable `EvaluationContext`
   evaluator boundary, DS-025 shared Decision-binding types, DS-027's
   non-authoritative same-snapshot Counterfactual Context derivation, and
-  DS-028/DS-029's closed duplicate-purchase and daily-spend snapshot/query
-  contracts. Evidence uses
+  DS-028..DS-030's closed duplicate-purchase, daily-spend and first-destination
+  snapshot/query contracts. Evidence uses
   closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
@@ -66,6 +66,10 @@ Only the following crates are implemented so far:
   exactly the versioned Agent-Commerce Payment profile
   (`payment/purchase_api_resource`), enforces its resource and CAIP-2/10/19
   chain-binding rules, and rejects every other action pair as unsupported.
+  DS-030 derives a separate versioned EIP-155 destination history key without
+  rewriting the signed Intent: legacy lowercase and valid EIP-55 checksum case
+  collapse to one lowercase value; invalid checksum or unsupported namespaces
+  remain explicit unavailable evidence.
 - `crates/atf-identity` — Agent registration records plus the DS-014
   `ATF_INTENT_V1` Identity Envelope: explicitly sorted canonical JSON binds
   organization, Agent, exact key ID, Intent hash, five-minute lifetime, nonce,
@@ -90,7 +94,8 @@ Only the following crates are implemented so far:
   a domain-separated canonical hash. Every `RiskEvaluation` returns the exact
   version/hash with findings. The current rules cover request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
-  network/protocol, duplicate purchase and daily cumulative spend. DS-028
+  network/protocol, duplicate purchase, daily cumulative spend and first-time
+  destination. DS-028
   evaluates duplicate purchase from a
   typed, organization-scoped PostgreSQL snapshot whose bounded query records
   the exact Agent, resource, current Intent, evaluation window, repository
@@ -107,6 +112,11 @@ Only the following crates are implemented so far:
   cross-asset conversion accepts only fresh verified organization-scoped
   `ATF_ENRICHED` quote evidence, and missing/ambiguous quotes, unresolved
   legacy assets, overflow or precision loss produce a High/Critical finding.
+  DS-030 adds organization-wide familiarity for the exact Payment Profile and
+  versioned destination normalizer. Only a prior durably verified
+  `DecisionRecorded(PERMIT)` at the Context repository boundary establishes
+  familiarity; a first, invalid-checksum, unsupported-namespace or otherwise
+  unavailable destination emits a restrictive finding.
   DS-026 migration 0009 additionally archives the exact canonical Rule Set
   per organization/environment with typed installer Audit evidence, so
   restart Replay never substitutes a process default.
@@ -185,6 +195,10 @@ Only the following crates are implemented so far:
   Store groups at most 256 prior permitted asset totals with PostgreSQL
   `NUMERIC`, records missing asset bindings, and binds the result to the same
   repository sequence/hash before Risk or Replay consumes it.
+  Migration 0013 adds the organization/Profile/destination/time index used by
+  DS-030. Store re-verifies the selected typed Decision and its signed Intent
+  binding, re-runs the exact normalizer, and records the optional prior permit
+  under the same repeatable-read repository boundary.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   `atf risk install`, `atf replay original/counterfactual`,
@@ -193,7 +207,8 @@ Only the following crates are implemented so far:
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
   from stdin and persists only its domain-separated fingerprint.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
-  (including duplicate-purchase and daily cumulative-spend checks), Decision, and
+  (including duplicate-purchase, daily cumulative-spend and first-destination
+  checks), Decision, and
   Audit into one request path: `POST /v1/intents` and
   `GET /v1/intents/{id}/decision`, authenticated Policy activation/rollback,
   plus `/healthz`/`/readyz`. PostgreSQL is
@@ -219,7 +234,7 @@ Only the following crates are implemented so far:
   rollback applies to the next request without restarting the Gateway.
   Startup also requires its configured closed Risk Rule Set to resolve to the
   exact audited durable archive; each Risk result and durable `RiskEvaluated`
-  evidence carries its exact version/hash. DS-028/DS-029 capture one bounded durable
+  evidence carries its exact version/hash. DS-028..DS-030 capture one bounded durable
   history snapshot before Context persistence; Risk and Replay consume only
   its typed queries/results, which are retained in Evaluation and Audit evidence.
   Business-route, Router and durable-store failures now share the stable
@@ -350,8 +365,11 @@ semantics (evaluate only, never execute).
    prior permitted spend for the same Organization + Agent over an explicit
    24-hour snapshot, separated by asset and converted only with verified direct
    quote evidence; concurrent completions, amount boundaries and missing
-   quotes are covered end to end. First-time destination address and order
-   frequency are still not implemented. DS-021 makes every history rule's boundary
+   quotes are covered end to end. DS-030 also records the exact Profile,
+   normalizer, normalized destination and organization-wide prior-permit result;
+   prior DENY and cross-tenant history do not establish familiarity, while
+   unsupported or unsafe normalization is restrictive. Order frequency is still
+   not implemented. DS-021 makes every history rule's boundary
    explicit and requires every future history rule to declare `REQUESTED`,
    `PERMITTED`, `EXECUTED`, or `SETTLED`.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
@@ -506,6 +524,11 @@ semantics (evaluate only, never execute).
     repeatable-read, repository-bounded fixed-point aggregate with a 256-asset
     cap; Risk includes the current Intent, converts only through exact verified
     direct quotes, and emits restrictive findings for missing/unusable evidence.
+30. ~~Normalized first-time destination risk.~~ Done in DS-030: the Payment
+    Profile derives a versioned lowercase EIP-155 history key from lowercase or
+    valid EIP-55 input without changing signed Intent bytes; migration 0013
+    supports an organization/Profile/destination/time query over prior permits,
+    and exact typed snapshot evidence fails closed for invalid/unsupported input.
 
 ### Remaining before Phase 2 can close out
 
@@ -574,6 +597,11 @@ semantics (evaluate only, never execute).
   security controls.
 - The remaining history-dependent Risk rules, each using the now-required
   explicit lifecycle accounting boundary.
+- `atf evaluate` currently requires an explicit millisecond-aligned
+  `--evaluated-at`; its advertised default samples a higher-precision current
+  time and is rejected by the immutable Context contract. This pre-existing
+  CLI integration gap was exposed by the DS-030 real-command smoke and must be
+  closed before C4.
 
 The security-audit baseline and prioritized acceptance criteria are tracked
 in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
@@ -588,8 +616,8 @@ implementation plan and executable checklist are in
   Gateway foundation and core libraries exist; the remaining release gate is
   stateful Risk, Audit query/metrics, operational hardening, and security
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
-  bounded durable Risk-history reconstruction and daily cumulative spend are
-  complete through DS-029.
+  bounded durable Risk-history reconstruction, daily cumulative spend and
+  normalized first-destination checks are complete through DS-030.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

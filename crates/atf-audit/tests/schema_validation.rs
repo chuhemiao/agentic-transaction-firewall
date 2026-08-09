@@ -6,8 +6,9 @@ use std::str::FromStr;
 use atf_audit::*;
 use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
-    DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
-    ExecutionConstraints, ProfileBinding, RepositorySnapshot, RiskHistorySnapshot,
+    DecisionKind, DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
+    DuplicatePurchaseQuery, ExecutionConstraints, FirstDestinationHistory, FirstDestinationMatch,
+    FirstDestinationQuery, ProfileBinding, RepositorySnapshot, RiskHistorySnapshot,
     SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use jsonschema::Validator;
@@ -51,7 +52,7 @@ fn amount() -> Amount {
 
 fn risk_history() -> RiskHistorySnapshot {
     let evaluated_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
-    RiskHistorySnapshot::with_daily_spend(
+    RiskHistorySnapshot::with_first_destination(
         RepositorySnapshot::new("audit-chain:alpha-lab:10", 10, hash('e')).unwrap(),
         Some(
             DuplicatePurchaseHistory::new(
@@ -97,6 +98,36 @@ fn risk_history() -> RiskHistorySnapshot {
                 )
                 .unwrap()],
                 0,
+            )
+            .unwrap(),
+        ),
+        Some(
+            FirstDestinationHistory::new(
+                FirstDestinationQuery::new(
+                    "alpha-lab",
+                    "intent-1",
+                    "atf.agent-commerce.payment",
+                    "1.0",
+                    "atf.agent-commerce.payment.destination.eip155",
+                    "1",
+                    DestinationNormalization::available(
+                        "eip155:8453:0x1111111111111111111111111111111111111111",
+                    )
+                    .unwrap(),
+                    evaluated_at,
+                    AccountingBoundary::Permitted,
+                )
+                .unwrap(),
+                Some(
+                    FirstDestinationMatch::new(
+                        "intent-0",
+                        "decision-0",
+                        "event-0",
+                        8,
+                        Timestamp::from_str("2026-08-08T11:00:00Z").unwrap(),
+                    )
+                    .unwrap(),
+                ),
             )
             .unwrap(),
         ),

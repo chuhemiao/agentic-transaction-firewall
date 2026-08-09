@@ -133,8 +133,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   Depends: DS-024, DS-025.
 - [x] **DS-029:** added asset-aware daily cumulative spend with fixed-point,
   snapshot-bounded permitted history and fail-closed quote evidence. Depends: DS-028.
-- [ ] **NEXT — DS-030:** add normalized first-time destination risk. Depends: DS-028.
-- [ ] **DS-031:** add business request/order frequency risk. Depends: DS-028.
+- [x] **DS-030:** added versioned EIP-155 destination normalization and
+  organization-scoped prior-permit familiarity with fail-closed snapshot
+  evidence. Depends: DS-028.
+- [ ] **NEXT — DS-031:** add business request/order frequency risk. Depends: DS-028.
 - [ ] **DS-032:** add organization-scoped Audit query API. Depends: DS-003, DS-018, DS-025.
 - [ ] **DS-033:** add safe metrics, tracing, correlation and redaction. Depends: DS-018, DS-025, DS-032.
 - [ ] **DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
@@ -143,6 +145,9 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
 - [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.
 - [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO baseline. Depends: DS-033, DS-036, DS-038.
+- [ ] **CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
+  millisecond-aligned and cover the real default command path. Discovered by
+  DS-030 smoke; must close before DS-040.
 - [ ] **DS-040:** re-audit and close the Durable Shadow release gate. Depends: DS-028..DS-039.
 - [ ] **Checkpoint C4:** human security review approves Durable Shadow; execution remains unavailable.
 

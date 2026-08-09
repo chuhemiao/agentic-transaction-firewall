@@ -21,8 +21,8 @@ ATF_RISK_RULE_SET_V1\0 || canonical_json_bytes
 
 The document binds `rule_set_version`, `engine_version`, every rule's enabled
 state and severity, all thresholds and deny lists, missing-data behavior, the
-duplicate-purchase window, and the daily-spend limit/valuation asset/window/
-accounting boundary. Reordering JSON object
+duplicate-purchase window, the daily-spend limit/valuation asset/window/
+accounting boundary, and the first-destination normalizer/boundary. Reordering JSON object
 keys does not change the hash; any decision-affecting field change does.
 
 Every `RiskEvaluation` owns the exact `rule_set_version`, `rule_set_hash`,
@@ -72,6 +72,18 @@ direct `ATF_ENRICHED` `ASSET_QUOTE` rate. Missing/ambiguous/untrusted quotes,
 legacy Decisions without an asset, overflow and precision loss emit the
 configured restrictive finding rather than silently preserving Permit.
 
+DS-030 adds `first_time_destination` as another backward-compatible optional
+family. The reference v1.2.0 artifact enables a High finding with the exact
+`atf.agent-commerce.payment.destination.eip155` normalizer version `1` and
+`PERMITTED` accounting. Its query is organization-wide by design and binds the
+exact Profile ID/version, current Intent, normalized destination, evaluation
+time and repository boundary. Only a prior verified
+`DecisionRecorded(PERMIT)` establishes familiarity. A prior DENY or another
+organization does not; invalid checksum, unsupported namespace or any
+unavailable normalization emits `FIRST_DESTINATION_NORMALIZATION_FAILED`
+instead of silently preserving Permit. With the current High severity, a first
+destination yields Review; Critical configuration yields Deny.
+
 ## Runtime selection and limits
 
 Gateway requires `ATF_RISK_RULE_SET_PATH` and fails startup if the artifact is
@@ -99,3 +111,6 @@ query, and Replay reconstructs it at the original Context boundary.
 DS-029 extends that same snapshot with the daily aggregate; parallel completed
 Permits are visible to the next query, and both Replay modes regenerate the
 aggregate at the original sequence/hash boundary.
+DS-030 extends it again with the exact first-destination query/result. Store
+re-verifies the selected typed event and Decision/Intent binding and re-runs
+the normalizer, so indexed text alone cannot establish familiarity.

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use atf_core::{sha256_hex, sort_json_keys, AccountingBoundary, Amount, RiskHistorySnapshot};
+use atf_intent::{PAYMENT_DESTINATION_NORMALIZER_ID, PAYMENT_DESTINATION_NORMALIZER_VERSION};
 use serde::{Deserialize, Serialize};
 
 use crate::{RiskFinding, Severity};
@@ -54,6 +55,8 @@ pub(crate) struct RuleSetRules {
     pub(crate) duplicate_purchase: HistoryWindowRule,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) daily_cumulative_spend: Option<DailySpendRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) first_time_destination: Option<FirstDestinationRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +109,17 @@ pub(crate) struct DailySpendRule {
     pub(crate) max_amount: Amount,
     pub(crate) valuation_asset: String,
     pub(crate) window_seconds: u64,
+    pub(crate) accounting_boundary: AccountingBoundary,
+    pub(crate) missing_data: MissingDataBehavior,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FirstDestinationRule {
+    pub(crate) enabled: bool,
+    pub(crate) severity: Severity,
+    pub(crate) normalizer_id: String,
+    pub(crate) normalizer_version: String,
     pub(crate) accounting_boundary: AccountingBoundary,
     pub(crate) missing_data: MissingDataBehavior,
 }
@@ -240,6 +254,38 @@ impl RiskRuleSet {
             .map(|rule| rule.valuation_asset.as_str())
     }
 
+    pub fn first_destination_enabled(&self) -> bool {
+        self.document
+            .rules
+            .first_time_destination
+            .as_ref()
+            .is_some_and(|rule| rule.enabled)
+    }
+
+    pub fn first_destination_accounting_boundary(&self) -> Option<AccountingBoundary> {
+        self.document
+            .rules
+            .first_time_destination
+            .as_ref()
+            .map(|rule| rule.accounting_boundary)
+    }
+
+    pub fn first_destination_normalizer_id(&self) -> Option<&str> {
+        self.document
+            .rules
+            .first_time_destination
+            .as_ref()
+            .map(|rule| rule.normalizer_id.as_str())
+    }
+
+    pub fn first_destination_normalizer_version(&self) -> Option<&str> {
+        self.document
+            .rules
+            .first_time_destination
+            .as_ref()
+            .map(|rule| rule.normalizer_version.as_str())
+    }
+
     pub(crate) fn rules(&self) -> &RuleSetRules {
         &self.document.rules
     }
@@ -326,6 +372,24 @@ fn validate_document(document: &RiskRuleSetDocument) -> Result<(), RiskRuleSetEr
         {
             return invalid(
                 "enabled daily_cumulative_spend must be HIGH/CRITICAL and emit FINDING for missing data",
+            );
+        }
+    }
+    if let Some(rule) = &rules.first_time_destination {
+        if rule.normalizer_id != PAYMENT_DESTINATION_NORMALIZER_ID
+            || rule.normalizer_version != PAYMENT_DESTINATION_NORMALIZER_VERSION
+        {
+            return invalid("first_time_destination names an unsupported normalizer");
+        }
+        if rule.accounting_boundary != AccountingBoundary::Permitted {
+            return invalid("first_time_destination requires PERMITTED accounting");
+        }
+        if rule.enabled
+            && (!matches!(rule.severity, Severity::High | Severity::Critical)
+                || rule.missing_data != MissingDataBehavior::Finding)
+        {
+            return invalid(
+                "enabled first_time_destination must be HIGH/CRITICAL and emit FINDING for normalization failure",
             );
         }
     }

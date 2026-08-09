@@ -89,6 +89,53 @@ pub struct DailySpendHistory {
     unresolved_asset_decision_count: u64,
 }
 
+/// Profile-owned destination normalization outcome. Unavailable values remain
+/// explicit evidence so unsupported namespaces cannot silently look new or
+/// familiar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum DestinationNormalization {
+    Available { value: String },
+    Unavailable { reason_code: String },
+}
+
+/// Exact organization-scoped inputs of the first-destination query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirstDestinationQuery {
+    organization_id: String,
+    current_intent_id: String,
+    profile_id: String,
+    profile_version: String,
+    normalizer_id: String,
+    normalizer_version: String,
+    destination: DestinationNormalization,
+    evaluation_time: Timestamp,
+    accounting_boundary: AccountingBoundary,
+}
+
+/// At most one prior permitted use of the normalized destination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirstDestinationMatch {
+    intent_id: String,
+    decision_id: String,
+    boundary_event_id: String,
+    boundary_sequence: u64,
+    occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirstDestinationHistory {
+    query: FirstDestinationQuery,
+    result: Option<FirstDestinationMatch>,
+}
+
 /// Repository boundary plus the exact bounded query inputs and result consumed
 /// by history-dependent Risk rules. Optional query families allow later rules
 /// to extend this closed snapshot without inventing an ambient database read.
@@ -100,6 +147,8 @@ pub struct RiskHistorySnapshot {
     duplicate_purchase: Option<DuplicatePurchaseHistory>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     daily_cumulative_spend: Option<DailySpendHistory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    first_destination: Option<Box<FirstDestinationHistory>>,
 }
 
 impl DuplicatePurchaseQuery {
@@ -443,12 +492,212 @@ impl DailySpendHistory {
     }
 }
 
+impl DestinationNormalization {
+    pub fn available(value: impl Into<String>) -> Result<Self, HistorySnapshotError> {
+        let normalization = Self::Available {
+            value: value.into(),
+        };
+        normalization.validate()?;
+        Ok(normalization)
+    }
+
+    pub fn unavailable(reason_code: impl Into<String>) -> Result<Self, HistorySnapshotError> {
+        let normalization = Self::Unavailable {
+            reason_code: reason_code.into(),
+        };
+        normalization.validate()?;
+        Ok(normalization)
+    }
+
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Self::Available { value } => Some(value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub fn reason_code(&self) -> Option<&str> {
+        match self {
+            Self::Available { .. } => None,
+            Self::Unavailable { reason_code } => Some(reason_code),
+        }
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        match self {
+            Self::Available { value } => validate_destination("normalized destination", value),
+            Self::Unavailable { reason_code } => {
+                validate_identifier("destination normalization reason_code", reason_code)
+            }
+        }
+    }
+}
+
+impl FirstDestinationQuery {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        organization_id: impl Into<String>,
+        current_intent_id: impl Into<String>,
+        profile_id: impl Into<String>,
+        profile_version: impl Into<String>,
+        normalizer_id: impl Into<String>,
+        normalizer_version: impl Into<String>,
+        destination: DestinationNormalization,
+        evaluation_time: Timestamp,
+        accounting_boundary: AccountingBoundary,
+    ) -> Result<Self, HistorySnapshotError> {
+        let query = Self {
+            organization_id: organization_id.into(),
+            current_intent_id: current_intent_id.into(),
+            profile_id: profile_id.into(),
+            profile_version: profile_version.into(),
+            normalizer_id: normalizer_id.into(),
+            normalizer_version: normalizer_version.into(),
+            destination,
+            evaluation_time,
+            accounting_boundary,
+        };
+        query.validate()?;
+        Ok(query)
+    }
+
+    pub fn organization_id(&self) -> &str {
+        &self.organization_id
+    }
+
+    pub fn current_intent_id(&self) -> &str {
+        &self.current_intent_id
+    }
+
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
+    pub fn profile_version(&self) -> &str {
+        &self.profile_version
+    }
+
+    pub fn normalizer_id(&self) -> &str {
+        &self.normalizer_id
+    }
+
+    pub fn normalizer_version(&self) -> &str {
+        &self.normalizer_version
+    }
+
+    pub fn destination(&self) -> &DestinationNormalization {
+        &self.destination
+    }
+
+    pub fn evaluation_time(&self) -> Timestamp {
+        self.evaluation_time
+    }
+
+    pub fn accounting_boundary(&self) -> AccountingBoundary {
+        self.accounting_boundary
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        for (field, value) in [
+            ("organization_id", self.organization_id.as_str()),
+            ("current_intent_id", self.current_intent_id.as_str()),
+            ("profile_id", self.profile_id.as_str()),
+            ("profile_version", self.profile_version.as_str()),
+            ("normalizer_id", self.normalizer_id.as_str()),
+            ("normalizer_version", self.normalizer_version.as_str()),
+        ] {
+            validate_identifier(field, value)?;
+        }
+        self.destination.validate()
+    }
+}
+
+impl FirstDestinationMatch {
+    pub fn new(
+        intent_id: impl Into<String>,
+        decision_id: impl Into<String>,
+        boundary_event_id: impl Into<String>,
+        boundary_sequence: u64,
+        occurred_at: Timestamp,
+    ) -> Result<Self, HistorySnapshotError> {
+        let result = Self {
+            intent_id: intent_id.into(),
+            decision_id: decision_id.into(),
+            boundary_event_id: boundary_event_id.into(),
+            boundary_sequence,
+            occurred_at,
+        };
+        result.validate()?;
+        Ok(result)
+    }
+
+    pub fn intent_id(&self) -> &str {
+        &self.intent_id
+    }
+
+    pub fn decision_id(&self) -> &str {
+        &self.decision_id
+    }
+
+    pub fn boundary_event_id(&self) -> &str {
+        &self.boundary_event_id
+    }
+
+    pub fn boundary_sequence(&self) -> u64 {
+        self.boundary_sequence
+    }
+
+    pub fn occurred_at(&self) -> Timestamp {
+        self.occurred_at
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        for (field, value) in [
+            ("intent_id", self.intent_id.as_str()),
+            ("decision_id", self.decision_id.as_str()),
+            ("boundary_event_id", self.boundary_event_id.as_str()),
+        ] {
+            validate_identifier(field, value)?;
+        }
+        if self.boundary_sequence == 0 {
+            return invalid("first-destination boundary_sequence must be positive");
+        }
+        Ok(())
+    }
+}
+
+impl FirstDestinationHistory {
+    pub fn new(
+        query: FirstDestinationQuery,
+        result: Option<FirstDestinationMatch>,
+    ) -> Result<Self, HistorySnapshotError> {
+        query.validate()?;
+        if let Some(result) = &result {
+            result.validate()?;
+            if query.destination.value().is_none() {
+                return invalid(
+                    "unavailable destination normalization cannot establish familiarity",
+                );
+            }
+        }
+        Ok(Self { query, result })
+    }
+
+    pub fn query(&self) -> &FirstDestinationQuery {
+        &self.query
+    }
+
+    pub fn result(&self) -> Option<&FirstDestinationMatch> {
+        self.result.as_ref()
+    }
+}
+
 impl RiskHistorySnapshot {
     pub fn new(
         repository: RepositorySnapshot,
         duplicate_purchase: Option<DuplicatePurchaseHistory>,
     ) -> Result<Self, HistorySnapshotError> {
-        Self::with_daily_spend(repository, duplicate_purchase, None)
+        Self::with_first_destination(repository, duplicate_purchase, None, None)
     }
 
     pub fn with_daily_spend(
@@ -456,10 +705,20 @@ impl RiskHistorySnapshot {
         duplicate_purchase: Option<DuplicatePurchaseHistory>,
         daily_cumulative_spend: Option<DailySpendHistory>,
     ) -> Result<Self, HistorySnapshotError> {
+        Self::with_first_destination(repository, duplicate_purchase, daily_cumulative_spend, None)
+    }
+
+    pub fn with_first_destination(
+        repository: RepositorySnapshot,
+        duplicate_purchase: Option<DuplicatePurchaseHistory>,
+        daily_cumulative_spend: Option<DailySpendHistory>,
+        first_destination: Option<FirstDestinationHistory>,
+    ) -> Result<Self, HistorySnapshotError> {
         let snapshot = Self {
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
+            first_destination: first_destination.map(Box::new),
         };
         snapshot.validate()?;
         Ok(snapshot)
@@ -475,6 +734,10 @@ impl RiskHistorySnapshot {
 
     pub fn daily_cumulative_spend(&self) -> Option<&DailySpendHistory> {
         self.daily_cumulative_spend.as_ref()
+    }
+
+    pub fn first_destination(&self) -> Option<&FirstDestinationHistory> {
+        self.first_destination.as_deref()
     }
 
     pub fn validate(&self) -> Result<(), HistorySnapshotError> {
@@ -504,6 +767,26 @@ impl RiskHistorySnapshot {
         if let Some(history) = &self.daily_cumulative_spend {
             history.validate()?;
         }
+        if let Some(history) = &self.first_destination {
+            history.query.validate()?;
+            if let Some(result) = &history.result {
+                result.validate()?;
+                if history.query.destination.value().is_none() {
+                    return invalid(
+                        "unavailable destination normalization cannot establish familiarity",
+                    );
+                }
+                if result.boundary_sequence > self.repository.through_sequence() {
+                    return invalid("first-destination result exceeds the repository boundary");
+                }
+                if result.intent_id == history.query.current_intent_id {
+                    return invalid("first-destination result cannot name the current Intent");
+                }
+                if result.occurred_at > history.query.evaluation_time {
+                    return invalid("first-destination result is after the query evaluation time");
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -517,6 +800,21 @@ fn validate_asset(field: &str, value: &str) -> Result<(), HistorySnapshotError> 
     {
         return invalid(format!(
             "{field} must be a canonical bounded asset identifier"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_destination(field: &str, value: &str) -> Result<(), HistorySnapshotError> {
+    if value.is_empty()
+        || value.len() > MAX_IDENTIFIER_BYTES
+        || value.bytes().any(|byte| byte.is_ascii_uppercase())
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-' | b'%')
+        })
+    {
+        return invalid(format!(
+            "{field} must be a canonical bounded destination identifier"
         ));
     }
     Ok(())

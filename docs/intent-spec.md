@@ -43,13 +43,19 @@ Required relationships:
    has no trusted `fee_asset`; a value with another fee asset is unsupported,
    and an extension field cannot override this rule.
 
-CAIP strings are case-sensitive. ATF validates the standard component lengths
+CAIP strings in the signed Intent are case-sensitive. ATF validates the standard component lengths
 and character sets, requires percent escapes to be complete uppercase hex
 octets, and never trims, case-folds, decodes, or canonicalizes an identifier.
-Namespace-specific address checksum and asset-registry validation are left to
-later protocol/Adapter profiles. CAIP-10 and CAIP-19 themselves do not require
-namespace-specific canonicalization; binding the exact submitted bytes keeps
-the current Intent hash deterministic.
+Binding the exact submitted bytes keeps the Intent hash deterministic.
+CAIP-10 does not require one universal canonicalization and advises consumers
+to handle deduplication. DS-030 therefore derives a separate, versioned history
+key for the Payment Profile without changing those signed bytes. Normalizer
+`atf.agent-commerce.payment.destination.eip155` version `1` accepts legacy
+all-lowercase or valid EIP-55 checksum-case `eip155:<decimal-chain-id>:0x<40
+hex>` values and emits a lowercase same-chain key. Invalid checksum,
+non-canonical chain reference and unsupported namespaces remain explicit
+unavailable Risk evidence. Asset-registry validation remains a later
+protocol/Adapter concern.
 
 Stable profile error codes are `UNSUPPORTED_INTENT_PROFILE`,
 `PROFILE_FIELD_REQUIRED`, `PROFILE_FIELD_FORBIDDEN`, `NETWORK_ID_INVALID`,
@@ -75,6 +81,9 @@ Schema enumeration alone never enables it.
   defines `namespace:reference` and is Final.
 - [CAIP-10 Account ID](https://standards.chainagnostic.org/CAIPs/caip-10)
   prefixes an account address with a CAIP-2 chain ID and is Final.
+- [EIP-55 Mixed-case checksum address encoding](https://eips.ethereum.org/EIPS/eip-55)
+  defines the Keccak-based checksum used by the version-1 EIP-155 history
+  normalizer; the signed CAIP-10 value itself remains unchanged.
 - [CAIP-19 Asset Type and Asset ID](https://standards.chainagnostic.org/CAIPs/caip-19)
   prefixes asset namespace/reference with a CAIP-2 chain ID. It is currently
   marked Review, so ATF pins the cited syntax through profile version `1.0`

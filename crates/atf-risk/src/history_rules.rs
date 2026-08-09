@@ -1,5 +1,5 @@
-use atf_core::{Amount, EvaluationContext, RiskHistorySnapshot};
-use atf_intent::TransactionIntent;
+use atf_core::{Amount, DestinationNormalization, EvaluationContext, RiskHistorySnapshot};
+use atf_intent::{normalize_destination, TransactionIntent};
 
 use crate::context::{RiskContext, RiskContextIssue};
 use crate::error::RiskEvaluationError;
@@ -62,6 +62,38 @@ pub(crate) fn validate_history_binding(
             }
             Ok(())
         }
+    }?;
+
+    let first_rule = rule_set.rules().first_time_destination.as_ref();
+    match (
+        first_rule.is_some_and(|rule| rule.enabled),
+        history.first_destination(),
+    ) {
+        (false, None) => Ok(()),
+        (false, Some(_)) => Err(binding(
+            "disabled first-destination rule received query data",
+        )),
+        (true, None) => Err(binding("enabled first-destination rule lacks query data")),
+        (true, Some(snapshot)) => {
+            let rule = first_rule.expect("enabled first-destination rule is present");
+            let query = snapshot.query();
+            let expected_destination = destination_normalization(intent)?;
+            if query.organization_id() != intent.principal.organization_id
+                || query.current_intent_id() != intent.intent_id
+                || query.profile_id() != context.profile_id()
+                || query.profile_version() != context.profile_version()
+                || query.normalizer_id() != rule.normalizer_id
+                || query.normalizer_version() != rule.normalizer_version
+                || query.destination() != &expected_destination
+                || query.evaluation_time() != context.evaluation_time()
+                || query.accounting_boundary() != rule.accounting_boundary
+            {
+                return Err(binding(
+                    "first-destination query does not match Intent, Context, or Rule Set",
+                ));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -73,6 +105,7 @@ pub(crate) fn history_findings(
 ) -> Vec<RiskFinding> {
     let mut findings = Vec::new();
     findings.extend(duplicate_finding(intent, rule_set, history));
+    findings.extend(first_destination_finding(rule_set, history));
 
     let Some(rule) = rule_set
         .rules()
@@ -154,6 +187,48 @@ pub(crate) fn history_findings(
         });
     }
     findings
+}
+
+fn destination_normalization(
+    intent: &TransactionIntent,
+) -> Result<DestinationNormalization, RiskEvaluationError> {
+    match normalize_destination(intent) {
+        Ok(destination) => DestinationNormalization::available(destination.value()),
+        Err(error) => DestinationNormalization::unavailable(error.code()),
+    }
+    .map_err(|error| binding(error.to_string()))
+}
+
+fn first_destination_finding(
+    rule_set: &RiskRuleSet,
+    history: &RiskHistorySnapshot,
+) -> Option<RiskFinding> {
+    let rule = rule_set
+        .rules()
+        .first_time_destination
+        .as_ref()
+        .filter(|rule| rule.enabled)?;
+    let snapshot = history
+        .first_destination()
+        .expect("history binding requires enabled first-destination query data");
+    if let Some(reason_code) = snapshot.query().destination().reason_code() {
+        return (rule.missing_data == MissingDataBehavior::Finding).then(|| RiskFinding {
+            code: "FIRST_DESTINATION_NORMALIZATION_FAILED".into(),
+            severity: rule.severity,
+            message: format!(
+                "destination familiarity cannot be established with normalizer {}@{}: {reason_code}",
+                rule.normalizer_id, rule.normalizer_version
+            ),
+        });
+    }
+    snapshot.result().is_none().then(|| RiskFinding {
+        code: "FIRST_TIME_DESTINATION".into(),
+        severity: rule.severity,
+        message: format!(
+            "organization has no prior {:?} Decision for this normalized destination under {}@{}",
+            rule.accounting_boundary, rule.normalizer_id, rule.normalizer_version
+        ),
+    })
 }
 
 fn duplicate_finding(
