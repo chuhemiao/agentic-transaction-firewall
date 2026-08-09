@@ -68,6 +68,14 @@ pub struct Store {
     schema: SchemaMetadata,
 }
 
+/// Durable replay completion counts aggregated without organization or replay
+/// identifiers, so they can be exported as bounded telemetry labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DurableReplayCounts {
+    pub original: u64,
+    pub counterfactual: u64,
+}
+
 impl Store {
     pub async fn connect(database_url: &str) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new()
@@ -91,6 +99,28 @@ impl Store {
     pub async fn check_ready(&self) -> Result<(), StoreError> {
         verify_schema(&self.pool).await?;
         Ok(())
+    }
+
+    /// Read cumulative replay completions from immutable typed Audit evidence.
+    ///
+    /// Replay currently runs in the offline CLI rather than this Gateway
+    /// process, so a process-local counter would silently under-report it.
+    pub async fn durable_replay_counts(&self) -> Result<DurableReplayCounts, StoreError> {
+        let (original, counterfactual): (i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                count(*) FILTER (WHERE event_type = 'OriginalReplayCompleted'),
+                count(*) FILTER (WHERE event_type = 'CounterfactualReplayCompleted')
+            FROM audit_events
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(DurableReplayCounts {
+            original: u64::try_from(original).expect("PostgreSQL COUNT cannot be negative"),
+            counterfactual: u64::try_from(counterfactual)
+                .expect("PostgreSQL COUNT cannot be negative"),
+        })
     }
 
     pub async fn close(self) {

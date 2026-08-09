@@ -8,7 +8,7 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().json().init();
 
     let deployment_environment = std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
         .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification");

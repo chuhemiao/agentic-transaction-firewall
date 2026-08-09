@@ -144,7 +144,11 @@ Agent Intent
   organization/Intent/Agent/event-type/inclusive-time filters, page sizes from
   1 to 100, and a canonical cursor bound to the organization, filter hash and
   verified chain prefix. Current Operator/Role authority is checked inside the
-  same transaction and unauthorized targets are not loaded. Migration 0002 adds lifecycle state, optimistic
+  same transaction and unauthorized targets are not loaded. DS-033 adds one
+  aggregate query over immutable typed `OriginalReplayCompleted` and
+  `CounterfactualReplayCompleted` rows; it exports no organization or replay
+  identifier and avoids a false process-local count for offline CLI Replay.
+  Migration 0002 adds lifecycle state, optimistic
   version, contract version, last-event pointer, update time, constraints, and
   an event foreign key. Migration 0003 adds one immutable
   `(organization_id,idempotency_key)` reservation per Intent, database-clock
@@ -254,8 +258,13 @@ Agent Intent
   authority, stable append-insensitive pagination and explicit `VERIFIED`
   organization-chain status; malformed/unbounded queries, tenant/role
   confusion and any chain corruption fail closed. Background recovery,
-  configured general request/rate limits, full
-  trace/Audit correlation, and metrics remain absent.*
+  configured general request/rate limits, and independent Audit checkpoints
+  remain absent. DS-033 adds `/metrics`, fixed-label request/Decision/Policy/
+  Risk/idempotency/freshness/Audit-failure process metrics, durable typed Replay
+  totals, and JSON request spans. The server Request ID is shared by the API
+  response/span and allowlisted completion events carrying their durable Audit
+  event ID; captured canaries prove credentials, signatures, raw URLs and full
+  financial payloads are not emitted.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -501,7 +510,13 @@ implementation order are in ADR-0002.
     it as `X-ATF-Request-ID` on every response. Business errors expose only the
     fixed `{code,message,request_id,details}` contract; validation details are
     server-owned semantic code/field pairs. Health/readiness keep minimal text
-    bodies. See `docs/api.md` for the code/status and compatibility contract.
+    bodies. DS-033 also attaches that ID to a JSON `http.request` span; stable
+    admission/finalization/Policy/Audit-page events name the corresponding
+    durable Audit event ID inside the span. Metrics use only closed route
+    templates, status classes and domain outcome enums—never tenant/request/
+    Intent IDs, raw paths, credentials or payloads. See `docs/api.md` for the
+    code/status contract and `docs/operations.md` for the observability and
+    redaction contract.
 12. `atf replay original` authorizes the current Operator, reloads the exact
     immutable Intent/Context/signed Policy/Risk archive/Audit prefix, reruns
     Policy and Risk, and requires typed Evaluation evidence plus complete

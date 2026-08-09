@@ -6,6 +6,7 @@ use atf_policy::{PolicyBundle, PolicyError, PolicyOutcome};
 use atf_risk::RiskRuleSet;
 use atf_store::Store;
 
+use crate::telemetry::GatewayTelemetry;
 use crate::{IdentityGatewayConfig, OperatorAuthenticator};
 
 /// Everything a request handler needs, shared across connections.
@@ -19,6 +20,7 @@ pub struct AppState {
     pub store: Store,
     pub identity: Arc<IdentityGatewayConfig>,
     pub operator_auth: Arc<OperatorAuthenticator>,
+    pub(crate) telemetry: GatewayTelemetry,
 }
 
 #[derive(Clone)]
@@ -67,6 +69,7 @@ impl AppState {
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),
+            telemetry: GatewayTelemetry::default(),
         }
     }
 
@@ -89,6 +92,7 @@ impl AppState {
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),
+            telemetry: GatewayTelemetry::default(),
         }
     }
 

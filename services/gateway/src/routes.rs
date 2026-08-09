@@ -25,17 +25,21 @@ use atf_policy::PolicyDecision;
 use atf_store::{
     AdmissionGrant, AdmittedIntent, AuditQuery, AuditQueryPage, AuthenticatedAdmissionInput,
     EvaluationContextPersistence, EvaluationInput, EvaluatorLease, FinalizationInput,
-    OperatorPrincipal, Store, StoreError, DEFAULT_AUDIT_QUERY_PAGE_SIZE,
+    FinalizedDecision, OperatorPrincipal, Store, StoreError, DEFAULT_AUDIT_QUERY_PAGE_SIZE,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use std::time::Instant;
 
 use crate::auth::{has_identity_headers, parse_identity_assertion};
 use crate::error::ApiError;
 use crate::principal::{AgentPrincipal, RequestPrincipal};
 use crate::request_id::RequestId;
 use crate::state::AppState;
+use crate::telemetry::{
+    AuditOperation, IdempotencyOutcome, PolicyOutcomeLabel, RiskOutcomeLabel, SeverityLabel,
+};
 
 const EVALUATOR_LEASE_DURATION: Duration = Duration::from_secs(30);
 const MAX_AUDIT_CURSOR_BYTES: usize = 2_048;
@@ -43,13 +47,16 @@ const MAX_AUDIT_CURSOR_DECODED_BYTES: usize = 1_024;
 
 enum AdmissionOutcome {
     Evaluate(Box<AdmissionGrant>),
-    Completed(Box<Decision>),
+    ExactRetry(Box<Decision>),
+    Recovered(Box<FinalizedDecision>),
 }
 
 pub fn build_router(state: AppState) -> Router {
+    let telemetry = state.telemetry.clone();
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .route("/metrics", get(metrics))
         .route("/v1/intents", post(create_intent))
         .route("/v1/intents/{intent_id}/decision", get(get_decision))
         .route("/v1/audit/events", get(query_audit_events))
@@ -68,11 +75,36 @@ pub fn build_router(state: AppState) -> Router {
         .fallback(route_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
-        .layer(middleware::from_fn(crate::request_id::assign))
+        .layer(middleware::from_fn_with_state(
+            telemetry,
+            crate::request_id::assign,
+        ))
 }
 
 async fn healthz() -> &'static str {
     "ok"
+}
+
+async fn metrics(State(state): State<AppState>) -> Response {
+    let replay_counts = match state.store.durable_replay_counts().await {
+        Ok(counts) => Some(counts),
+        Err(_) => {
+            state
+                .telemetry
+                .record_audit_failure(AuditOperation::ReadVerification);
+            tracing::warn!(
+                event_name = "telemetry.replay_snapshot.unavailable",
+                error_code = "DURABLE_STATE_UNAVAILABLE",
+                "Durable replay telemetry snapshot was unavailable"
+            );
+            None
+        }
+    };
+    (
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        state.telemetry.render_prometheus(replay_counts),
+    )
+        .into_response()
 }
 
 async fn readyz(
@@ -128,6 +160,11 @@ async fn create_intent(
             .record_identity_rejection(&intent, reason_code, Timestamp::now_millis())
             .await
         {
+            if is_audit_failure(&store_error) {
+                state
+                    .telemetry
+                    .record_audit_failure(AuditOperation::AdmissionWrite);
+            }
             return store_error_response(&request_id, "record identity rejection", store_error);
         }
         return ApiError::authentication_required().into_response(&request_id);
@@ -142,6 +179,11 @@ async fn create_intent(
                 .record_identity_rejection(&intent, reason_code, Timestamp::now_millis())
                 .await
             {
+                if is_audit_failure(&store_error) {
+                    state
+                        .telemetry
+                        .record_audit_failure(AuditOperation::AdmissionWrite);
+                }
                 return store_error_response(&request_id, "record identity rejection", store_error);
             }
             return ApiError::identity_rejected(reason_code).into_response(&request_id);
@@ -157,12 +199,54 @@ async fn create_intent(
     )
     .await
     {
-        Ok(AdmissionOutcome::Evaluate(admitted)) => *admitted,
-        Ok(AdmissionOutcome::Completed(decision)) => {
+        Ok(AdmissionOutcome::Evaluate(admitted)) => {
+            state
+                .telemetry
+                .record_idempotency(IdempotencyOutcome::NewEvaluation);
+            *admitted
+        }
+        Ok(AdmissionOutcome::ExactRetry(decision)) => {
+            state
+                .telemetry
+                .record_idempotency(IdempotencyOutcome::ExactRetry);
             return Json(decision).into_response();
         }
-        Err(error) => return store_error_response(&request_id, "admit or recover Intent", error),
+        Ok(AdmissionOutcome::Recovered(finalized)) => {
+            state
+                .telemetry
+                .record_idempotency(IdempotencyOutcome::Recovered);
+            state.telemetry.record_decision(finalized.decision.decision);
+            tracing::info!(
+                event_name = "decision.recovery_finalized",
+                audit_event_id = finalized.audit_event.event.event_id,
+                decision_kind = ?finalized.decision.decision,
+                "Recovered Intent finalized with durable Audit evidence"
+            );
+            return Json(finalized.decision).into_response();
+        }
+        Err(error) => {
+            if matches!(error, StoreError::IdempotencyConflict { .. }) {
+                state
+                    .telemetry
+                    .record_idempotency(IdempotencyOutcome::Conflict);
+            } else if matches!(error, StoreError::IdempotencyInProgress { .. }) {
+                state
+                    .telemetry
+                    .record_idempotency(IdempotencyOutcome::InProgress);
+            }
+            if is_audit_failure(&error) {
+                state
+                    .telemetry
+                    .record_audit_failure(AuditOperation::AdmissionWrite);
+            }
+            return store_error_response(&request_id, "admit or recover Intent", error);
+        }
     };
+    tracing::info!(
+        event_name = "intent.admitted",
+        audit_event_id = admitted.admitted.audit_event.event.event_id,
+        "Intent admitted with durable Audit evidence"
+    );
     let principal = RequestPrincipal::Agent(AgentPrincipal::from_admission(&admitted));
     let agent_principal = principal
         .into_agent()
@@ -204,6 +288,11 @@ async fn create_intent(
         Ok(context) => context,
         Err(error) => return store_error_response(&request_id, "build Evaluation Context", error),
     };
+    let freshness: Vec<_> = evaluation_context
+        .evidence_envelopes()
+        .map(|evidence| evidence.freshness_at(evaluated_at))
+        .collect();
+    state.telemetry.record_freshness(&freshness);
     if let Err(error) = state
         .store
         .persist_evaluation_context(EvaluationContextPersistence {
@@ -214,13 +303,31 @@ async fn create_intent(
         })
         .await
     {
+        if is_audit_failure(&error) {
+            state
+                .telemetry
+                .record_audit_failure(AuditOperation::ContextWrite);
+        }
         return store_error_response(&request_id, "persist Evaluation Context", error);
     }
 
+    let policy_started = Instant::now();
     let policy_result = match &resolved_policy {
         Ok(policy) => policy.evaluate(&intent, &evaluation_context),
         Err(_) => Err(atf_policy::PolicyError::Unavailable),
     };
+    let policy_metric_outcome = match &policy_result {
+        Ok(outcome) if outcome.decision == PolicyDecision::Permit => PolicyOutcomeLabel::Permit,
+        Ok(_) => PolicyOutcomeLabel::Forbid,
+        Err(_) => PolicyOutcomeLabel::Error,
+    };
+    state.telemetry.record_policy(
+        policy_metric_outcome,
+        policy_result
+            .as_ref()
+            .map_or(0, |outcome| outcome.policy_ids.len()),
+        policy_started.elapsed(),
+    );
     let policy_evidence = match &policy_result {
         Ok(outcome) => PolicyEvaluatedPayload {
             outcome: RequiredModuleOutcome::Succeeded {
@@ -257,6 +364,7 @@ async fn create_intent(
     };
 
     // PRD §10.1.2: a forbidden/errored request never reaches Risk scoring.
+    let risk_started = Instant::now();
     let (risk_evaluation, risk_evidence, risk_error) = match &policy_result {
         Ok(outcome) if outcome.decision == PolicyDecision::Permit => {
             let result = atf_risk::evaluate_context(
@@ -267,6 +375,19 @@ async fn create_intent(
             );
             match result {
                 Ok(result) => {
+                    state.telemetry.record_risk(
+                        RiskOutcomeLabel::Succeeded,
+                        risk_started.elapsed(),
+                        result
+                            .findings
+                            .iter()
+                            .map(|finding| match finding.severity {
+                                atf_risk::Severity::Info => SeverityLabel::Info,
+                                atf_risk::Severity::Medium => SeverityLabel::Medium,
+                                atf_risk::Severity::High => SeverityLabel::High,
+                                atf_risk::Severity::Critical => SeverityLabel::Critical,
+                            }),
+                    );
                     let rule_set_version = result.rule_set_version.clone();
                     let rule_set_hash = result.rule_set_hash.clone();
                     let risk_history = result.history.clone();
@@ -295,6 +416,11 @@ async fn create_intent(
                     )
                 }
                 Err(error) => {
+                    state.telemetry.record_risk(
+                        RiskOutcomeLabel::Error,
+                        risk_started.elapsed(),
+                        std::iter::empty(),
+                    );
                     tracing::warn!(
                         request_id = request_id.as_str(),
                         error_code = error.code(),
@@ -315,30 +441,44 @@ async fn create_intent(
                 }
             }
         }
-        Ok(_) => (
-            None,
-            RiskEvaluatedPayload {
-                risk_rule_set_version: Some(state.risk_rule_set.version().into()),
-                risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
-                history: None,
-                outcome: OptionalModuleOutcome::NotRun {
-                    reason_code: "POLICY_FORBID".into(),
+        Ok(_) => {
+            state.telemetry.record_risk(
+                RiskOutcomeLabel::NotRun,
+                risk_started.elapsed(),
+                std::iter::empty(),
+            );
+            (
+                None,
+                RiskEvaluatedPayload {
+                    risk_rule_set_version: Some(state.risk_rule_set.version().into()),
+                    risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                    history: None,
+                    outcome: OptionalModuleOutcome::NotRun {
+                        reason_code: "POLICY_FORBID".into(),
+                    },
                 },
-            },
-            None,
-        ),
-        Err(_) => (
-            None,
-            RiskEvaluatedPayload {
-                risk_rule_set_version: Some(state.risk_rule_set.version().into()),
-                risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
-                history: None,
-                outcome: OptionalModuleOutcome::NotRun {
-                    reason_code: "POLICY_ERROR".into(),
+                None,
+            )
+        }
+        Err(_) => {
+            state.telemetry.record_risk(
+                RiskOutcomeLabel::NotRun,
+                risk_started.elapsed(),
+                std::iter::empty(),
+            );
+            (
+                None,
+                RiskEvaluatedPayload {
+                    risk_rule_set_version: Some(state.risk_rule_set.version().into()),
+                    risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                    history: None,
+                    outcome: OptionalModuleOutcome::NotRun {
+                        reason_code: "POLICY_ERROR".into(),
+                    },
                 },
-            },
-            None,
-        ),
+                None,
+            )
+        }
     };
     evaluator_lease = match state
         .store
@@ -423,8 +563,23 @@ async fn create_intent(
         .await
     {
         Ok(finalized) => finalized,
-        Err(error) => return store_error_response(&request_id, "finalize Decision", error),
+        Err(error) => {
+            if is_audit_failure(&error) {
+                state
+                    .telemetry
+                    .record_audit_failure(AuditOperation::DecisionWrite);
+            }
+            return store_error_response(&request_id, "finalize Decision", error);
+        }
     };
+
+    state.telemetry.record_decision(finalized.decision.decision);
+    tracing::info!(
+        event_name = "decision.finalized",
+        audit_event_id = finalized.audit_event.event.event_id,
+        decision_kind = ?finalized.decision.decision,
+        "Decision finalized with durable Audit evidence"
+    );
 
     Json(finalized.decision).into_response()
 }
@@ -575,7 +730,7 @@ async fn recover_expired_intent(
     let finalized = store
         .finalize_decision(recovery_finalization(admitted, evaluator_lease, &context))
         .await?;
-    Ok(AdmissionOutcome::Completed(Box::new(finalized.decision)))
+    Ok(AdmissionOutcome::Recovered(Box::new(finalized)))
 }
 
 async fn load_completed_decision(
@@ -589,7 +744,7 @@ async fn load_completed_decision(
         .await?
     {
         Some(finalized) if finalized.decision.decision_id == decision_id => {
-            Ok(AdmissionOutcome::Completed(Box::new(finalized.decision)))
+            Ok(AdmissionOutcome::ExactRetry(Box::new(finalized.decision)))
         }
         _ => Err(StoreError::IncompleteDecisionEvidence {
             organization_id: organization_id.to_owned(),
@@ -834,7 +989,22 @@ async fn query_audit_events_inner(
         .store
         .query_verified_audit_events(&principal.operator_id, query)
         .await
-        .map_err(|error| audit_query_error(&request_id, error))?;
+        .map_err(|error| audit_query_error(&state, &request_id, error))?;
+    if let (Some(first), Some(last)) = (page.events.first(), page.events.last()) {
+        tracing::info!(
+            event_name = "audit.page.returned",
+            first_audit_event_id = first.event.event_id,
+            last_audit_event_id = last.event.event_id,
+            event_count = page.events.len(),
+            "Verified Audit page returned"
+        );
+    } else {
+        tracing::info!(
+            event_name = "audit.page.returned",
+            event_count = 0,
+            "Verified empty Audit page returned"
+        );
+    }
     audit_query_response(page)
         .map(Json)
         .map_err(|error| store_error_response(&request_id, "encode Audit query", error))
@@ -902,7 +1072,7 @@ fn audit_query_response(page: AuditQueryPage) -> Result<AuditQueryResponse, Stor
     })
 }
 
-fn audit_query_error(request_id: &RequestId, error: StoreError) -> Response {
+fn audit_query_error(state: &AppState, request_id: &RequestId, error: StoreError) -> Response {
     if matches!(error, StoreError::InvalidRepositoryInput { .. }) {
         return ApiError::audit_query_invalid().into_response(request_id);
     }
@@ -912,6 +1082,17 @@ fn audit_query_error(request_id: &RequestId, error: StoreError) -> Response {
     ) {
         ApiError::audit_events_not_found().into_response(request_id)
     } else {
+        if matches!(
+            error,
+            StoreError::AuditChainCorrupt { .. }
+                | StoreError::DurableStateCorrupt { .. }
+                | StoreError::IncompleteAdmissionEvidence { .. }
+                | StoreError::IncompleteDecisionEvidence { .. }
+        ) {
+            state
+                .telemetry
+                .record_audit_failure(AuditOperation::ReadVerification);
+        }
         store_error_response(request_id, "query Audit events", error)
     }
 }
@@ -958,7 +1139,12 @@ async fn activate_policy_bundle(
             Timestamp::now_millis(),
         )
         .await
-        .map_err(|error| policy_mutation_error(&request_id, error))?;
+        .map_err(|error| policy_mutation_error(&state, &request_id, error))?;
+    tracing::info!(
+        event_name = "policy.activated",
+        audit_event_id = active.last_event_id,
+        "Policy activation recorded with durable Audit evidence"
+    );
     Ok(Json(policy_mutation_response(active)))
 }
 
@@ -981,7 +1167,12 @@ async fn rollback_policy_bundle(
             Timestamp::now_millis(),
         )
         .await
-        .map_err(|error| policy_mutation_error(&request_id, error))?;
+        .map_err(|error| policy_mutation_error(&state, &request_id, error))?;
+    tracing::info!(
+        event_name = "policy.rolled_back",
+        audit_event_id = active.last_event_id,
+        "Policy rollback recorded with durable Audit evidence"
+    );
     Ok(Json(policy_mutation_response(active)))
 }
 
@@ -1021,7 +1212,14 @@ async fn authenticate_operator(
             organization_id,
         )
         .await
-        .map_err(|error| store_error_response(request_id, "resolve Operator", error))?
+        .map_err(|error| {
+            if is_audit_failure(&error) {
+                state
+                    .telemetry
+                    .record_audit_failure(AuditOperation::ReadVerification);
+            }
+            store_error_response(request_id, "resolve Operator", error)
+        })?
         .ok_or_else(|| ApiError::authentication_required().into_response(request_id))?;
     let principal = RequestPrincipal::Operator(principal)
         .into_operator()
@@ -1042,7 +1240,7 @@ fn policy_mutation_response(active: atf_store::ActivePolicyBundle) -> PolicyMuta
     }
 }
 
-fn policy_mutation_error(request_id: &RequestId, error: StoreError) -> Response {
+fn policy_mutation_error(state: &AppState, request_id: &RequestId, error: StoreError) -> Response {
     if matches!(error, StoreError::InvalidRepositoryInput { .. }) {
         return ApiError::invalid_json().into_response(request_id);
     }
@@ -1055,8 +1253,28 @@ fn policy_mutation_error(request_id: &RequestId, error: StoreError) -> Response 
     ) {
         ApiError::policy_bundle_not_found().into_response(request_id)
     } else {
+        if is_audit_failure(&error) {
+            state
+                .telemetry
+                .record_audit_failure(AuditOperation::PolicyWrite);
+        }
         store_error_response(request_id, "change active Policy Bundle", error)
     }
+}
+
+fn is_audit_failure(error: &StoreError) -> bool {
+    matches!(
+        error,
+        StoreError::Database(_)
+            | StoreError::DurableStateCorrupt { .. }
+            | StoreError::IdentityStateCorrupt { .. }
+            | StoreError::OperatorStateCorrupt { .. }
+            | StoreError::PolicyStateCorrupt { .. }
+            | StoreError::RiskStateCorrupt { .. }
+            | StoreError::IncompleteAdmissionEvidence { .. }
+            | StoreError::IncompleteDecisionEvidence { .. }
+            | StoreError::AuditChainCorrupt { .. }
+    )
 }
 
 fn organization_header(headers: &HeaderMap) -> Option<&str> {

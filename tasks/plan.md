@@ -1115,6 +1115,8 @@ chain verification status without exposing other tenants.
 
 ### DS-033 — Add safe metrics and tracing `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add low-cardinality request/Decision/Policy/Risk/Replay/
 idempotency/freshness/Audit-failure metrics plus structured spans propagated by
 request ID. Define redaction rules for payloads, credentials and signatures.
@@ -1128,6 +1130,19 @@ request ID. Define redaction rules for payloads, credentials and signatures.
   2. Labels/logs contain no secret, signature, full payload or unbounded IDs.
   3. Request ID links API response, trace and Audit event.
 - **Verification:** metric snapshot and captured-log redaction tests; `/metrics` smoke; full DoD.
+
+**Delivered boundary:** `GET /metrics` emits deterministic Prometheus text for
+closed route/method/status, Decision, Policy outcome/match, Risk outcome/
+severity, idempotency, Evidence freshness and Audit-operation dimensions.
+Original/Counterfactual Replay totals come from immutable typed Audit evidence
+because Replay runs outside the Gateway process; an availability gauge makes a
+failed durable aggregate explicit. Every HTTP request now has a JSON
+`http.request` span keyed by the fresh server Request ID, and admission,
+Decision, Policy mutation and Audit-page completion events attach allowlisted
+durable Audit event IDs. Metric snapshots, real Replay persistence assertions,
+Audit-corruption counters and captured canary credentials/signatures/payloads
+prove low cardinality and redaction. Metrics for Simulator, Adapter, Approval,
+Kill Switch and reconciliation remain absent until those components exist.
 
 ### DS-034 — Bound every HTTP request `[M]`
 

@@ -106,9 +106,9 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules plus duplicate-purchase, asset-aware daily-spend, normalized first-destination and accepted-request-frequency history rules are wired under an immutable Context and versioned Rule Set; DS-028..DS-031 supply typed bounded PostgreSQL snapshots rather than Audit events. Most other PRD rules remain missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-031 add typed bounded duplicate/daily-spend/first-destination/request-frequency Risk-history evidence, and current `IntentReceived` binds Profile/action; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. DS-032 exposes bounded verified organization queries; checkpoints, retention and independent verification remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. DS-032 adds current-role-authorized verified Audit pages from a repeatable-read chain snapshot. Background recovery scanning, checkpoints and retention remain absent. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. DS-032 adds current-role-authorized verified Audit pages from a repeatable-read chain snapshot; DS-033 exposes aggregate typed Replay completion counts without tenant/replay labels. Background recovery scanning, checkpoints and retention remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and further Admin APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. DS-033 adds fixed-label Prometheus metrics, JSON request spans, response/trace/Audit-event correlation and captured credential/signature/payload redaction. Background recovery, general configured limits and further Admin APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
@@ -490,12 +490,12 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** `services/gateway`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. DS-018 adds bounded Bearer parsing, token/JWKS validation, durable RBAC, generic credential errors, non-enumerating resource reads and JWKS readiness. Health/readiness retain text bodies. General explicit header/body/timeout/rate configuration, full trace/Audit propagation and a captured-log redaction policy remain absent.
-- **security_impact:** ambiguous/reflected/internal/credential error disclosure and anonymous Decision enumeration are reduced and failures are client-correlatable; resource exhaustion and incomplete incident traceability remain.
-- **financial_impact:** availability loss remains possible; a client can now correlate one failed HTTP response with local Store/readiness logs, but not yet with full traces or durable Audit evidence for a disputed action.
+- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. DS-018 adds bounded Bearer parsing, token/JWKS validation, durable RBAC, generic credential errors, non-enumerating resource reads and JWKS readiness. DS-033 propagates the server ID through JSON request spans and allowlisted Audit-event completion logs; captured credential, signature, raw-URL and financial-payload canaries prove redaction. Health/readiness retain text bodies. General explicit header/body/timeout/rate configuration remains absent.
+- **security_impact:** ambiguous/reflected/internal/credential error disclosure, anonymous Decision enumeration and incomplete request/Audit correlation are reduced; resource exhaustion remains.
+- **financial_impact:** availability loss remains possible; a client can correlate a response through its request span to the authoritative durable Audit event without exposing the transaction payload.
 - **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-011/DS-018 envelope and principal boundary while adding finite configurable limits, full trace/Audit propagation and captured-log redaction through DS-033/DS-034.
-- **required_tests:** structured error and local request-ID tests are implemented; oversized/slow/rate-limited requests, timeout, cross-service correlation and captured-log redaction remain.
+- **recommended_change:** retain the DS-011/DS-018/DS-033 envelope, principal, correlation and redaction boundary while adding finite configurable limits through DS-034.
+- **required_tests:** structured error, request-ID/span/Audit correlation and captured-log redaction tests are implemented; oversized/slow/rate-limited requests and timeout tests remain.
 - **dependencies:** Authentication/Authorization and observability.
 - **target_release:** Durable Shadow Mode before shared deployment.
 - **acceptance_criteria:** every business request is bounded, attributable, scoped, safely logged, and returns a stable code.
@@ -503,13 +503,13 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-OBS-001 — Observability
 
 - **module:** Gateway and all evaluators
-- **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-011 creates one server request ID per HTTP response and includes it with stable codes (not raw Store diagnostics) in Store/readiness failure logs. Tracing text initialization exists, but the ID is not yet propagated into general spans or Audit; no `/metrics`, counters, histograms, trace context, captured-log redaction test, or audit-write alert exists.
-- **security_impact:** attacks, fail-closed spikes, and audit failures are hard to detect.
-- **financial_impact:** latency/error regressions and abnormal transaction patterns remain invisible.
-- **severity:** `MEDIUM`
-- **recommended_change:** safe structured tracing plus Prometheus/OpenTelemetry metrics from PRD §25.
-- **required_tests:** metric increments, labels without sensitive/high-cardinality data, trace correlation, audit-failure alert path.
+- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **evidence:** DS-033 exposes Prometheus counters/histograms for fixed request route/method/status, Decision kind, Policy outcome/matches, Risk outcome/finding severity, idempotency, Evidence freshness and Audit-backed failures. Offline Original/Counterfactual Replay counts are derived from immutable typed Audit rows with an explicit availability gauge. JSON request spans share the fresh server Request ID with the API response and allowlisted completion logs name the durable Audit event ID. Metric snapshots, real Replay persistence assertions, forced Audit corruption and captured credential/signature/payload/raw-URL canaries pass.
+- **security_impact:** fail-closed spikes, Audit failures and current evaluator anomalies are observable without sensitive or high-cardinality metric dimensions.
+- **financial_impact:** current Decision/evaluator latency, outcome, retry, finding, freshness, Replay and Audit-integrity regressions are visible; alert thresholds remain unmeasured until DS-039.
+- **severity:** `CLOSED` (formerly `MEDIUM`)
+- **recommended_change:** preserve the closed label/redaction contract; add truthful Simulation/Adapter/Approval/Kill-Switch/Reconciliation metrics only when those components exist, and establish measured thresholds in DS-039.
+- **required_tests:** implemented: metric increments/snapshot, bounded labels, durable Replay counts, request/trace/Audit correlation, forced Audit-failure path and captured-log redaction.
 - **dependencies:** request identity/correlation model.
 - **target_release:** Durable Shadow Mode P0.10.
 - **acceptance_criteria:** required counters/latencies/failures are observable without logging secrets or full financial payloads.
@@ -565,5 +565,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-033` is next: add safe low-cardinality metrics, trace/request correlation
-and captured redaction tests without exposing credentials or financial payloads.
+`DS-034` is next: add finite body/header limits, evaluator/request timeouts,
+operational rate limits, and explicit trusted-proxy/TLS assumptions without
+weakening the DS-033 correlation or redaction boundary.

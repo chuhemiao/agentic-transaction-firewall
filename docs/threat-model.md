@@ -62,6 +62,20 @@ secret. The realistic attack surface today includes:
   trusted ingress deployment remain incomplete, so the Gateway is still
   unsuitable for an untrusted shared network.
 
+- **Observability exfiltration and cardinality exhaustion.** DS-033 maps HTTP
+  requests only to closed route templates/method/status classes and maps
+  financial results only to closed outcome/severity enums. Organization,
+  Agent, Operator, Intent, Decision, request and replay IDs never become metric
+  labels; raw paths/query strings, error text, Policy/Rule IDs, credentials,
+  identity envelopes, Nonces, signatures and payloads are not recorded.
+  Captured canaries prove these exclusions. JSON spans retain the server
+  Request ID and allowlisted Audit event IDs only for incident correlation;
+  PostgreSQL Audit remains authoritative. Replay counts are aggregated from
+  typed durable events without tenant labels. `/metrics` is currently an
+  unauthenticated infrastructure endpoint and must remain behind a trusted
+  private operations network or authenticated ingress until DS-034 defines
+  the shared TLS/proxy/rate-limit boundary.
+
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
   parsing, rejects unsupported Intent versions, and retains arbitrary data

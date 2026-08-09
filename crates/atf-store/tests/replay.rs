@@ -219,6 +219,9 @@ async fn counterfactual_replay_persists_new_lineage_without_overwriting_authorit
         .fetch_one(&fixture.database.pool)
         .await?;
     assert_eq!(replay_rows, 1);
+    let replay_counts = restarted.durable_replay_counts().await?;
+    assert_eq!(replay_counts.original, 0);
+    assert_eq!(replay_counts.counterfactual, 1);
 
     let reloaded = restarted
         .load_counterfactual_replay(ORGANIZATION_ID, &result.replay_id)
@@ -520,6 +523,9 @@ async fn original_replay_reproduces_hash_after_restart_without_overwriting_autho
         after, before,
         "Original Replay must not create or replace authority"
     );
+    let replay_counts = restarted.durable_replay_counts().await?;
+    assert_eq!(replay_counts.original, 1);
+    assert_eq!(replay_counts.counterfactual, 0);
     let reloaded = restarted
         .load_finalized_decision(ORGANIZATION_ID, &original.decision.intent_id)
         .await?

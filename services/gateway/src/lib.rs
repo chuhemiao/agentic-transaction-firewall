@@ -14,6 +14,7 @@ mod principal;
 mod request_id;
 mod routes;
 mod state;
+mod telemetry;
 
 pub use auth::{IdentityGatewayConfig, IdentityGatewayConfigError};
 pub use operator_auth::{OperatorAuthConfig, OperatorAuthConfigError, OperatorAuthenticator};

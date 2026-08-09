@@ -214,6 +214,9 @@ Only the following crates are implemented so far:
   and returns only bounded, sequence-ordered pages. Its versioned cursor binds
   the organization, exact filters and verified chain prefix so later appends do
   not move an in-progress traversal.
+  DS-033 also exposes an aggregate durable count of typed Original and
+  Counterfactual Replay completion events so the Gateway does not under-report
+  offline CLI operations with a process-local counter.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   `atf risk install`, `atf replay original/counterfactual`,
@@ -228,7 +231,13 @@ Only the following crates are implemented so far:
   `GET /v1/intents/{id}/decision`; DS-032 also exposes authenticated
   `GET /v1/audit/events` and `GET /v1/audit/intents/{intent_id}` queries,
   alongside authenticated Policy activation/rollback,
-  plus `/healthz`/`/readyz`. PostgreSQL is
+  plus `/healthz`/`/readyz` and Prometheus `/metrics`. DS-033 records fixed-
+  label HTTP/Decision/Policy/Risk/idempotency/freshness/Audit-failure metrics,
+  reads Replay totals from durable typed Audit evidence, and emits JSON request
+  spans. A fresh server Request ID links the response and span to allowlisted
+  business completion logs containing the corresponding Audit event ID;
+  captured-canary tests reject credentials, signatures, raw URLs and financial
+  payloads in logs or metrics. PostgreSQL is
   required at startup, `/readyz` verifies live storage/schema compatibility
   and fresh usable configured JWKS, and restart/second-instance reads return
   the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
@@ -560,6 +569,12 @@ semantics (evaluate only, never execute).
     100 verified events in stable sequence order. The cursor binds the tenant,
     filters and verified chain prefix, and cross-tenant, wrong-role, malformed,
     rebound or corruption cases fail closed without enumeration.
+33. ~~Safe metrics, tracing, correlation and redaction.~~ Done in DS-033:
+    `/metrics` exports only closed low-cardinality labels for request,
+    Decision, Policy, Risk, Replay, idempotency, freshness and Audit-failure
+    signals; JSON spans use the server Request ID and allowlisted Audit event
+    correlation. Snapshot, durable Replay, Audit-corruption and captured-log
+    canary tests prove the contract.
 
 ### Remaining before Phase 2 can close out
 
@@ -625,9 +640,11 @@ semantics (evaluate only, never execute).
   bind canonical Decisions, and support exact/isolated Replay.~~ Done in
   DS-024..DS-027 with byte-identical Original reproduction and immutable
   non-authoritative Counterfactual lineage.
-- ~~Organization-scoped Audit Query API.~~ Done in DS-032 with bounded stable
-  pagination and verified organization-chain status. Metrics, safe tracing,
-  API security controls, external Audit checkpoints and retention remain.
+- ~~Organization-scoped Audit Query API and safe observability.~~ Done through
+  DS-033 with bounded stable pagination, verified organization-chain status,
+  low-cardinality Prometheus metrics, JSON request spans, durable Replay
+  totals, and captured redaction/correlation guarantees. API security controls,
+  external Audit checkpoints and retention remain.
 - The remaining history-dependent Risk rules, each using the now-required
   explicit lifecycle accounting boundary.
 - `atf evaluate` currently requires an explicit millisecond-aligned
@@ -647,11 +664,11 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  stateful Risk, metrics, operational hardening, and security
+  operational hardening, CI/recovery proof, and security
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-032.
+  complete through DS-033.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

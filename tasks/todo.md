@@ -143,8 +143,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-032:** added bounded organization-scoped Audit queries with current
   auditor/admin reauthorization, verified-chain status, exact filters and
   append-stable tenant/filter/prefix-bound pagination. Depends: DS-003, DS-018, DS-025.
-- [ ] **NEXT — DS-033:** add safe metrics, tracing, correlation and redaction. Depends: DS-018, DS-025, DS-032.
-- [ ] **DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
+- [x] **DS-033:** added fixed-label Prometheus request/Decision/Policy/Risk/
+  Replay/idempotency/freshness/Audit-failure metrics, JSON request spans,
+  response/trace/Audit-event correlation and captured-canary redaction tests.
+  Depends: DS-018, DS-025, DS-032.
+- [ ] **NEXT — DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
 - [ ] **DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
 - [ ] **DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
 - [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.

@@ -10,6 +10,7 @@ or execution authority.
 |---|---|---|
 | `GET` | `/healthz` | Liveness text (`ok`) |
 | `GET` | `/readyz` | PostgreSQL/schema and Operator-JWKS readiness text (`ready` or `not ready`) |
+| `GET` | `/metrics` | Low-cardinality Prometheus text metrics |
 | `POST` | `/v1/intents` | A durably recorded Decision |
 | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
 | `GET` | `/v1/audit/events` | A bounded verified organization Audit page |
@@ -168,9 +169,23 @@ X-ATF-Request-ID: 01J00000000000000000000000
 ```
 
 An inbound `X-ATF-Request-ID` is untrusted and never becomes the server ID.
-Errors repeat the exact server-generated value in the JSON body. Store and
-readiness failure logs include it together with a stable error code, never the
-underlying database diagnostic. Full trace/Audit propagation remains DS-033.
+Errors repeat the exact server-generated value in the JSON body. DS-033 puts
+the same ID on the JSON `http.request` span; stable admission, Decision,
+Policy-mutation and Audit-page completion events inside that span name their
+durable Audit event ID. Store/readiness failures include only stable codes,
+never the underlying database diagnostic. See [`operations.md`](operations.md)
+for the allowlist, redaction tests and correlation procedure.
+
+## DS-033 Metrics contract
+
+`GET /metrics` returns `text/plain; version=0.0.4; charset=utf-8`. Labels are
+closed route templates, method/status classes and domain outcomes/severities;
+raw URLs, organization/request/Intent IDs, credentials, signatures, full
+payloads, error text, Policy IDs and Risk rule IDs are excluded. Replay totals
+come from durable typed Audit evidence because Replay runs in the offline CLI.
+The endpoint is an infrastructure scrape surface and must remain behind a
+trusted private network or authenticated ingress until DS-034 completes the
+shared TLS/proxy/rate-limit boundary.
 
 ## Error envelope
 

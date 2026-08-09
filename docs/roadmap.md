@@ -153,6 +153,11 @@ order. The executable order is:
   authority is rechecked in the repeatable-read Store transaction; exact
   filters and a tenant/filter/chain-prefix-bound cursor expose only verified,
   append-stable pages of at most 100 events.
+- [x] DS-033 Safe metrics and tracing. Prometheus output uses only closed
+  route/outcome/severity dimensions for request, Decision, Policy, Risk,
+  Replay, idempotency, freshness and Audit-failure signals; JSON request spans
+  link the response Request ID to allowlisted durable Audit event IDs, and
+  captured canaries prove credential/signature/payload redaction.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -162,14 +167,16 @@ order. The executable order is:
   deterministic identity/Cedar Schema validation; DS-020 adds immutable
   archives, strict publisher proof, audited active pointers, authenticated
   activation/rollback and per-request Gateway resolution.
-- [~] P0.10 Metrics and organization-scoped Audit query API. DS-032 completes
-  the bounded verified query surface; metrics and safe trace correlation remain.
+- [x] P0.10 Metrics and organization-scoped Audit query API for current
+  components. DS-032 completes the bounded verified query surface and DS-033
+  completes low-cardinality metrics plus safe trace/Audit correlation. Future
+  component metrics ship with their Simulator/Adapter/Approval owners.
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-033` — add safe low-cardinality metrics, trace
-correlation and captured redaction guarantees.
+**Immediate next task:** `DS-034` — add finite body/header limits, timeouts,
+operational rate limits, and explicit trusted-proxy/TLS assumptions.
 
 ## Later releases
 
