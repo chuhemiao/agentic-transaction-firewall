@@ -1,0 +1,11 @@
+# DS-038 security/supply-chain controls require explicit maintainer review.
+/.github/workflows/ @chuhemiao
+/.github/CODEOWNERS @chuhemiao
+/.github/dependabot.yml @chuhemiao
+/.gitleaks.toml @chuhemiao
+/deny.toml @chuhemiao
+/security/ @chuhemiao
+/scripts/test-security* @chuhemiao
+/scripts/test-rust-sast.sh @chuhemiao
+/Cargo.lock @chuhemiao
+/fuzz/Cargo.lock @chuhemiao

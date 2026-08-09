@@ -176,6 +176,12 @@ order. The executable order is:
   covers string-only Amount encoding and every attacker-resealed binding
   class; real PostgreSQL Replay and a bounded nightly Intent fuzz smoke run in
   CI.
+- [x] DS-038 Dependency, secret and Rust SAST gates. Every Action is pinned to
+  an immutable commit; cargo-audit scans root/fuzz locks, Gitleaks scans full
+  history/current source, and pinned Clippy forbids unsafe first-party code.
+  Negative fixtures fail each gate; exceptions are exact, code-owned,
+  reachability-checked and expire within 90 days. Dependabot covers both Cargo
+  workspaces and Actions.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -193,8 +199,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-038` — add dependency vulnerability, secret and
-SAST gates with pinned tools and reviewed exception ownership.
+**Immediate next task:** `DS-039` — ship the supported local PostgreSQL/Gateway
+Compose stack, recovery runbooks and measured Shadow SLO baseline.
 
 ## Later releases
 

@@ -165,6 +165,35 @@ verification executed 719,116 inputs in 16 seconds without a crash or
 sanitizer failure; this is conformance evidence, not an SLO or throughput
 claim.
 
+## Dependency, secret and Rust SAST gates
+
+DS-038 makes the same blocking security commands available locally and in pull
+request CI:
+
+```bash
+cargo install cargo-audit --locked --no-default-features --version 0.22.2
+./scripts/test-security.sh
+./scripts/test-rust-sast.sh
+```
+
+`test-security.sh` validates immutable Action/tool pins, audits the root and
+fuzz lockfiles against a refreshed RustSec database, scans complete Git history
+and the current tree with Gitleaks 8.30.1, and runs safe negative fixtures. A
+digest-pinned official Gitleaks image is used only when the exact native binary
+is unavailable. `test-rust-sast.sh` uses rustc/Clippy 1.95.0, denies all
+warnings and forbids first-party unsafe code; its isolated unsafe crate must
+fail.
+
+`security/advisory-exceptions.toml` and `security/secret-exceptions.toml` are
+the only exception authorities. Each entry has an exact ID/fingerprint, one
+GitHub owner, a concrete reason and an expiry no more than 90 days away. The
+advisory validator also checks the combined root/fuzz all-feature/all-target
+Cargo trees; a formerly lock-only package becoming build-reachable invalidates
+its cargo-audit exception. Cargo-deny's enabled-graph advisory ignore list
+remains empty. The current `rkyv 0.7.46`, `rsa 0.9.10`, and two historical
+public-test fingerprints expire on 2026-11-07. See `security/README.md` for the
+review/update procedure. Scanner network/update failures are gate failures.
+
 ## HTTP safety boundary
 
 All limits are finite, validated at startup and process-local. Zero, malformed

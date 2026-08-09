@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "chuhemiao"
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: "cargo"
+    directory: "/fuzz"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "chuhemiao"
+    commit-message:
+      prefix: "deps(fuzz)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "chuhemiao"
+    commit-message:
+      prefix: "ci"

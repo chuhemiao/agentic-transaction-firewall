@@ -162,9 +162,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   vectors, full derived-binding and Amount properties, real PostgreSQL Replay
   conformance and a pinned bounded Intent fuzz smoke in CI. Depends: DS-027,
   DS-036.
-- [ ] **NEXT — DS-038:** add dependency, secret and SAST CI gates. Depends:
+- [x] **DS-038:** added immutable Action pins, exact cargo-audit/Gitleaks and
+  pinned unsafe-forbidden Clippy PR gates; root/fuzz locks, Git history/current
+  source and negative fixtures run under owned, expiring exceptions. Depends:
   DS-036.
-- [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO
+- [ ] **NEXT — DS-039:** ship local Compose, recovery runbooks and measured SLO
   baseline. Depends: DS-033, DS-036, DS-038.
 - [ ] **CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
   millisecond-aligned and cover the real default command path. Discovered by

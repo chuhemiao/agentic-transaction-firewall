@@ -1,0 +1,12 @@
+[package]
+name = "atf-vulnerable-lock-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Deliberately vulnerable and never built or shipped. RustSec must identify
+# RUSTSEC-2020-0071 from this isolated lockfile.
+time = "=0.1.44"
+
+[workspace]

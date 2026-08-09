@@ -289,7 +289,8 @@ Agent Intent
   `READ COMMITTED` read-skew: full-chain verification now obtains the head and
   ordered events in one statement-level MVCC snapshot, so a concurrent append
   is either wholly before or wholly after that verification snapshot.*
-- **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
+- **Supply-chain baseline** — CI runs fmt, tests, cargo-deny, RustSec,
+  full-history/current-tree Gitleaks, and Clippy SAST.
   DS-036 runs a named persistence suite twice against PostgreSQL 17.10 before
   the full workspace tests. The same locked commands are available through a
   test-only Compose stack with read-only source, temporary database storage and
@@ -303,8 +304,15 @@ Agent Intent
   warning to an error so new duplicates and stale exceptions fail.
   `Apache-2.0 WITH LLVM-exception` (Cedar build path) and `MIT-0`
   (JSON Schema path), plus ISC code and CDLA-Permissive-2.0 trust-anchor data
-  on SQLx's Rustls path, are explicitly reviewed permissive licenses. Broader
-  audit/secret/SAST/SBOM gates remain planned under GAP-CI-001.
+  on SQLx's Rustls path, are explicitly reviewed permissive licenses. DS-038
+  pins every Action commit plus cargo-audit 0.22.2, Gitleaks 8.30.1 and
+  rustc/Clippy 1.95.0; it audits both lockfiles, scans Git history and current
+  source, and forbids first-party unsafe code. Safe vulnerable-lock,
+  synthetic-secret and unsafe fixtures prove all three gates fail. Exact
+  advisory/fingerprint exceptions are code-owned and expire within 90 days;
+  Cargo-tree validation rejects a lock-only exception if it becomes reachable.
+  Container scanning, SBOM and artifact signing remain future release gates
+  under GAP-CI-001.
 - **Durable-state design** —
   [`ADR-0002`](decisions/0002-durable-state-contract.md) now fixes the
   PostgreSQL ownership boundary, per-organization Audit serialization, short

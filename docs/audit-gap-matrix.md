@@ -113,6 +113,7 @@ principals and non-enumerating Decision-read RBAC.
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | Policy/Replay conformance | `IMPLEMENTED_AND_WIRED` | Three Policy cases plus fixed pure Context/Decision hashes, nine durable Original/Counterfactual scenarios and ten Amount/binding properties run through `scripts/test-conformance.sh`. |
 | Intent fuzz | `IMPLEMENTED_AND_WIRED` | A pinned separate nightly/libFuzzer workspace feeds valid and fail-closed seeds into the public Intent validator for a bounded 15-second CI smoke. |
+| Security PR gates | `IMPLEMENTED_AND_WIRED` | DS-038 pins every Action/tool, audits root/fuzz locks with RustSec, scans complete history/current source with Gitleaks, forbids first-party unsafe code with Clippy, and proves every gate plus exception expiry through safe negative fixtures. |
 | Adapter conformance and supported deploy | `SCAFFOLD_ONLY` | README/test-stack placeholders only; no Adapter or supported local Gateway stack exists. |
 | SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `identity-envelope.md` plus the published vector fix DS-014 signing bytes, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
@@ -557,17 +558,25 @@ principals and non-enumerating Decision-read RBAC.
   exact-versioning path dependencies, reviewing the Cedar/JSON Schema
   transitive licenses, and pinning the official Action release commit. BL-002
   denies unreviewed duplicate versions, documents exact current exceptions,
-  and promotes every cargo-deny warning to a CI error. cargo
-  audit/nextest/fuzz, secret/SAST/container scanning, SBOM, signing, migration
-  and Compose E2E are still absent.
-- **security_impact:** vulnerable code, secrets, images, or artifacts can escape current gates.
+  and promotes every cargo-deny warning to a CI error. DS-037 adds bounded
+  Intent fuzz. DS-038 pins every Action plus cargo-audit 0.22.2, Gitleaks
+  8.30.1 and rustc/Clippy 1.95.0; both lockfiles, complete history/current
+  source and first-party unsafe code are blocking PR gates. Safe fixtures prove
+  each gate fails. Exact exceptions require a code owner, reason, reachability
+  evidence where applicable and expiry within 90 days. Nextest, container
+  scanning, SBOM, signing and supported Compose E2E are still absent.
+- **security_impact:** source/dependency/secret regressions are blocked at PR
+  time; future images or unsigned artifacts can still escape later release
+  pipelines until their gates exist.
 - **financial_impact:** compromised dependencies/builds can alter financial control behavior.
 - **severity:** `HIGH`
-- **recommended_change:** add staged security/release jobs with pinned actions and generated attestations.
-- **required_tests:** intentional gate-failure fixtures, fuzz smoke, migration E2E, artifact verification.
+- **recommended_change:** retain DS-038 pins/negative fixtures and add staged
+  container/SBOM/signing jobs when release artifacts exist.
+- **required_tests:** dependency/secret/SAST failure fixtures and fuzz smoke are
+  implemented; migration/Compose E2E and artifact verification remain.
 - **dependencies:** persistence/container packaging for later jobs.
-- **target_release:** BL-001/BL-002 deny repair is complete; remaining
-  dependency/secret/SAST gates land during Durable Shadow Mode.
+- **target_release:** BL-001/BL-002 and the DS-038 source/PR gate are complete;
+  artifact gates expand when release packaging exists.
 - **acceptance_criteria:** every PR runs declared gates and every release has verifiable SBOM, checksum, and signature/attestation.
 
 ### GAP-DOC-001 — Documentation Consistency

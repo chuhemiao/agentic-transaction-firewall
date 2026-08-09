@@ -1,0 +1,12 @@
+title = "ATF committed-history and working-tree secret policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated VCS/build/fuzzer state; versioned source remains scanned"
+paths = [
+  '''(^|/)\.git(?:/|$)''',
+  '''(^|/)target(?:/|$)''',
+  '''^fuzz/artifacts(?:/|$)''',
+]

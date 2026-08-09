@@ -1,0 +1,22 @@
+schema_version = 1
+
+# A temporary exception requires an exact RUSTSEC ID and package version, one
+# accountable GitHub owner, a specific reachability reason, and an expiry no
+# more than 90 days away. The validator also proves the package is absent from
+# Cargo's actual all-feature/all-target build tree; reachability invalidates it.
+
+[[exceptions]]
+id = "RUSTSEC-2026-0235"
+package = "rkyv"
+version = "0.7.46"
+owner = "@chuhemiao"
+reason = "Root/fuzz lock-only rust_decimal archive feature; ATF does not enable rkyv or deserialize rkyv archives."
+expires = "2026-11-07"
+
+[[exceptions]]
+id = "RUSTSEC-2023-0071"
+package = "rsa"
+version = "0.9.10"
+owner = "@chuhemiao"
+reason = "Lock-only sqlx-mysql dependency; ATF enables PostgreSQL only and performs no RSA private-key operation."
+expires = "2026-11-07"

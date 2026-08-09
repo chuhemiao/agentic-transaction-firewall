@@ -7,6 +7,9 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+# Cargo-deny evaluates the enabled graph, where the two DS-038 cargo-audit
+# lock-only findings do not occur. Keep this list empty so stale or newly
+# reachable advisory exceptions still fail under -D warnings.
 ignore = []
 
 [licenses]

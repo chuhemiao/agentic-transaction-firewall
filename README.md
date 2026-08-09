@@ -371,6 +371,11 @@ authoritative Intent/Context still reject it, and a nightly libFuzzer target
 exercises the public Intent parser with fail-closed invalid inputs and stable
 typed round trips. CI runs the PostgreSQL Replay suite and a bounded 15-second
 fuzz smoke in addition to the normal workspace gates.
+`DS-038` adds blocking supply-chain checks: RustSec audits both committed
+lockfiles, Gitleaks scans complete history and the checked-out tree, and pinned
+Clippy forbids first-party unsafe code. Every Action/tool is immutable or exact
+versioned; controlled advisory/fingerprint exceptions require a code owner,
+specific reason, actual reachability proof and an expiry within 90 days.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -630,6 +635,12 @@ semantics (evaluate only, never execute).
     attacker-resealed substitutions. `scripts/test-conformance.sh` executes
     Policy, pure and real-PostgreSQL Replay evidence, while a pinned cargo-fuzz
     target/seed corpus runs for 15 seconds in a separate nightly CI job.
+38. ~~Dependency, secret and Rust SAST gates.~~ Done in DS-038: every Action is
+    commit-pinned; exact cargo-audit/Gitleaks and pinned Clippy scan both Cargo
+    locks, complete Git history/current source and first-party unsafe code.
+    Negative fixtures prove each gate fails, weekly Dependabot covers root,
+    fuzz and Actions, and exact exceptions are owned, reachability-checked and
+    limited to 90 days.
 
 ### Remaining before Phase 2 can close out
 
@@ -699,6 +710,9 @@ semantics (evaluate only, never execute).
   contracts.~~ Done in DS-037 with fixed Context/Decision hash vectors,
   attacker-resealed binding properties, real PostgreSQL Replay conformance and
   a bounded no-panic public Intent fuzz smoke.
+- ~~Add dependency vulnerability, secret and Rust SAST PR gates.~~ Done in
+  DS-038 with pinned tools/Actions, safe failing fixtures, full-history plus
+  current-tree secret scans, and expiring owner-bound exact exceptions.
 - ~~Organization-scoped Audit Query API and safe observability.~~ Done through
   DS-034 with bounded stable pagination, verified organization-chain status,
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
@@ -727,7 +741,7 @@ implementation plan and executable checklist are in
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-037.
+  complete through DS-038.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -752,6 +766,10 @@ ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
 
 # The separate Intent fuzz gate requires the pinned nightly and cargo-fuzz.
 RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
+
+# Install cargo-audit 0.22.2; Gitleaks may be native 8.30.1 or the pinned image.
+./scripts/test-security.sh
+./scripts/test-rust-sast.sh
 
 # Or run that gate in the isolated test-only Compose stack.
 docker compose -f deploy/docker/compose.test.yml run --rm persistence-tests

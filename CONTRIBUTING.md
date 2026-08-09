@@ -27,11 +27,13 @@ cargo build
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo deny check -D warnings
+./scripts/test-security.sh
+./scripts/test-rust-sast.sh
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
   cargo test --workspace --all-targets --all-features
 ```
 
-All five must pass before opening a PR; CI enforces the same checks
+All declared gates must pass before opening a PR; CI enforces the same checks
 (`.github/workflows/ci.yml`).
 
 The PostgreSQL test role must be allowed to create temporary databases and
@@ -59,6 +61,13 @@ RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
 
 The fuzz runner is bounded to 15 seconds by default and rejects a non-nightly
 compiler or a cargo-fuzz version different from the CI pin.
+
+DS-038 adds the pinned dependency/secret/Rust SAST gates. Install
+`cargo-audit 0.22.2`; Gitleaks 8.30.1 may be installed natively or supplied by
+the digest-pinned Docker fallback. See `security/README.md` before changing a
+tool, Action pin, scanner policy, lockfile exception, or historical secret
+fingerprint. Exceptions require an exact scope, `@owner`, reason and expiry no
+more than 90 days away.
 
 ## Commit / PR expectations
 

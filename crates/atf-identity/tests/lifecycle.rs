@@ -42,8 +42,9 @@ fn vector_value() -> serde_json::Value {
 
 fn identity_key_record() -> IdentityKeyRecord {
     let vector = vector_value();
-    let signing_key =
-        SigningKey::from_bytes(&decode_hex(vector["test_key_seed_hex"].as_str().unwrap()));
+    let signing_key = SigningKey::from_bytes(&decode_hex(
+        vector["deterministic_seed_hex"].as_str().unwrap(),
+    ));
     IdentityKeyRecord {
         agent_id: "research-agent-01".into(),
         key_id: "identity-key-2026-01".into(),

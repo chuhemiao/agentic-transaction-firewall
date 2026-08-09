@@ -24,7 +24,7 @@ fn intent() -> TransactionIntent {
     TransactionIntent {
         spec_version: "1.0".into(),
         intent_id: "01J00000000000000000000000".into(),
-        idempotency_key: "idem-ds037-properties".into(),
+        idempotency_key: "repeatable".into(),
         created_at: timestamp("2026-08-08T12:00:00Z"),
         expires_at: timestamp("2026-08-08T12:05:00Z"),
         principal: Principal {

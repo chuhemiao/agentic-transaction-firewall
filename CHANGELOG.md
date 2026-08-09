@@ -7,6 +7,15 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-038 blocking dependency, secret and Rust SAST gates. Pull-request CI now
+  pins every Action to an immutable commit, runs `cargo-audit 0.22.2` against
+  both lockfiles, scans complete Git history plus the current tree with
+  Gitleaks 8.30.1, and forbids first-party `unsafe_code` through pinned Clippy.
+  RustSec, synthetic-secret and unsafe negative fixtures prove every gate can
+  fail; exact advisory/fingerprint exceptions require a code owner, reason and
+  expiry within 90 days, while Cargo-tree checks invalidate an exception if
+  its package becomes reachable. Dependabot covers root/fuzz Cargo and Actions.
+
 - DS-037 executable Replay, property and fuzz conformance. A closed pure vector
   locks exact Original/Counterfactual Context and Decision hashes plus
   non-authoritative same-snapshot lineage; ten Proptest properties retain

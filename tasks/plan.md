@@ -1288,6 +1288,8 @@ runs a 15-second smoke. The equivalent read-only-source Docker run completed
 
 ### DS-038 — Add dependency, secret and SAST gates `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add `cargo audit`, secret scanning and Rust/static analysis to
 PR CI with pinned actions/tools. Document update/exception ownership instead of
 silently ignoring findings.
@@ -1301,6 +1303,15 @@ silently ignoring findings.
   2. Tool/action versions are pinned and exceptions are scoped/expiring.
   3. A safe fixture proves each new gate can fail.
 - **Verification:** local tool runs where available plus reviewed CI run; full DoD.
+
+**Delivered boundary:** all workflow Actions are immutable-commit pinned;
+`cargo-audit 0.22.2` checks root and fuzz locks, Gitleaks 8.30.1 checks complete
+history/current source, and rustc/Clippy 1.95.0 forbids first-party unsafe code.
+Isolated vulnerable-lock, synthetic-secret and unsafe fixtures prove each gate
+returns failure. `@chuhemiao` owns the controls; exact advisory and historical
+fingerprint exceptions require a reason and expiry within 90 days, and actual
+root/fuzz Cargo trees invalidate an advisory exception if its package becomes
+reachable. Weekly Dependabot covers both Cargo workspaces and Actions.
 
 ### DS-039 — Provide reproducible local operations and SLO evidence `[M]`
 

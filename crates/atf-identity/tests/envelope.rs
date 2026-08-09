@@ -42,7 +42,9 @@ fn context() -> EnvelopeVerificationContext<'static> {
 
 fn signing_key() -> SigningKey {
     let vector = vector();
-    SigningKey::from_bytes(&decode_hex(vector["test_key_seed_hex"].as_str().unwrap()))
+    SigningKey::from_bytes(&decode_hex(
+        vector["deterministic_seed_hex"].as_str().unwrap(),
+    ))
 }
 
 fn key_record(key_id: &str, key: ed25519_dalek::VerifyingKey) -> IdentityKeyRecord {
