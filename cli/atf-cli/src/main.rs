@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use atf_core::{
-    sha256_hex, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
-    EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
-    RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    sha256_hex, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
+    DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
 use clap::{Parser, Subcommand};
@@ -1060,8 +1060,37 @@ fn local_evaluation_context(
         Some(history) => Some(history?),
         None => None,
     };
+    let daily_cumulative_spend = risk_rule_set.daily_spend_enabled().then(|| {
+        DailySpendHistory::new(
+            DailySpendQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.intent_id,
+                risk_rule_set
+                    .daily_spend_valuation_asset()
+                    .expect("validated enabled daily-spend rule has an asset"),
+                evaluated_at,
+                risk_rule_set
+                    .daily_spend_window_seconds()
+                    .expect("validated enabled daily-spend rule has a window"),
+                risk_rule_set
+                    .daily_spend_accounting_boundary()
+                    .expect("validated enabled daily-spend rule has a boundary"),
+            )?,
+            Vec::new(),
+            0,
+        )
+    });
+    let daily_cumulative_spend = match daily_cumulative_spend {
+        Some(history) => Some(history?),
+        None => None,
+    };
     Ok((
         context,
-        RiskHistorySnapshot::new(repository, duplicate_purchase)?,
+        RiskHistorySnapshot::with_daily_spend(
+            repository,
+            duplicate_purchase,
+            daily_cumulative_spend,
+        )?,
     ))
 }

@@ -91,6 +91,14 @@ occurrence time and sequence. Store uses it to capture or reconstruct an exact
 repeatable-read Risk-history snapshot without supplying the full Audit chain
 to the evaluator. Schema compatibility advances to reader/writer version 11.
 
+Migration 0012 adds DS-029's partial expression index over prior
+`DecisionRecorded(PERMIT)` evidence by organization, Agent, occurrence time,
+sequence and bound execution asset. Store captures or reconstructs the daily
+window at the same repeatable-read repository boundary, uses PostgreSQL
+`NUMERIC` for fixed-point grouping, retains a count of legacy rows without a
+bound asset and fails closed above 256 asset groups. Schema compatibility
+advances to reader/writer version 12.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

@@ -1007,6 +1007,8 @@ semantics.
 
 ### DS-029 — Add daily cumulative spend risk `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add a `PERMITTED`-boundary organization/Agent spend rule
 using durable, snapshot-bounded history and fixed-point asset-aware sums.
 
@@ -1014,6 +1016,15 @@ using durable, snapshot-bounded history and fixed-point asset-aware sums.
 - **Likely files:** `crates/atf-risk/src/history_rules.rs`,
   `crates/atf-risk/src/config.rs`, `crates/atf-store/src/history.rs`,
   `crates/atf-store/tests/daily_spend.rs`.
+- **Delivered boundary:** the optional backward-compatible Rule Set extension
+  fixes a positive maximum, valuation asset, 24-hour window, High/Critical
+  missing-data behavior and `PERMITTED` accounting. Migration 0012 supports a
+  repeatable-read organization/Agent/time/sequence query; PostgreSQL `NUMERIC`
+  aggregates remain grouped by exact bound asset, are capped at 256 groups and
+  record legacy rows without an asset. Risk includes the current Intent, uses
+  exact fixed-point addition/multiplication, and accepts only one fresh verified
+  direct `ATF_ENRICHED` quote for cross-asset conversion. Snapshot evidence and
+  old Rule Set hashes remain Replay-compatible.
 - **Acceptance criteria:**
   1. Boundary, asset and tenant scope are explicit and deterministic.
   2. Parallel completed Decisions cannot hide from the next snapshot query.

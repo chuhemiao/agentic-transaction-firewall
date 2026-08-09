@@ -34,8 +34,9 @@ pub use evidence::{
     EvidenceSource, EvidenceTrustPolicy, TrustedEvidenceSource, VerifiedEvidence,
 };
 pub use history::{
-    AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
-    HistorySnapshotError, RiskHistorySnapshot,
+    AccountingBoundary, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
+    DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery, HistorySnapshotError,
+    RiskHistorySnapshot, MAX_DAILY_SPEND_ASSET_GROUPS,
 };
 pub use id::new_ulid;
 pub use lifecycle::{

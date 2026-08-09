@@ -105,6 +105,40 @@
         "accounting_boundary": { "$ref": "#/$defs/accountingBoundary" }
       }
     },
+    "dailySpendRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "max_amount", "valuation_asset", "window_seconds", "accounting_boundary", "missing_data"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "max_amount": {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]*|0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*\\.[0-9]+)$"
+        },
+        "valuation_asset": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9._:%-]+/[A-Za-z0-9._:%-]+(?:/[A-Za-z0-9._:%-]+)?$"
+        },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "accounting_boundary": { "$ref": "#/$defs/accountingBoundary" },
+        "missing_data": { "$ref": "#/$defs/missingData" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "severity": { "enum": ["high", "critical"] },
+              "accounting_boundary": { "const": "PERMITTED" },
+              "missing_data": { "const": "FINDING" }
+            }
+          }
+        }
+      ]
+    },
     "rules": {
       "type": "object",
       "additionalProperties": false,
@@ -122,7 +156,8 @@
         "max_fee_ratio": { "$ref": "#/$defs/basisPointRule" },
         "vendor_price_deviation": { "$ref": "#/$defs/vendorPriceRule" },
         "high_risk_network_or_protocol": { "$ref": "#/$defs/denyListRule" },
-        "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" }
+        "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" },
+        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendRule" }
       }
     }
   }

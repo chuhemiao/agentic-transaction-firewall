@@ -46,7 +46,8 @@ Only the following crates are implemented so far:
   Evidence envelopes, the DS-023/DS-024 immutable `EvaluationContext`
   evaluator boundary, DS-025 shared Decision-binding types, DS-027's
   non-authoritative same-snapshot Counterfactual Context derivation, and
-  DS-028's closed Risk-history snapshot/query contract. Evidence uses
+  DS-028/DS-029's closed duplicate-purchase and daily-spend snapshot/query
+  contracts. Evidence uses
   closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
@@ -89,7 +90,8 @@ Only the following crates are implemented so far:
   a domain-separated canonical hash. Every `RiskEvaluation` returns the exact
   version/hash with findings. The current rules cover request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
-  network/protocol and duplicate purchase. DS-028 evaluates the latter from a
+  network/protocol, duplicate purchase and daily cumulative spend. DS-028
+  evaluates duplicate purchase from a
   typed, organization-scoped PostgreSQL snapshot whose bounded query records
   the exact Agent, resource, current Intent, evaluation window, repository
   boundary and explicit `PERMITTED` semantics; it no longer hands Audit events
@@ -100,6 +102,11 @@ Only the following crates are implemented so far:
   never inspected for privileged values. Vendor median requires persisted,
   fresh, hash-verified, allowlisted, scope-bound `ATF_ENRICHED` evidence;
   enabled Rule Sets must emit a restrictive finding when it is absent.
+  DS-029 adds a `PERMITTED`-boundary organization/Agent daily-spend aggregate:
+  PostgreSQL fixed-point totals remain separated by bound asset, direct
+  cross-asset conversion accepts only fresh verified organization-scoped
+  `ATF_ENRICHED` quote evidence, and missing/ambiguous quotes, unresolved
+  legacy assets, overflow or precision loss produce a High/Critical finding.
   DS-026 migration 0009 additionally archives the exact canonical Rule Set
   per organization/environment with typed installer Audit evidence, so
   restart Replay never substitutes a process default.
@@ -174,6 +181,10 @@ Only the following crates are implemented so far:
   0011 adds a partial organization/Agent/resource/time index for
   `DecisionRecorded(PERMIT)` and Store captures or reconstructs the exact
   bounded DS-028 Risk-history query under one repeatable-read snapshot.
+  Migration 0012 adds the organization/Agent/time/asset index used by DS-029;
+  Store groups at most 256 prior permitted asset totals with PostgreSQL
+  `NUMERIC`, records missing asset bindings, and binds the result to the same
+  repository sequence/hash before Risk or Replay consumes it.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   `atf risk install`, `atf replay original/counterfactual`,
@@ -182,7 +193,7 @@ Only the following crates are implemented so far:
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
   from stdin and persists only its domain-separated fingerprint.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
-  (including the history-dependent duplicate-purchase check), Decision, and
+  (including duplicate-purchase and daily cumulative-spend checks), Decision, and
   Audit into one request path: `POST /v1/intents` and
   `GET /v1/intents/{id}/decision`, authenticated Policy activation/rollback,
   plus `/healthz`/`/readyz`. PostgreSQL is
@@ -208,9 +219,9 @@ Only the following crates are implemented so far:
   rollback applies to the next request without restarting the Gateway.
   Startup also requires its configured closed Risk Rule Set to resolve to the
   exact audited durable archive; each Risk result and durable `RiskEvaluated`
-  evidence carries its exact version/hash. DS-028 captures one bounded durable
+  evidence carries its exact version/hash. DS-028/DS-029 capture one bounded durable
   history snapshot before Context persistence; Risk and Replay consume only
-  its typed query/result, which is retained in Evaluation and Audit evidence.
+  its typed queries/results, which are retained in Evaluation and Audit evidence.
   Business-route, Router and durable-store failures now share the stable
   `{code,message,request_id,details}` JSON contract documented in
   `docs/api.md`. Every response receives a fresh server-generated
@@ -335,9 +346,12 @@ semantics (evaluate only, never execute).
    (same Organization + Agent + Resource within 24h, reading at most one prior
    `DecisionRecorded(PERMIT)` event) — verified end-to-end through
    `services/gateway`; a prior DENY does not poison a later valid request,
-   and one organization's history cannot affect another. Daily cumulative
-   spend, first-time destination address, and order frequency are still
-   not implemented. DS-021 makes the current rule's `PERMITTED` boundary
+   and one organization's history cannot affect another. DS-029 also sums
+   prior permitted spend for the same Organization + Agent over an explicit
+   24-hour snapshot, separated by asset and converted only with verified direct
+   quote evidence; concurrent completions, amount boundaries and missing
+   quotes are covered end to end. First-time destination address and order
+   frequency are still not implemented. DS-021 makes every history rule's boundary
    explicit and requires every future history rule to declare `REQUESTED`,
    `PERMITTED`, `EXECUTED`, or `SETTLED`.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
@@ -487,6 +501,11 @@ semantics (evaluate only, never execute).
     Store captures the repository boundary and exact query/result in one
     repeatable-read transaction, Gateway records it in Risk evidence, and
     Original/Counterfactual Replay reconstruct the same bounded snapshot.
+29. ~~Asset-aware daily cumulative spend.~~ Done in DS-029: migration 0012
+    adds the permitted organization/Agent/time/asset index; Store records a
+    repeatable-read, repository-bounded fixed-point aggregate with a 256-asset
+    cap; Risk includes the current Intent, converts only through exact verified
+    direct quotes, and emits restrictive findings for missing/unusable evidence.
 
 ### Remaining before Phase 2 can close out
 
@@ -569,7 +588,8 @@ implementation plan and executable checklist are in
   Gateway foundation and core libraries exist; the remaining release gate is
   stateful Risk, Audit query/metrics, operational hardening, and security
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
-  bounded durable Risk-history reconstruction are complete through DS-028.
+  bounded durable Risk-history reconstruction and daily cumulative spend are
+  complete through DS-029.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

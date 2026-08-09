@@ -52,6 +52,8 @@ pub(crate) struct RuleSetRules {
     pub(crate) vendor_price_deviation: BasisPointRule,
     pub(crate) high_risk_network_or_protocol: DenyListRule,
     pub(crate) duplicate_purchase: HistoryWindowRule,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) daily_cumulative_spend: Option<DailySpendRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +96,18 @@ pub(crate) struct HistoryWindowRule {
     pub(crate) severity: Severity,
     pub(crate) window_seconds: u64,
     pub(crate) accounting_boundary: AccountingBoundary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DailySpendRule {
+    pub(crate) enabled: bool,
+    pub(crate) severity: Severity,
+    pub(crate) max_amount: Amount,
+    pub(crate) valuation_asset: String,
+    pub(crate) window_seconds: u64,
+    pub(crate) accounting_boundary: AccountingBoundary,
+    pub(crate) missing_data: MissingDataBehavior,
 }
 
 /// Validated canonical identity and executable configuration of one Risk Rule
@@ -194,6 +208,38 @@ impl RiskRuleSet {
         self.document.rules.duplicate_purchase.window_seconds
     }
 
+    pub fn daily_spend_enabled(&self) -> bool {
+        self.document
+            .rules
+            .daily_cumulative_spend
+            .as_ref()
+            .is_some_and(|rule| rule.enabled)
+    }
+
+    pub fn daily_spend_accounting_boundary(&self) -> Option<AccountingBoundary> {
+        self.document
+            .rules
+            .daily_cumulative_spend
+            .as_ref()
+            .map(|rule| rule.accounting_boundary)
+    }
+
+    pub fn daily_spend_window_seconds(&self) -> Option<u64> {
+        self.document
+            .rules
+            .daily_cumulative_spend
+            .as_ref()
+            .map(|rule| rule.window_seconds)
+    }
+
+    pub fn daily_spend_valuation_asset(&self) -> Option<&str> {
+        self.document
+            .rules
+            .daily_cumulative_spend
+            .as_ref()
+            .map(|rule| rule.valuation_asset.as_str())
+    }
+
     pub(crate) fn rules(&self) -> &RuleSetRules {
         &self.document.rules
     }
@@ -258,6 +304,31 @@ fn validate_document(document: &RiskRuleSetDocument) -> Result<(), RiskRuleSetEr
             "duplicate_purchase.window_seconds must be within 1..={MAX_HISTORY_WINDOW_SECONDS}"
         ));
     }
+    if let Some(rule) = &rules.daily_cumulative_spend {
+        if rule.max_amount <= Amount::ZERO {
+            return invalid("daily_cumulative_spend.max_amount must be positive");
+        }
+        validate_asset_identifier(
+            "daily_cumulative_spend.valuation_asset",
+            &rule.valuation_asset,
+        )?;
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&rule.window_seconds) {
+            return invalid(format!(
+                "daily_cumulative_spend.window_seconds must be within 1..={MAX_HISTORY_WINDOW_SECONDS}"
+            ));
+        }
+        if rule.accounting_boundary != AccountingBoundary::Permitted {
+            return invalid("daily_cumulative_spend requires PERMITTED accounting");
+        }
+        if rule.enabled
+            && (!matches!(rule.severity, Severity::High | Severity::Critical)
+                || rule.missing_data != MissingDataBehavior::Finding)
+        {
+            return invalid(
+                "enabled daily_cumulative_spend must be HIGH/CRITICAL and emit FINDING for missing data",
+            );
+        }
+    }
     validate_canonical_list(
         "high_risk_network_or_protocol.networks",
         &rules.high_risk_network_or_protocol.networks,
@@ -296,6 +367,19 @@ fn validate_canonical_list(field: &str, values: &[String]) -> Result<(), RiskRul
     }
     if values.windows(2).any(|pair| pair[0] >= pair[1]) {
         return invalid(format!("{field} must be strictly sorted and unique"));
+    }
+    Ok(())
+}
+
+fn validate_asset_identifier(field: &str, value: &str) -> Result<(), RiskRuleSetError> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-' | b'/' | b'%')
+        })
+        || !value.contains('/')
+    {
+        return invalid(format!("{field} is not a canonical asset identifier"));
     }
     Ok(())
 }

@@ -39,6 +39,18 @@ impl Amount {
     pub fn checked_sub(self, other: Amount) -> Option<Amount> {
         self.0.checked_sub(other.0).map(Amount)
     }
+
+    /// Multiply only when the exact fixed-point product is representable.
+    /// `rust_decimal` may otherwise reduce scale with rounding; financial
+    /// evidence must fail closed instead of silently losing precision.
+    pub fn checked_mul_exact(self, other: Amount) -> Option<Amount> {
+        let expected_scale = self.0.scale().checked_add(other.0.scale())?;
+        if expected_scale > Decimal::MAX_SCALE {
+            return None;
+        }
+        let product = self.0.checked_mul(other.0)?;
+        (product.scale() == expected_scale).then_some(Amount(product))
+    }
 }
 
 impl FromStr for Amount {
@@ -91,6 +103,18 @@ mod tests {
         let b: Amount = "2.5".parse().unwrap();
         assert_eq!(a.checked_add(b).unwrap().to_string(), "12.5");
         assert_eq!(a.checked_sub(b).unwrap().to_string(), "7.5");
+    }
+
+    #[test]
+    fn checked_mul_exact_rejects_overflow_and_precision_loss() {
+        let ten: Amount = "10.00".parse().unwrap();
+        let two: Amount = "2.00".parse().unwrap();
+        assert_eq!(ten.checked_mul_exact(two).unwrap().to_string(), "20.0000");
+
+        let maximum: Amount = "79228162514264337593543950335".parse().unwrap();
+        assert!(maximum.checked_mul_exact("2".parse().unwrap()).is_none());
+        let scale_28: Amount = "0.0000000000000000000000000001".parse().unwrap();
+        assert!(scale_28.checked_mul_exact("0.1".parse().unwrap()).is_none());
     }
 
     #[test]

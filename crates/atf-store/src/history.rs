@@ -1,11 +1,13 @@
 use atf_audit::AuditPayload;
 use atf_core::{
-    AccountingBoundary, DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
-    DuplicatePurchaseQuery, RepositorySnapshot, RiskHistorySnapshot, Timestamp,
+    AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
+    DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
+    RepositorySnapshot, RiskHistorySnapshot, Timestamp, MAX_DAILY_SPEND_ASSET_GROUPS,
 };
 use atf_intent::TransactionIntent;
 use atf_risk::RiskRuleSet;
 use sqlx::{Postgres, Transaction};
+use std::str::FromStr;
 
 use crate::audit::{verify_row_contents, AuditEventRow};
 use crate::{Store, StoreError};
@@ -80,10 +82,151 @@ impl Store {
         } else {
             None
         };
-        let snapshot = RiskHistorySnapshot::new(repository, duplicate_purchase)?;
+        let daily_cumulative_spend = if rule_set.daily_spend_enabled() {
+            Some(
+                query_daily_spend(
+                    &mut transaction,
+                    intent,
+                    rule_set,
+                    evaluation_time,
+                    &repository,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let snapshot = RiskHistorySnapshot::with_daily_spend(
+            repository,
+            duplicate_purchase,
+            daily_cumulative_spend,
+        )?;
         transaction.commit().await?;
         Ok(snapshot)
     }
+}
+
+async fn query_daily_spend(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    evaluation_time: Timestamp,
+    repository: &RepositorySnapshot,
+) -> Result<DailySpendHistory, StoreError> {
+    let boundary = rule_set.daily_spend_accounting_boundary().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled daily-spend rule lacks an accounting boundary".into(),
+        }
+    })?;
+    if boundary != AccountingBoundary::Permitted {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "durable daily-spend queries require PERMITTED accounting".into(),
+        });
+    }
+    let window_seconds = rule_set.daily_spend_window_seconds().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled daily-spend rule lacks a history window".into(),
+        }
+    })?;
+    let valuation_asset = rule_set.daily_spend_valuation_asset().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled daily-spend rule lacks a valuation asset".into(),
+        }
+    })?;
+    let query = DailySpendQuery::new(
+        &intent.principal.organization_id,
+        &intent.principal.agent_id,
+        &intent.intent_id,
+        valuation_asset,
+        evaluation_time,
+        window_seconds,
+        boundary,
+    )?;
+    let rows: Vec<(Option<String>, String, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            canonical_event #>> '{data,binding,execution_constraints,asset}' AS asset,
+            SUM((canonical_event -> 'data' ->> 'amount')::numeric)::text AS total_amount,
+            COUNT(*)::bigint AS decision_count
+        FROM audit_events
+        WHERE organization_id = $1
+          AND event_type = 'DecisionRecorded'
+          AND sequence <= $2
+          AND occurred_at >= $3
+          AND occurred_at <= $4
+          AND intent_id <> $5
+          AND canonical_event -> 'data' ->> 'decision' = 'PERMIT'
+          AND canonical_event -> 'data' ->> 'organization_id' = $1
+          AND canonical_event -> 'data' ->> 'agent_id' = $6
+        GROUP BY canonical_event #>> '{data,binding,execution_constraints,asset}'
+        ORDER BY asset ASC NULLS LAST
+        LIMIT $7
+        "#,
+    )
+    .bind(&intent.principal.organization_id)
+    .bind(i64::try_from(repository.through_sequence()).map_err(|_| {
+        corrupt(
+            &intent.principal.organization_id,
+            "Audit sequence exceeds i64",
+        )
+    })?)
+    .bind(query.window_start().as_datetime())
+    .bind(query.evaluation_time().as_datetime())
+    .bind(&intent.intent_id)
+    .bind(&intent.principal.agent_id)
+    .bind(
+        i64::try_from(MAX_DAILY_SPEND_ASSET_GROUPS + 1).map_err(|_| {
+            corrupt(
+                &intent.principal.organization_id,
+                "daily-spend asset-group bound exceeds i64",
+            )
+        })?,
+    )
+    .fetch_all(&mut **transaction)
+    .await?;
+
+    if rows.len() > MAX_DAILY_SPEND_ASSET_GROUPS {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: format!(
+                "daily-spend history exceeds {MAX_DAILY_SPEND_ASSET_GROUPS} asset groups"
+            ),
+        });
+    }
+
+    // Evaluation Context persistence verifies the complete Audit chain at
+    // this same repository boundary before Risk can consume the aggregate.
+    let mut totals = Vec::new();
+    let mut unresolved_asset_decision_count = 0_u64;
+    for (asset, total_amount, decision_count) in rows {
+        let count = u64::try_from(decision_count).map_err(|_| {
+            corrupt(
+                &intent.principal.organization_id,
+                "daily-spend aggregate returned an invalid decision count",
+            )
+        })?;
+        match asset {
+            Some(asset) => {
+                let amount = Amount::from_str(&total_amount).map_err(|_| {
+                    corrupt(
+                        &intent.principal.organization_id,
+                        "daily-spend aggregate is not representable as a fixed-point amount",
+                    )
+                })?;
+                totals.push(DailySpendAssetTotal::new(asset, amount, count)?);
+            }
+            None => {
+                unresolved_asset_decision_count = unresolved_asset_decision_count
+                    .checked_add(count)
+                    .ok_or_else(|| {
+                        corrupt(
+                            &intent.principal.organization_id,
+                            "daily-spend unresolved-asset count overflowed",
+                        )
+                    })?;
+            }
+        }
+    }
+    DailySpendHistory::new(query, totals, unresolved_asset_decision_count).map_err(StoreError::from)
 }
 
 async fn capture_repository_head(

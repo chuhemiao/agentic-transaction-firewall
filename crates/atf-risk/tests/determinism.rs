@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
 use atf_core::{
-    AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
-    EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
-    RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    AccountingBoundary, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
+    DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use atf_intent::{validate_profile, TransactionIntent};
 use atf_risk::{evaluate_context, RiskEvaluationError, RiskRuleSet};
@@ -73,7 +73,27 @@ fn fixture() -> (
         None,
     )
     .unwrap();
-    let history = RiskHistorySnapshot::new(repository, Some(duplicate_purchase)).unwrap();
+    let daily_spend = DailySpendHistory::new(
+        DailySpendQuery::new(
+            &intent.principal.organization_id,
+            &intent.principal.agent_id,
+            &intent.intent_id,
+            rule_set.daily_spend_valuation_asset().unwrap(),
+            context.evaluation_time(),
+            rule_set.daily_spend_window_seconds().unwrap(),
+            rule_set.daily_spend_accounting_boundary().unwrap(),
+        )
+        .unwrap(),
+        Vec::new(),
+        0,
+    )
+    .unwrap();
+    let history = RiskHistorySnapshot::with_daily_spend(
+        repository,
+        Some(duplicate_purchase),
+        Some(daily_spend),
+    )
+    .unwrap();
     (intent, rule_set, context, history)
 }
 

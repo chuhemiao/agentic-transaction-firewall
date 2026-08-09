@@ -22,12 +22,12 @@ fn default_rule_set_has_a_stable_canonical_identity() {
     let from_json =
         RiskRuleSet::from_json(include_str!("../../../risk-rules/default.json")).unwrap();
 
-    assert_eq!(from_file.version(), "risk-rules-1.0.0");
+    assert_eq!(from_file.version(), "risk-rules-1.1.0");
     assert_eq!(from_file.engine_version(), "atf-risk-engine-v1");
     assert_eq!(from_file.rule_set_hash(), from_json.rule_set_hash());
     assert_eq!(
         from_file.rule_set_hash(),
-        "f16a028c749c061753cee5876d8325dbfb7e01fec3d6642ed08181d025dacbb5"
+        "e9b02993ad4a4a83311b9d22f33f0bb9b4e31dfa1ad1508f4e0872203754a9c5"
     );
     assert_eq!(from_file.canonical_bytes(), from_json.canonical_bytes());
     assert_eq!(from_file.rule_set_hash().len(), 64);
@@ -38,6 +38,39 @@ fn default_rule_set_has_a_stable_canonical_identity() {
     assert_eq!(
         from_file.duplicate_purchase_accounting_boundary(),
         AccountingBoundary::Permitted
+    );
+    assert!(from_file.daily_spend_enabled());
+    assert_eq!(
+        from_file.daily_spend_accounting_boundary(),
+        Some(AccountingBoundary::Permitted)
+    );
+    assert_eq!(from_file.daily_spend_window_seconds(), Some(86_400));
+    assert_eq!(
+        from_file.daily_spend_valuation_asset(),
+        Some("eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")
+    );
+}
+
+#[test]
+fn legacy_rule_set_without_daily_spend_preserves_its_canonical_identity() {
+    let mut legacy = default_value();
+    legacy["rule_set_version"] = serde_json::json!("risk-rules-1.0.0");
+    legacy["rules"]
+        .as_object_mut()
+        .unwrap()
+        .remove("daily_cumulative_spend");
+
+    let parsed = RiskRuleSet::from_json(&legacy.to_string()).unwrap();
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../schemas/risk-rule-set.schema.json")).unwrap();
+    assert!(jsonschema::validator_for(&schema)
+        .unwrap()
+        .is_valid(&legacy));
+    assert!(!parsed.daily_spend_enabled());
+    assert_eq!(parsed.daily_spend_accounting_boundary(), None);
+    assert_eq!(
+        parsed.rule_set_hash(),
+        "f16a028c749c061753cee5876d8325dbfb7e01fec3d6642ed08181d025dacbb5"
     );
 }
 
@@ -120,6 +153,26 @@ fn every_decision_affecting_configuration_change_changes_the_hash() {
             "/rules/duplicate_purchase/accounting_boundary",
             serde_json::json!("EXECUTED"),
         ),
+        (
+            "/rules/daily_cumulative_spend/enabled",
+            serde_json::json!(false),
+        ),
+        (
+            "/rules/daily_cumulative_spend/severity",
+            serde_json::json!("critical"),
+        ),
+        (
+            "/rules/daily_cumulative_spend/max_amount",
+            serde_json::json!("25000.01"),
+        ),
+        (
+            "/rules/daily_cumulative_spend/valuation_asset",
+            serde_json::json!("eip155:1/slip44:60"),
+        ),
+        (
+            "/rules/daily_cumulative_spend/window_seconds",
+            serde_json::json!(3600),
+        ),
     ];
 
     for (pointer, replacement) in mutations {
@@ -151,6 +204,34 @@ fn enabled_vendor_price_rule_cannot_silently_ignore_missing_trusted_data() {
         serde_json::from_str(include_str!("../../../schemas/risk-rule-set.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(!validator.is_valid(&candidate));
+}
+
+#[test]
+fn enabled_daily_spend_rule_is_high_permitted_and_fail_closed() {
+    let invalid_mutations = [
+        ("severity", serde_json::json!("medium")),
+        ("max_amount", serde_json::json!("0")),
+        ("valuation_asset", serde_json::json!("not an asset")),
+        ("window_seconds", serde_json::json!(0)),
+        ("accounting_boundary", serde_json::json!("REQUESTED")),
+        ("missing_data", serde_json::json!("NOT_APPLICABLE")),
+    ];
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../schemas/risk-rule-set.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+
+    for (field, replacement) in invalid_mutations {
+        let mut candidate = default_value();
+        candidate["rules"]["daily_cumulative_spend"][field] = replacement;
+        assert!(
+            RiskRuleSet::from_json(&candidate.to_string()).is_err(),
+            "invalid daily-spend field {field} must fail closed"
+        );
+        assert!(
+            !validator.is_valid(&candidate),
+            "Schema must reject invalid daily-spend field {field}"
+        );
+    }
 }
 
 #[test]

@@ -35,8 +35,9 @@ Agent Intent
   context-snapshot and overall hashes. It binds the Intent/Profile, one time,
   Policy/Risk artifacts, sorted fresh verified Evidence and trust identity,
   an exact Audit-history prefix, external snapshot availability and explicit
-  Simulation `NOT_RUN`. DS-028 adds the closed `RiskHistorySnapshot` contract:
-  repository boundary plus exact typed query inputs and result. *Implemented.*
+  Simulation `NOT_RUN`. DS-028/DS-029 add the closed `RiskHistorySnapshot`
+  contract: repository boundary plus exact typed duplicate and daily-spend
+  query inputs/results, with backward-compatible optional families. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -89,13 +90,18 @@ Agent Intent
   a typed bounded durable query result using an explicit `PERMITTED` boundary;
   no Audit-event iterator remains in `atf-risk`. The engine can select
   `REQUESTED`, `PERMITTED`, `EXECUTED`, or `SETTLED` lifecycle facts.
+  DS-029 adds an explicit `PERMITTED` organization/Agent daily-spend query,
+  exact fixed-point totals grouped by asset, and direct quote conversion into
+  the Rule Set's valuation asset. Only verified organization-scoped
+  `ATF_ENRICHED` quote Evidence can convert assets; missing/ambiguous quotes,
+  unresolved asset bindings and non-exact arithmetic emit restrictive findings.
   DS-022/DS-024 keep the internal typed Risk input restricted to Evidence
   already verified and persisted by `EvaluationContext`; raw Intent context is
   checked only as one hash and privileged keys are never inspected. Vendor
   median requires exact organization/resource/asset-bound ATF Evidence, and an
   enabled vendor rule cannot configure missing trusted data as not applicable.
-  *Implemented (partial — production enrichment, daily cumulative spend,
-  first-time destination and frequency rules remain later work).*
+  *Implemented (partial — production enrichment, first-time destination and
+  frequency rules remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 40 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -164,7 +170,11 @@ Agent Intent
   Intent Evaluation/Decision authority path. Migration 0011 adds the partial
   permitted-purchase history index. Store captures or reconstructs the exact
   organization/Agent/resource/time/sequence-bounded query in a repeatable-read,
-  read-only transaction and verifies the returned typed Audit event.
+  read-only transaction and verifies the returned typed Audit event. Migration
+  0012 adds the permitted daily-spend organization/Agent/time/asset index. The
+  same transaction groups PostgreSQL `NUMERIC` totals by exact bound asset,
+  reports missing legacy asset bindings and rejects more than 256 groups; the
+  full Audit chain is verified at the captured repository boundary before Risk.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
@@ -489,11 +499,11 @@ complete Decision Engine:
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.
-- Risk rules that need history/state (PRD §12.2) — duplicate purchase is
-  done (`atf_risk::evaluate_context`, wired to the Context-bound bounded
-  PostgreSQL history snapshot in `services/gateway`);
-  daily cumulative spend, first-time destination address, and order
-  frequency are not. `DecisionRecorded` now provides a reliable PERMIT
+- Risk rules that need history/state (PRD §12.2) — duplicate purchase and
+  asset-aware daily cumulative spend are done (`atf_risk::evaluate_context`,
+  wired to the Context-bound bounded PostgreSQL history snapshot in
+  `services/gateway`); first-time destination address and order frequency are
+  not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
   DS-022 removes the current vendor rule's untrusted Agent-context read, and
@@ -502,7 +512,12 @@ complete Decision Engine:
   that Context and rejects mismatched artifacts/Intent/history. DS-028 now
   records the exact query/result in Risk Evaluation/Audit evidence, excludes
   future/current-Intent/cross-tenant rows, and reconstructs the same snapshot
-  for Original and Counterfactual Replay.
+  for Original and Counterfactual Replay. DS-029 records the exact tenant,
+  Agent, valuation asset, window and `PERMITTED` boundary; PostgreSQL groups
+  committed prior amounts by asset. Concurrent-completion tests prove the next
+  snapshot observes every completed Decision, while missing-quote tests prove
+  absent valuation evidence cannot Permit; atomic in-flight budget reservation
+  remains a separate Budget-domain gap.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

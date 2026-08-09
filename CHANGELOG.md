@@ -7,6 +7,16 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-029 asset-aware daily cumulative-spend Risk. Migration 0012 adds the
+  bounded permitted-spend index; Store captures a repeatable-read,
+  organization/Agent/time/sequence-scoped PostgreSQL `NUMERIC` aggregate by
+  exact bound asset and limits evidence to 256 asset groups. Risk includes the
+  current Intent, converts only through one fresh verified direct
+  organization-scoped `ATF_ENRICHED` quote, and emits restrictive findings for
+  missing/unusable evidence, unresolved legacy assets, overflow or precision
+  loss. Amount-boundary, tenant/time, parallel completion, Schema, Replay and
+  real Gateway tests cover the contract.
+
 - DS-028 bounded durable Risk-history snapshots. A closed core contract binds
   the repository sequence/hash, organization/Agent/resource/current Intent,
   evaluation window, explicit `PERMITTED` accounting and optional prior

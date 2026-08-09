@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
 use atf_core::{
-    sha256_hex, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
-    EvaluationContextInput, EvidenceEnvelope, EvidenceKind, EvidenceSource, EvidenceTrustPolicy,
-    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
-    RiskHistorySnapshot, SimulationReference, Timestamp, TrustedEvidenceSource, VerifiedEvidence,
-    VersionedArtifactReference,
+    sha256_hex, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
+    DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput, EvidenceEnvelope,
+    EvidenceKind, EvidenceSource, EvidenceTrustPolicy, EvidenceTrustPolicyReference,
+    ExternalSnapshotReference, RepositorySnapshot, RiskHistorySnapshot, SimulationReference,
+    Timestamp, TrustedEvidenceSource, VerifiedEvidence, VersionedArtifactReference,
 };
 use atf_intent::{validate_profile, TransactionIntent};
 use atf_risk::{evaluate_context, RiskEvaluationError, RiskRuleSet};
@@ -126,7 +126,24 @@ fn history(
         )
         .unwrap()
     });
-    RiskHistorySnapshot::new(context.history().clone(), duplicate).unwrap()
+    let daily = rule_set.daily_spend_enabled().then(|| {
+        DailySpendHistory::new(
+            DailySpendQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.intent_id,
+                rule_set.daily_spend_valuation_asset().unwrap(),
+                context.evaluation_time(),
+                rule_set.daily_spend_window_seconds().unwrap(),
+                rule_set.daily_spend_accounting_boundary().unwrap(),
+            )
+            .unwrap(),
+            Vec::new(),
+            0,
+        )
+        .unwrap()
+    });
+    RiskHistorySnapshot::with_daily_spend(context.history().clone(), duplicate, daily).unwrap()
 }
 
 #[test]

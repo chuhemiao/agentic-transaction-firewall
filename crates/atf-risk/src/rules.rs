@@ -35,7 +35,9 @@ pub fn evaluate_context(
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
-    findings.extend(history_rules::history_findings(intent, rule_set, history));
+    findings.extend(history_rules::history_findings(
+        intent, &context, rule_set, history,
+    ));
     Ok(rule_set.evaluation(findings, history.clone()))
 }
 
@@ -235,10 +237,10 @@ fn missing_finding(
 mod tests {
     use super::*;
     use atf_core::{
-        AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
-        DuplicatePurchaseQuery, EvaluationContextInput, EvidenceTrustPolicyReference,
-        ExternalSnapshotReference, RepositorySnapshot, RiskHistorySnapshot, SimulationReference,
-        VersionedArtifactReference,
+        AccountingBoundary, DailySpendHistory, DailySpendQuery, DuplicatePurchaseHistory,
+        DuplicatePurchaseMatch, DuplicatePurchaseQuery, EvaluationContextInput,
+        EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
+        RiskHistorySnapshot, SimulationReference, VersionedArtifactReference,
     };
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
     use std::str::FromStr;
@@ -323,7 +325,30 @@ mod tests {
             )
             .unwrap()
         });
-        let history = RiskHistorySnapshot::new(repository, duplicate).unwrap();
+        let daily = rule_set.daily_spend_enabled().then(|| {
+            DailySpendHistory::new(
+                DailySpendQuery::new(
+                    &intent.principal.organization_id,
+                    &intent.principal.agent_id,
+                    &intent.intent_id,
+                    rule_set
+                        .daily_spend_valuation_asset()
+                        .expect("enabled daily-spend rule has an asset"),
+                    evaluated_at,
+                    rule_set
+                        .daily_spend_window_seconds()
+                        .expect("enabled daily-spend rule has a window"),
+                    rule_set
+                        .daily_spend_accounting_boundary()
+                        .expect("enabled daily-spend rule has a boundary"),
+                )
+                .unwrap(),
+                Vec::new(),
+                0,
+            )
+            .unwrap()
+        });
+        let history = RiskHistorySnapshot::with_daily_spend(repository, duplicate, daily).unwrap();
         super::evaluate_context(intent, rule_set, &context, &history).unwrap()
     }
 

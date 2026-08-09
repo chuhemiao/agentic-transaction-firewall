@@ -50,6 +50,23 @@ enum HistoricalVendorMedianMetric {
     HistoricalVendorMedian,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssetQuoteValue {
+    #[serde(rename = "metric")]
+    _metric: AssetQuoteMetric,
+    organization_id: String,
+    base_asset: String,
+    quote_asset: String,
+    rate: Amount,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum AssetQuoteMetric {
+    AssetQuote,
+}
+
 impl RiskContext {
     pub(crate) fn from_evaluation_context(
         intent: &TransactionIntent,
@@ -111,6 +128,55 @@ impl RiskContext {
         }
         match matches.as_slice() {
             [amount] => Ok(*amount),
+            [] => Err(candidate_issue.unwrap_or(RiskContextIssue::Missing)),
+            _ => Err(RiskContextIssue::Ambiguous),
+        }
+    }
+
+    pub(crate) fn asset_quote(
+        &self,
+        intent: &TransactionIntent,
+        base_asset: &str,
+        quote_asset: &str,
+    ) -> Result<Amount, RiskContextIssue> {
+        if self.intent_hash != intent.canonical_hash() {
+            return Err(RiskContextIssue::ContextIntentMismatch);
+        }
+        let mut matches = Vec::new();
+        let mut candidate_issue = None;
+        for evidence in self
+            .verified
+            .get(&EvidenceKind::Price)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            if evidence.source() != EvidenceSource::AtfEnriched {
+                candidate_issue = Some(best_issue(
+                    candidate_issue,
+                    RiskContextIssue::InputSourceNotAllowed,
+                ));
+                continue;
+            }
+            let Ok(value) = serde_json::from_value::<AssetQuoteValue>(evidence.value().clone())
+            else {
+                candidate_issue = Some(best_issue(candidate_issue, RiskContextIssue::ValueInvalid));
+                continue;
+            };
+            if value.organization_id != intent.principal.organization_id
+                || value.base_asset != base_asset
+                || value.quote_asset != quote_asset
+            {
+                candidate_issue =
+                    Some(best_issue(candidate_issue, RiskContextIssue::ScopeMismatch));
+                continue;
+            }
+            if value.rate <= Amount::ZERO {
+                candidate_issue = Some(best_issue(candidate_issue, RiskContextIssue::ValueInvalid));
+                continue;
+            }
+            matches.push(value.rate);
+        }
+        match matches.as_slice() {
+            [rate] => Ok(*rate),
             [] => Err(candidate_issue.unwrap_or(RiskContextIssue::Missing)),
             _ => Err(RiskContextIssue::Ambiguous),
         }

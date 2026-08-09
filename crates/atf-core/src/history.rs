@@ -1,10 +1,11 @@
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
-use crate::{RepositorySnapshot, Timestamp};
+use crate::{Amount, RepositorySnapshot, Timestamp};
 
 const MAX_IDENTIFIER_BYTES: usize = 256;
 const MAX_HISTORY_WINDOW_SECONDS: u64 = 31 * 24 * 60 * 60;
+pub const MAX_DAILY_SPEND_ASSET_GROUPS: usize = 256;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HistorySnapshotError {
@@ -54,6 +55,40 @@ pub struct DuplicatePurchaseHistory {
     result: Option<DuplicatePurchaseMatch>,
 }
 
+/// Exact inputs of the organization/Agent daily cumulative-spend query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DailySpendQuery {
+    organization_id: String,
+    agent_id: String,
+    current_intent_id: String,
+    valuation_asset: String,
+    evaluation_time: Timestamp,
+    window_start: Timestamp,
+    window_seconds: u64,
+    accounting_boundary: AccountingBoundary,
+}
+
+/// One fixed-point aggregate returned by the bounded repository query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DailySpendAssetTotal {
+    asset: String,
+    amount: Amount,
+    decision_count: u64,
+}
+
+/// Exact grouped result consumed by the daily cumulative-spend rule. Rows
+/// without a trustworthy bound asset are counted separately so they can
+/// produce a restrictive finding instead of disappearing from the sum.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DailySpendHistory {
+    query: DailySpendQuery,
+    totals: Vec<DailySpendAssetTotal>,
+    unresolved_asset_decision_count: u64,
+}
+
 /// Repository boundary plus the exact bounded query inputs and result consumed
 /// by history-dependent Risk rules. Optional query families allow later rules
 /// to extend this closed snapshot without inventing an ambient database read.
@@ -63,6 +98,8 @@ pub struct RiskHistorySnapshot {
     repository: RepositorySnapshot,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     duplicate_purchase: Option<DuplicatePurchaseHistory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    daily_cumulative_spend: Option<DailySpendHistory>,
 }
 
 impl DuplicatePurchaseQuery {
@@ -229,14 +266,200 @@ impl DuplicatePurchaseHistory {
     }
 }
 
+impl DailySpendQuery {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        organization_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        current_intent_id: impl Into<String>,
+        valuation_asset: impl Into<String>,
+        evaluation_time: Timestamp,
+        window_seconds: u64,
+        accounting_boundary: AccountingBoundary,
+    ) -> Result<Self, HistorySnapshotError> {
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&window_seconds) {
+            return invalid(format!(
+                "daily-spend window_seconds must be within 1..={MAX_HISTORY_WINDOW_SECONDS}"
+            ));
+        }
+        let seconds = i64::try_from(window_seconds)
+            .map_err(|_| HistorySnapshotError::Invalid("history window overflows i64".into()))?;
+        let query = Self {
+            organization_id: organization_id.into(),
+            agent_id: agent_id.into(),
+            current_intent_id: current_intent_id.into(),
+            valuation_asset: valuation_asset.into(),
+            evaluation_time,
+            window_start: Timestamp::from_datetime(
+                evaluation_time.as_datetime() - Duration::seconds(seconds),
+            ),
+            window_seconds,
+            accounting_boundary,
+        };
+        query.validate()?;
+        Ok(query)
+    }
+
+    pub fn organization_id(&self) -> &str {
+        &self.organization_id
+    }
+
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn current_intent_id(&self) -> &str {
+        &self.current_intent_id
+    }
+
+    pub fn valuation_asset(&self) -> &str {
+        &self.valuation_asset
+    }
+
+    pub fn evaluation_time(&self) -> Timestamp {
+        self.evaluation_time
+    }
+
+    pub fn window_start(&self) -> Timestamp {
+        self.window_start
+    }
+
+    pub fn window_seconds(&self) -> u64 {
+        self.window_seconds
+    }
+
+    pub fn accounting_boundary(&self) -> AccountingBoundary {
+        self.accounting_boundary
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        for (field, value) in [
+            ("organization_id", self.organization_id.as_str()),
+            ("agent_id", self.agent_id.as_str()),
+            ("current_intent_id", self.current_intent_id.as_str()),
+        ] {
+            validate_identifier(field, value)?;
+        }
+        validate_asset("valuation_asset", &self.valuation_asset)?;
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&self.window_seconds) {
+            return invalid("daily-spend window_seconds is outside the supported range");
+        }
+        let seconds = i64::try_from(self.window_seconds)
+            .map_err(|_| HistorySnapshotError::Invalid("history window overflows i64".into()))?;
+        let expected = Timestamp::from_datetime(
+            self.evaluation_time.as_datetime() - Duration::seconds(seconds),
+        );
+        if self.window_start != expected {
+            return invalid("daily-spend window_start disagrees with evaluation_time");
+        }
+        Ok(())
+    }
+}
+
+impl DailySpendAssetTotal {
+    pub fn new(
+        asset: impl Into<String>,
+        amount: Amount,
+        decision_count: u64,
+    ) -> Result<Self, HistorySnapshotError> {
+        let total = Self {
+            asset: asset.into(),
+            amount,
+            decision_count,
+        };
+        total.validate()?;
+        Ok(total)
+    }
+
+    pub fn asset(&self) -> &str {
+        &self.asset
+    }
+
+    pub fn amount(&self) -> Amount {
+        self.amount
+    }
+
+    pub fn decision_count(&self) -> u64 {
+        self.decision_count
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        validate_asset("daily-spend asset", &self.asset)?;
+        if self.amount <= Amount::ZERO {
+            return invalid("daily-spend aggregate amount must be positive");
+        }
+        if self.decision_count == 0 {
+            return invalid("daily-spend aggregate decision_count must be positive");
+        }
+        Ok(())
+    }
+}
+
+impl DailySpendHistory {
+    pub fn new(
+        query: DailySpendQuery,
+        totals: Vec<DailySpendAssetTotal>,
+        unresolved_asset_decision_count: u64,
+    ) -> Result<Self, HistorySnapshotError> {
+        let history = Self {
+            query,
+            totals,
+            unresolved_asset_decision_count,
+        };
+        history.validate()?;
+        Ok(history)
+    }
+
+    pub fn query(&self) -> &DailySpendQuery {
+        &self.query
+    }
+
+    pub fn totals(&self) -> &[DailySpendAssetTotal] {
+        &self.totals
+    }
+
+    pub fn unresolved_asset_decision_count(&self) -> u64 {
+        self.unresolved_asset_decision_count
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        self.query.validate()?;
+        if self.totals.len() > MAX_DAILY_SPEND_ASSET_GROUPS {
+            return invalid(format!(
+                "daily-spend totals exceed {MAX_DAILY_SPEND_ASSET_GROUPS} asset groups"
+            ));
+        }
+        for total in &self.totals {
+            total.validate()?;
+        }
+        if self
+            .totals
+            .windows(2)
+            .any(|pair| pair[0].asset >= pair[1].asset)
+        {
+            return invalid("daily-spend totals must be strictly sorted and unique by asset");
+        }
+        Ok(())
+    }
+}
+
 impl RiskHistorySnapshot {
     pub fn new(
         repository: RepositorySnapshot,
         duplicate_purchase: Option<DuplicatePurchaseHistory>,
     ) -> Result<Self, HistorySnapshotError> {
+        Self::with_daily_spend(repository, duplicate_purchase, None)
+    }
+
+    pub fn with_daily_spend(
+        repository: RepositorySnapshot,
+        duplicate_purchase: Option<DuplicatePurchaseHistory>,
+        daily_cumulative_spend: Option<DailySpendHistory>,
+    ) -> Result<Self, HistorySnapshotError> {
         let snapshot = Self {
             repository,
             duplicate_purchase,
+            daily_cumulative_spend,
         };
         snapshot.validate()?;
         Ok(snapshot)
@@ -248,6 +471,10 @@ impl RiskHistorySnapshot {
 
     pub fn duplicate_purchase(&self) -> Option<&DuplicatePurchaseHistory> {
         self.duplicate_purchase.as_ref()
+    }
+
+    pub fn daily_cumulative_spend(&self) -> Option<&DailySpendHistory> {
+        self.daily_cumulative_spend.as_ref()
     }
 
     pub fn validate(&self) -> Result<(), HistorySnapshotError> {
@@ -274,8 +501,25 @@ impl RiskHistorySnapshot {
                 }
             }
         }
+        if let Some(history) = &self.daily_cumulative_spend {
+            history.validate()?;
+        }
         Ok(())
     }
+}
+
+fn validate_asset(field: &str, value: &str) -> Result<(), HistorySnapshotError> {
+    if value.is_empty()
+        || value.len() > MAX_IDENTIFIER_BYTES
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-' | b'/' | b'%')
+        })
+    {
+        return invalid(format!(
+            "{field} must be a canonical bounded asset identifier"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_identifier(field: &str, value: &str) -> Result<(), HistorySnapshotError> {

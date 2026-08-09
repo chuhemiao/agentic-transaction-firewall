@@ -9,6 +9,7 @@ use atf_gateway::build_router;
 use atf_policy::{
     policy_bundle_signature_message, PolicyBundle, PolicyBundleLoadContext, PolicyBundleSignature,
 };
+use atf_risk::RiskRuleSet;
 use atf_store::{OperatorRole, OperatorStatus};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -21,8 +22,22 @@ use common::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
     operator_authorization, post_intent_request, post_intent_value_request, sample_intent_json,
     test_durable_policy_state, test_risk_rule_set, test_state, test_state_with_default_risk,
-    test_state_with_forbid_all_policy, TestDatabase,
+    test_state_with_forbid_all_policy, test_state_with_risk, TestDatabase,
 };
+
+fn daily_spend_rule_set(max_amount: &str) -> RiskRuleSet {
+    let mut document: serde_json::Value =
+        serde_json::from_str(include_str!("../../../risk-rules/default.json")).unwrap();
+    document["rule_set_version"] = serde_json::json!("risk-rules-daily-gateway-test-v1");
+    document["rules"]["max_fee_ratio"]["enabled"] = serde_json::json!(false);
+    document["rules"]["max_fee_ratio"]["missing_data"] = serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["vendor_price_deviation"]["enabled"] = serde_json::json!(false);
+    document["rules"]["vendor_price_deviation"]["missing_data"] =
+        serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
+    document["rules"]["daily_cumulative_spend"]["max_amount"] = serde_json::json!(max_amount);
+    RiskRuleSet::from_json(&document.to_string()).unwrap()
+}
 
 #[tokio::test]
 async fn healthz_and_readyz_report_ok() -> Result<(), Box<dyn Error>> {
@@ -270,7 +285,7 @@ async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
         .expect("restrictive Decision must be durable");
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        "risk-rules-1.0.0"
+        "risk-rules-1.1.0"
     );
     assert!(finalized.evaluation.evidence["risk"]["outcome"]["result"]
         .as_array()
@@ -995,6 +1010,89 @@ async fn a_denied_request_does_not_count_as_a_duplicate_purchase() -> Result<(),
 }
 
 #[tokio::test]
+async fn parallel_completed_permits_are_visible_to_the_next_daily_spend_snapshot(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("daily_spend_concurrent").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state_with_risk(
+        store.clone(),
+        daily_spend_rule_set("25.00"),
+    ));
+
+    let mut first = sample_intent_json("01J0000000000000000000C101", "10.00");
+    first["resource"]["resource_id"] = serde_json::json!("daily-resource-a");
+    let mut second = sample_intent_json("01J0000000000000000000C102", "10.00");
+    second["resource"]["resource_id"] = serde_json::json!("daily-resource-b");
+    let (first_response, second_response) = tokio::join!(
+        app.clone().oneshot(post_intent_value_request(first)),
+        app.clone().oneshot(post_intent_value_request(second)),
+    );
+    assert_eq!(body_json(first_response?).await?["decision"], "PERMIT");
+    assert_eq!(body_json(second_response?).await?["decision"], "PERMIT");
+
+    let mut third = sample_intent_json("01J0000000000000000000C103", "5.01");
+    third["resource"]["resource_id"] = serde_json::json!("daily-resource-c");
+    let decision = body_json(app.oneshot(post_intent_value_request(third)).await?).await?;
+    assert_eq!(decision["decision"], "REVIEW");
+    assert!(decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "DAILY_CUMULATIVE_SPEND_EXCEEDED"));
+
+    let finalized = store
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000C103")
+        .await?
+        .expect("daily-spend Decision is durable");
+    let daily = &finalized.evaluation.evidence["risk"]["history"]["daily_cumulative_spend"];
+    assert_eq!(daily["query"]["organization_id"], "alpha-lab");
+    assert_eq!(daily["query"]["agent_id"], "research-agent-01");
+    assert_eq!(daily["query"]["accounting_boundary"], "PERMITTED");
+    assert_eq!(daily["totals"][0]["amount"], "20.00");
+    assert_eq!(daily["totals"][0]["decision_count"], 2);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_cross_asset_quote_cannot_produce_a_gateway_permit() -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("daily_spend_quote").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state_with_risk(
+        store.clone(),
+        daily_spend_rule_set("25.00"),
+    ));
+
+    let mut prior = sample_intent_json("01J0000000000000000000Q101", "10.00");
+    prior["resource"]["resource_id"] = serde_json::json!("quote-resource-a");
+    let prior_decision = body_json(
+        app.clone()
+            .oneshot(post_intent_value_request(prior))
+            .await?,
+    )
+    .await?;
+    assert_eq!(prior_decision["decision"], "PERMIT");
+
+    let mut current = sample_intent_json("01J0000000000000000000Q102", "1.00");
+    current["resource"]["resource_id"] = serde_json::json!("quote-resource-b");
+    current["transaction"]["asset"] = serde_json::json!("eip155:8453/slip44:60");
+    let decision = body_json(app.oneshot(post_intent_value_request(current)).await?).await?;
+
+    assert_eq!(decision["decision"], "REVIEW");
+    assert!(decision["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "DAILY_SPEND_QUOTE_MISSING"));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn bounded_history_excludes_future_and_other_organization_rows() -> Result<(), Box<dyn Error>>
 {
     let database = provisioned_database("bounded_history").await?;
@@ -1020,6 +1118,11 @@ async fn bounded_history_excludes_future_and_other_organization_rows() -> Result
         .expect("the enabled query is recorded")
         .result()
         .is_none());
+    assert!(future_excluded
+        .daily_cumulative_spend()
+        .expect("the enabled daily-spend query is recorded")
+        .totals()
+        .is_empty());
 
     database.seed_organization("beta-lab").await?;
     let mut other_organization = current;
@@ -1036,6 +1139,12 @@ async fn bounded_history_excludes_future_and_other_organization_rows() -> Result
         .expect("the enabled query is recorded")
         .result()
         .is_none());
+    let tenant_daily = tenant_excluded
+        .daily_cumulative_spend()
+        .expect("the enabled daily-spend query is recorded");
+    assert_eq!(tenant_daily.query().organization_id(), "beta-lab");
+    assert_eq!(tenant_daily.query().agent_id(), "research-agent-01");
+    assert!(tenant_daily.totals().is_empty());
 
     store.close().await;
     database.destroy().await?;

@@ -5,9 +5,10 @@ use std::str::FromStr;
 
 use atf_audit::*;
 use atf_core::{
-    AccountingBoundary, Amount, DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
-    DuplicatePurchaseQuery, ExecutionConstraints, ProfileBinding, RepositorySnapshot,
-    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
+    AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
+    DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
+    ExecutionConstraints, ProfileBinding, RepositorySnapshot, RiskHistorySnapshot,
+    SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use jsonschema::Validator;
 
@@ -50,7 +51,7 @@ fn amount() -> Amount {
 
 fn risk_history() -> RiskHistorySnapshot {
     let evaluated_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
-    RiskHistorySnapshot::new(
+    RiskHistorySnapshot::with_daily_spend(
         RepositorySnapshot::new("audit-chain:alpha-lab:10", 10, hash('e')).unwrap(),
         Some(
             DuplicatePurchaseHistory::new(
@@ -74,6 +75,28 @@ fn risk_history() -> RiskHistorySnapshot {
                     )
                     .unwrap(),
                 ),
+            )
+            .unwrap(),
+        ),
+        Some(
+            DailySpendHistory::new(
+                DailySpendQuery::new(
+                    "alpha-lab",
+                    "agent-1",
+                    "intent-1",
+                    "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                    evaluated_at,
+                    86_400,
+                    AccountingBoundary::Permitted,
+                )
+                .unwrap(),
+                vec![DailySpendAssetTotal::new(
+                    "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                    Amount::from_str("20.00").unwrap(),
+                    2,
+                )
+                .unwrap()],
+                0,
             )
             .unwrap(),
         ),

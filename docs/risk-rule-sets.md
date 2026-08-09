@@ -21,7 +21,8 @@ ATF_RISK_RULE_SET_V1\0 || canonical_json_bytes
 
 The document binds `rule_set_version`, `engine_version`, every rule's enabled
 state and severity, all thresholds and deny lists, missing-data behavior, the
-duplicate-purchase window and its accounting boundary. Reordering JSON object
+duplicate-purchase window, and the daily-spend limit/valuation asset/window/
+accounting boundary. Reordering JSON object
 keys does not change the hash; any decision-affecting field change does.
 
 Every `RiskEvaluation` owns the exact `rule_set_version`, `rule_set_hash`,
@@ -58,6 +59,19 @@ query and optional result are canonical Evaluation/Audit evidence. Future
 execution/settlement query families must retain the same explicit boundary and
 immutable subject binding.
 
+DS-029 adds `daily_cumulative_spend` as a backward-compatible optional Rule
+Set family; old artifacts without it retain their canonical bytes/hash and
+disable the rule. The reference v1.1.0 artifact enables a High finding at
+25,000 USDC over 86,400 seconds using the `PERMITTED` boundary. Store records
+the exact organization, Agent, current Intent, valuation asset, window and
+repository boundary, then groups prior amounts by bound asset with PostgreSQL
+`NUMERIC`. At most 256 asset groups are admitted to evidence. The current
+Intent is added in Risk; same-asset values require no quote, while cross-asset
+values require exactly one fresh, verified, organization/base/quote-scoped
+direct `ATF_ENRICHED` `ASSET_QUOTE` rate. Missing/ambiguous/untrusted quotes,
+legacy Decisions without an asset, overflow and precision loss emit the
+configured restrictive finding rather than silently preserving Permit.
+
 ## Runtime selection and limits
 
 Gateway requires `ATF_RISK_RULE_SET_PATH` and fails startup if the artifact is
@@ -82,3 +96,6 @@ DS-024 removes the former clock/time/context convenience APIs and rejects
 Intent, Rule Set or history-query substitutions before rule execution. DS-028
 removes `atf-risk`'s Audit dependency; Store alone performs the bounded durable
 query, and Replay reconstructs it at the original Context boundary.
+DS-029 extends that same snapshot with the daily aggregate; parallel completed
+Permits are visible to the next query, and both Replay modes regenerate the
+aggregate at the original sequence/hash boundary.

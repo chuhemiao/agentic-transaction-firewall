@@ -105,6 +105,11 @@ fn test_state_with_policy_dir_and_risk(
     )
 }
 
+#[allow(dead_code)]
+pub fn test_state_with_risk(store: Store, risk_rule_set: RiskRuleSet) -> AppState {
+    test_state_with_policy_dir_and_risk(store, Path::new("../../policies/examples"), risk_rule_set)
+}
+
 pub fn test_risk_rule_set() -> RiskRuleSet {
     let mut document: serde_json::Value =
         serde_json::from_str(include_str!("../../../../risk-rules/default.json"))

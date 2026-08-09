@@ -483,7 +483,8 @@
       "required": ["repository"],
       "properties": {
         "repository": { "$ref": "#/$defs/repositorySnapshot" },
-        "duplicate_purchase": { "$ref": "#/$defs/duplicatePurchaseHistory" }
+        "duplicate_purchase": { "$ref": "#/$defs/duplicatePurchaseHistory" },
+        "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendHistory" }
       }
     },
     "repositorySnapshot": {
@@ -535,6 +536,45 @@
         "boundary_event_id": { "$ref": "#/$defs/nonEmpty" },
         "boundary_sequence": { "type": "integer", "minimum": 1 },
         "occurred_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "dailySpendHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "totals", "unresolved_asset_decision_count"],
+      "properties": {
+        "query": { "$ref": "#/$defs/dailySpendQuery" },
+        "totals": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/dailySpendAssetTotal" }
+        },
+        "unresolved_asset_decision_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "dailySpendQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organization_id", "agent_id", "current_intent_id", "valuation_asset", "evaluation_time", "window_start", "window_seconds", "accounting_boundary"],
+      "properties": {
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "current_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "valuation_asset": { "type": "string", "minLength": 3, "maxLength": 256, "pattern": "^[A-Za-z0-9._:%/-]+$" },
+        "evaluation_time": { "type": "string", "format": "date-time" },
+        "window_start": { "type": "string", "format": "date-time" },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "accounting_boundary": { "enum": ["REQUESTED", "PERMITTED", "EXECUTED", "SETTLED"] }
+      }
+    },
+    "dailySpendAssetTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset", "amount", "decision_count"],
+      "properties": {
+        "asset": { "type": "string", "minLength": 3, "maxLength": 256, "pattern": "^[A-Za-z0-9._:%/-]+$" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "decision_count": { "type": "integer", "minimum": 1 }
       }
     },
     "simulationCompleted": {

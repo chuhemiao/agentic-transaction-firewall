@@ -135,6 +135,10 @@ order. The executable order is:
   records exact organization/Agent/resource/time/sequence inputs and its
   optional prior permitted result; Gateway, Risk and both Replay modes share
   the typed snapshot contract without handing Audit events to the evaluator.
+- [x] DS-029 Asset-aware daily cumulative spend. The Rule Set fixes a
+  `PERMITTED` boundary, valuation asset, limit and window; Store records a
+  fixed-point per-asset aggregate at the Context repository boundary, and
+  missing direct verified quote evidence produces a restrictive finding.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -149,8 +153,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-029` — add asset-aware daily cumulative spend
-Risk over the DS-028 bounded durable snapshot boundary.
+**Immediate next task:** `DS-030` — add normalized first-time destination Risk
+over the DS-028 bounded durable snapshot boundary.
 
 ## Later releases
 
