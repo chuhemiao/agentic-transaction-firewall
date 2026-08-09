@@ -636,7 +636,8 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`CLI-GAP-001` is next: align `atf evaluate`'s advertised default current time
-to the millisecond Context contract and smoke-test the real default command.
-`DS-040` then performs the C4-oriented re-audit; this DS-039 update deliberately
-does not close production or release-gate severity by documentation alone.
+`CLI-GAP-001` is closed: `atf evaluate` now samples a millisecond-aligned
+default evaluation time, and a real-binary integration test plus direct
+default-command smoke produce a typed Decision. `DS-040` is next and performs
+the C4-oriented re-audit; no production or release-gate severity closes by
+documentation alone.

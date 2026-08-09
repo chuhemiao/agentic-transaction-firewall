@@ -384,6 +384,10 @@ and audited Policy rollback/forward drills. A bounded signed-Intent load client
 records the checked-in local baseline separately from PRD targets; the clean
 50-request run had zero failures, P95 178 ms and 28.328 evaluations/second, so
 the PRD §26 50 ms/100 evaluations-per-second targets remain unmet.
+`CLI-GAP-001` makes `atf evaluate`'s advertised default path use the same
+millisecond-aligned current-time contract as Gateway evaluation. A real-binary
+integration test and direct command smoke prove the default now emits a typed,
+hash-bound Decision without requiring `--evaluated-at`.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -738,11 +742,10 @@ semantics (evaluate only, never execute).
   safety controls. External Audit checkpoints and retention remain.
 - The remaining history-dependent Risk rules, each using the now-required
   explicit lifecycle accounting boundary.
-- `atf evaluate` currently requires an explicit millisecond-aligned
-  `--evaluated-at`; its advertised default samples a higher-precision current
-  time and is rejected by the immutable Context contract. This pre-existing
-  CLI integration gap was exposed by the DS-030 real-command smoke and must be
-  closed before C4.
+- ~~Make the advertised `atf evaluate` default satisfy the immutable Context
+  time contract.~~ Done in `CLI-GAP-001`: the omitted `--evaluated-at` path
+  samples a millisecond-aligned current time, and a real-binary integration
+  test plus direct command smoke verify the resulting typed Decision.
 
 The security-audit baseline and prioritized acceptance criteria are tracked
 in [`docs/audit-gap-matrix.md`](docs/audit-gap-matrix.md); the phase-level
@@ -755,9 +758,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation, core libraries and supported local recovery path exist;
-  the remaining release gate is the known CLI default-time fix followed by
-  DS-040 security re-audit. Strongly bound Decisions plus
-  Original/Counterfactual Replay and bounded durable Risk-history
+  the remaining release gate is the DS-040 security re-audit. Strongly bound
+  Decisions plus Original/Counterfactual Replay and bounded durable Risk-history
   reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
   complete through DS-039.

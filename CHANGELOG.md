@@ -5,6 +5,13 @@ This project has not yet made a tagged release.
 
 ## [Unreleased]
 
+### Fixed
+
+- `CLI-GAP-001`: `atf evaluate` now defaults to a millisecond-aligned current
+  evaluation time, matching the immutable Evaluation Context contract. A
+  fail-first integration test executes the real binary without
+  `--evaluated-at` and parses the resulting typed Decision.
+
 ### Added
 
 - DS-039 supported local Durable Shadow operations. A digest-pinned,

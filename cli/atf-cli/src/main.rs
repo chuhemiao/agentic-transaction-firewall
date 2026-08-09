@@ -43,7 +43,8 @@ enum Command {
         /// Deployment environment that must match the Policy Bundle scope.
         #[arg(long, default_value = "development")]
         environment: String,
-        /// Explicit evaluation time; defaults to the current time.
+        /// Explicit evaluation time; defaults to the millisecond-aligned
+        /// current time.
         #[arg(long)]
         evaluated_at: Option<Timestamp>,
         /// Closed versioned Risk Rule Set artifact.
@@ -942,7 +943,7 @@ fn run_evaluate(
     risk_rule_set_path: &Path,
 ) -> Result<()> {
     let intent = read_intent(intent_path)?;
-    let evaluated_at = evaluated_at.unwrap_or_else(Timestamp::now);
+    let evaluated_at = evaluated_at.unwrap_or_else(Timestamp::now_millis);
     let bundle = atf_policy::PolicyBundle::from_dir(
         policies_dir,
         &atf_policy::PolicyBundleLoadContext {

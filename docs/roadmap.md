@@ -190,6 +190,9 @@ order. The executable order is:
   rollback/forward, and bounded load. The checked-in 50-request local result
   is P95 178 ms and 28.328 evaluations/second with zero failures; it remains
   below both PRD §26 targets and is not production-capacity evidence.
+- [x] CLI-GAP-001 Default CLI evaluation time. `atf evaluate` now samples the
+  canonical millisecond-aligned current time when `--evaluated-at` is omitted;
+  a real-binary integration test and direct smoke cover the advertised path.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -207,10 +210,9 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `CLI-GAP-001` — make `atf evaluate`'s advertised
-default evaluation time millisecond-aligned and smoke-test the real default
-command. Then `DS-040` performs the complete Durable Shadow re-audit; status
-cannot advance to C4 without independent human approval.
+**Immediate next task:** `DS-040` — perform the complete Durable Shadow
+re-audit and publish the release-candidate checklist. Status cannot advance to
+C4 without independent human approval.
 
 ## Later releases
 

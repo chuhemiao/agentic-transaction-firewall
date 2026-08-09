@@ -170,10 +170,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   submit/restart/Replay proof, backup/isolated restore with matching Audit
   head, Policy rollback/forward drill and checked-in local load baseline.
   Depends: DS-033, DS-036, DS-038.
-- [ ] **NEXT — CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
-  millisecond-aligned and cover the real default command path. Discovered by
-  DS-030 smoke; must close before DS-040.
-- [ ] **DS-040:** re-audit and close the Durable Shadow release gate. Depends: DS-028..DS-039.
+- [x] **CLI-GAP-001:** made `atf evaluate`'s omitted `--evaluated-at` path use
+  a millisecond-aligned current time and covered the real binary/default
+  command. Discovered by DS-030 smoke.
+- [ ] **NEXT — DS-040:** re-audit and close the Durable Shadow release gate.
+  Depends: DS-028..DS-039 and CLI-GAP-001.
 - [ ] **Checkpoint C4:** human security review approves Durable Shadow; execution remains unavailable.
 
 ## Phase 3 — Reference Simulation and Adapters

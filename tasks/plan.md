@@ -1340,6 +1340,23 @@ bounded 50-request load with no failures. The recorded P95 178 ms and 28.328
 evaluations/second are explicitly below the PRD §26 targets and remain local
 regression evidence only.
 
+### CLI-GAP-001 — Align the advertised CLI evaluation default `[S]`
+
+**Status:** Complete (2026-08-09).
+
+**Description:** Use the canonical millisecond current-time boundary when
+`atf evaluate` omits `--evaluated-at`, without weakening validation of an
+explicit caller-supplied timestamp.
+
+- **Dependencies:** DS-023, DS-030.
+- **Acceptance criteria:** the real default command succeeds and its typed
+  Decision binds a millisecond-aligned evaluation time.
+- **Verification:** fail-first real-binary integration test and direct
+  `cargo run -p atf-cli -- evaluate ...` smoke.
+
+**Delivered:** the default branch now uses `Timestamp::now_millis`; explicit
+timestamps still pass unchanged into the closed `EvaluationContext` contract.
+
 ### DS-040 — Close the Durable Shadow release gate `[M]`
 
 **Description:** Re-run the complete audit against code and runtime evidence,
@@ -1347,7 +1364,7 @@ update each relevant gap, threat and status document, and publish a release
 candidate checklist. This task changes status only where executable evidence
 exists.
 
-- **Dependencies:** DS-028..DS-039.
+- **Dependencies:** DS-028..DS-039, CLI-GAP-001.
 - **Likely files:** `docs/audit-gap-matrix.md`, `docs/threat-model.md`,
   `docs/architecture.md`, `README.md`, `CHANGELOG.md`.
 - **Acceptance criteria:**

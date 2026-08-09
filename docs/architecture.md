@@ -219,9 +219,10 @@ Agent Intent
   `atf policy test/install/activate/rollback`, `atf risk install`,
   `atf replay original/counterfactual`, plus offline `atf identity` Agent/public-key
   provision/status/revoke and `atf operator` subject/status/role commands.
-  *Implemented (partial PRD command set). `atf evaluate` currently needs an
-  explicit millisecond-aligned `--evaluated-at`; the higher-precision default
-  is a known pre-C4 CLI integration gap.*
+  *Implemented (partial PRD command set). `CLI-GAP-001` aligns the advertised
+  `atf evaluate` default time to canonical milliseconds; a real-binary test
+  covers the omitted `--evaluated-at` path while explicit invalid precision
+  continues to fail closed in `EvaluationContext`.*
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
   durable admission -> immutable Evaluation Context -> Policy -> (if permitted)
