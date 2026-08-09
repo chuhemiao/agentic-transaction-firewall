@@ -29,9 +29,10 @@ Blocking conditions:
 Changing the metrics authentication boundary requires an explicit design
 decision. The current handler deliberately remains available when PostgreSQL
 is down, so adding database-backed Operator RBAC ad hoc would remove outage
-telemetry. Acceptable resolutions include a separately authenticated private
-operations listener/ingress or an approved PRD amendment with equivalent
-enforced deployment evidence.
+telemetry. [ADR-0004](decisions/0004-authenticated-operations-metrics.md) now
+proposes a separate mTLS-authenticated Operations Principal, TLS listener and
+Unix-socket-only Metrics Router. Its status is `Proposed`: it is review input,
+not approval, implementation evidence or closure of this blocker.
 
 ## PRD §32.1 functional evidence
 

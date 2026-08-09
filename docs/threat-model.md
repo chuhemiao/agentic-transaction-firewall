@@ -85,7 +85,8 @@ secret. The realistic attack surface today includes:
   ingress is documented but not enforced by the application or supported
   local topology. Because PRD §22 and §32.2.2 exempt health checks only, this
   is `C4-GAP-001` and blocks C4 until an approved, tested operations access
-  boundary exists.
+  boundary exists. Proposed ADR-0004 maps the candidate mTLS/Unix-socket trust
+  boundaries and abuse cases; it is not yet an implemented mitigation.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust

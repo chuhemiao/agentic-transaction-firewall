@@ -613,7 +613,9 @@ complete Decision Engine:
 - C4 cannot close until the operations metrics access boundary is explicitly
   approved and tested without silently removing database-outage telemetry,
   and an independent human security reviewer signs the candidate. See
-  `docs/release-candidate-checklist.md`.
+  `docs/release-candidate-checklist.md`. Proposed ADR-0004 specifies a separate
+  mTLS Operations Principal, operations listener and Unix-socket-only Metrics
+  Router; none of that design is implemented or accepted yet.
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).

@@ -45,7 +45,9 @@
     映射到测试和运行命令。技术结论仍为 `BLOCKED`：`GET /metrics` 没有形成
     Agent/Operator Principal，违反本 PRD §22 与 §32.2.2 仅豁免健康检查的要求；
     独立人工安全审核也尚未签字。该结论不得通过把 Metrics 重命名为“基础设施接口”
-    或仅声明私有网络假设来绕过。
+    或仅声明私有网络假设来绕过。`docs/decisions/0004-authenticated-operations-metrics.md`
+    已提出独立 mTLS Operations Principal/Surface 作为候选修复，但状态仍为
+    `Proposed`；在维护者明确批准前，它不修改本 PRD 的当前 Principal 契约。
 
 当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
 
@@ -1619,8 +1621,9 @@ MVP 必须实现：
 4. GET /v1/audit/intents/{intent_id}
 5. POST /v1/policy-bundles/{bundle_id}/activate
 6. POST /v1/policy-bundles/{bundle_id}/rollback
-7. GET /healthz
-8. GET /readyz
+7. GET /metrics（当前无 Principal，`C4-GAP-001` 阻断项）
+8. GET /healthz
+9. GET /readyz
 
 当前实现要求启动前设置 `DATABASE_URL`、执行 Migration 并显式 Provision
 Organization、Operator/Role，并配置可信 HTTPS Operator Issuer、Discovery、JWKS、

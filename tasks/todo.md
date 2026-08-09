@@ -179,7 +179,8 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   and CLI-GAP-001.
 - [ ] **NEXT — C4-GAP-001:** approve and implement an authenticated metrics
   operations boundary that preserves database-outage telemetry; prove direct
-  Gateway-port isolation and authorized scrape behavior.
+  Gateway-port isolation and authorized scrape behavior. ADR-0004 is now the
+  `Proposed` review artifact; it does not authorize implementation.
 - [ ] **C4-SIGNOFF-001:** independent human security reviewer signs or rejects
   the candidate after `C4-GAP-001` closes.
 - [ ] **Checkpoint C4:** human security review approves Durable Shadow;

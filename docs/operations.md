@@ -28,7 +28,9 @@ exposed only on a trusted private operations network or authenticated ingress;
 do not publish it directly to the Internet. The supported local topology does
 not yet enforce a separate scrape identity. DS-040 therefore records
 `C4-GAP-001`: this deployment assumption does not satisfy the PRD's non-health
-API authentication/RBAC acceptance criterion and blocks C4.
+API authentication/RBAC acceptance criterion and blocks C4. Proposed ADR-0004
+defines the candidate isolated mTLS operations surface, but operators must not
+treat a proposed document as an implemented control.
 
 ```bash
 curl --fail --silent http://127.0.0.1:8080/metrics

@@ -1384,13 +1384,20 @@ complete.
 
 ### C4-GAP-001 — Resolve the metrics operations access boundary `[M]`
 
+**Status:** Design proposed in ADR-0004 (2026-08-09); explicit maintainer
+approval and all implementation remain pending.
+
 **Description:** Select and implement an authenticated operations boundary for
 `GET /metrics` that satisfies PRD §22/§32.2.2 while retaining useful telemetry
 when PostgreSQL is unavailable. Do not silently redefine the endpoint as a
 health check or make a private-network assumption count as application RBAC.
 
 - **Dependencies:** DS-033..DS-040; explicit maintainer approval because this
-  changes an authentication boundary.
+  changes an authentication boundary. ADR-0004 is the review artifact and does
+  not authorize code changes while `Proposed`.
+- **Likely files after approval:** `services/gateway/src/routes.rs`, Gateway
+  server/config modules and tests, `deploy/docker/compose.yml`, the trusted
+  edge configuration, local operations scripts, PRD/API/operations docs.
 - **Acceptance criteria:** unauthenticated callers cannot scrape; the selected
   operations identity cannot call business routes; direct Gateway access is
   unavailable in the supported topology; an authorized scrape still returns

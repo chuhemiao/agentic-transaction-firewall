@@ -39,7 +39,10 @@ This repository is in **Phase 2: Durable Shadow Mode**. Phase 1 is complete;
 DS-040's technical re-audit is published, but Checkpoint C4 is **blocked**.
 `GET /metrics` does not meet the PRD's non-health API authentication/RBAC
 acceptance criterion, and the required independent human security approval is
-pending. See [`docs/release-candidate-checklist.md`](docs/release-candidate-checklist.md).
+pending. ADR-0004 now proposes an isolated mTLS Operations Principal and Unix-
+socket Metrics surface, but remains unapproved and unimplemented. See the
+[`release-candidate checklist`](docs/release-candidate-checklist.md) and
+[`proposed ADR`](docs/decisions/0004-authenticated-operations-metrics.md).
 No RA-001, tagged release, internet-exposed deployment or real execution work
 may start while C4 is blocked (PRD §31–32).
 Only the following crates are implemented so far:
@@ -750,6 +753,8 @@ semantics (evaluate only, never execute).
   safety controls. External Audit checkpoints and retention remain.
 - `C4-GAP-001`: approve and enforce a metrics access boundary that satisfies
   non-health API authentication/RBAC without losing database-outage telemetry.
+  ADR-0004 proposes the exact boundary; its status is `Proposed`, so no
+  authentication behavior has changed.
 - `C4-SIGNOFF-001`: obtain independent human security approval after the
   metrics boundary has executable evidence. Until both close, C4 and RA-001
   remain blocked.

@@ -203,8 +203,10 @@ principals and non-enumerating Decision-read RBAC.
   the approved principal contract.
 - **severity:** `HIGH` (C4 blocker; business-route RBAC remains implemented)
 - **recommended_change:** obtain explicit approval for an operations access
-  boundary that preserves database-outage telemetry, then enforce and test it;
-  preserve disjoint principals and current durable-role reload on business routes.
+  boundary that preserves database-outage telemetry. Proposed ADR-0004 selects
+  a disjoint mTLS Operations Principal and Unix-socket Metrics Router for
+  review; approve or reject it before implementation, then enforce and test
+  the selected design. Preserve current durable-role reload on business routes.
 - **required_tests:** retain token,
   cross-tenant, role, revocation, restart, tamper, redaction and confused-deputy
   regressions; add direct-port rejection and authenticated-scrape tests for the
