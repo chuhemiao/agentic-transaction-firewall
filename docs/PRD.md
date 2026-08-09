@@ -30,6 +30,7 @@
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle；DS-028..DS-031 的重复购买、每日累计支出、首次目标地址与 REQUESTED 请求频率规则读取 Organization/Agent/Profile/Action、Evaluation Time 与 Repository Sequence 明确限界的持久化快照，而不再把完整 Audit Event 列表交给 Risk。
 3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018/DS-026/DS-027 将类型化 Audit Payload 扩展到 40 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。DS-019 以闭合 Manifest、Cedar Schema、文件摘要、组织/环境作用域和激活窗口构造 Domain-separated Canonical Policy Bundle Hash；DS-020 migration 0007 进一步保存严格 Ed25519 发布者证明、不可变精确字节归档与单调 Active Pointer，安装/激活/回滚和 `PolicyChanged` 同事务提交，Gateway 每请求重载并验证当前签名版本，JWT Admin API 要求当前 `policy_author`/`org_admin`。DS-021 将 Risk 的 Engine/Rule Set Version、启用状态、Severity、Threshold、Missing-data Behavior、Deny List、History Window 与 Accounting Boundary 绑定为 Domain-separated Canonical Hash；每个 Risk Result 和当前 Gateway Risk Evidence 均携带精确 Version/Hash。DS-022 增加闭合、无 JSON Number 的 Provenance Evidence Envelope，将 Source/Kind/Source ID/Observation/Expiry/Value/Confidence 绑定为 Canonical Hash，并以精确 Allowlist、可选严格 Ed25519 Proof 和显式 Freshness 产生不可直接构造的 `VerifiedEvidence`；Risk 将 Agent Privileged Context 隔离，Vendor Median 只接受组织/资源/资产精确绑定的 `ATF_ENRICHED` Evidence，否则显式 Fail Closed。DS-023 migration 0008 在 Policy/Risk 前持久化不可变 Evaluation Context，将精确 Intent/Profile、同一次 Evaluation Time、Policy/Risk Artifact、Agent Context Hash、已验证 Evidence/Trust Policy、Audit History Prefix、外部 Snapshot 可用性和 Simulation `NOT_RUN` 绑定到 Domain-separated Canonical Hash，并以 `ContextEnriched` 和最终 Evaluation 外键验证；恢复路径复用已有 Context 或创建显式不可用 Context，仍只产生 `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`。DS-024 已使 Policy/Risk 只验证并消费该持久化 Context；DS-025 进一步以闭合 Decision v1 将 Intent/Profile、Policy/Risk、Context/Snapshot、Simulation、时间/到期时间和执行约束绑定到 Domain-separated Canonical Hash，并要求 Store 与 `DecisionRecorded` 使用相同绑定。DS-033 已加入闭合低基数 Prometheus Metrics、JSON Request Span、Request/Trace/Audit Event 关联及 Canary 脱敏测试；DS-034 已为所有 HTTP Route 加入有限 Body/Header、全请求与评估超时、直连来源及已验证主体限流，并以默认回环监听、非回环 TLS Proxy 声明和不信任转发 Header 明确入口边界。DS-035 将进程存活与安全服务就绪分离，`/readyz` 额外验证配置的签名活动 Policy，并以闭合标签统一 Database、Active Policy、History Snapshot、Audit 与 Lock 失败；任何未原子提交完整 Evidence 的新 Decision 都不会返回。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描和其他 Admin HTTP Role Matrix 仍未完成。
    DS-036 将迁移、Audit/Lifecycle、Idempotency、Nonce、Restart/Recovery 与依赖竞争收敛为同一个真实 PostgreSQL 本地/CI 套件；两个独立 Gateway 实例对相同 Intent 与冲突 Nonce 只产生一个可重启验证的权威 Decision/完整 Audit Chain。该竞争测试发现并关闭了 `READ COMMITTED` 下分离读取 Audit Head/Event 的 read-skew：现在一次 SQL 的 MVCC Snapshot 同时取得 Head 与有序 Events，合法并发追加不再被误判为持久状态损坏。真实 `55P03` Lock Timeout 和 `40P01` Deadlock 均在五秒外层期限内 Fail Closed；CI 连续运行两轮，测试专用 Compose 运行相同锁定命令。
+   DS-037 将 Replay/Canonical/Binding 从实现细节提升为独立 CI 契约：固定纯向量锁定 Original/Counterfactual 的 Context Hash、Decision Hash、相同 Snapshot 与非权威新 Lineage；10 个 Proptest 属性把 Amount 锁定为无损 JSON String，并对每类派生 Decision Binding 做攻击者重算 Hash 后的替换验证；9 个 PostgreSQL Replay 场景继续验证动态 Audit Prefix 下的关系与稳定错误。独立 nightly/libFuzzer Workspace 从有效、Malformed、数字金额与未知核心字段种子 fuzz 公共 Intent Validator，CI 以 15 秒总时限和 10 分钟作业外限执行。
 4. DS-026 migration 0009 按组织/环境归档不可变 Canonical Risk Rule Set，并以当前 Policy-change Role 与 `RiskRuleSetStored` 原子审计绑定安装。Original Replay 要求当前 `auditor`/`org_admin`，精确加载原 Intent、Evaluation Context、签名 Policy Bundle、Risk Rule Set 与 Context 指定的 Audit Prefix，重算并比较 typed module evidence 和完整 Decision bytes/hash；成功只追加 `OriginalReplayCompleted(authoritative=false)`，不新增或覆盖权威 Evaluation/Decision。缺失或篡改输入以稳定 Replay Code Fail Closed。
 5. DS-027 migration 0010 将 Counterfactual Replay 存入独立不可变表：复用原 Intent、Snapshot、Evaluation Time、Evidence 与 Audit Prefix，显式选择精确 Policy/Risk Artifact，以新 Evaluation/Decision ID 产生 `authoritative=false` 的 lineage；原权威记录保持不变，typed Audit 绑定 Context/Evaluation/Decision Hash、版本与结果变化。
 6. DS-028 migration 0011 为 `DecisionRecorded(PERMIT)` 增加组织/Agent/资源/时间索引；Store 在只读 Repeatable Read 中记录 Repository Boundary、精确 Query Input 与至多一条历史结果，Gateway 将其写入 Canonical Risk Evaluation/Audit Evidence，Original 与 Counterfactual Replay 按原 Sequence/Hash 重建相同输入。DENY、其他组织、当前 Intent 和 Evaluation Time 之后的事件均不计入。
@@ -311,7 +312,7 @@ ATF 不阻止交易，也不掌握签名权限。
 4. 风险误报与漏报分析。
 5. 设计伙伴验证。
 
-当前仓库的 Shadow Gateway 已实现 Intent/Profile Validation、Agent Identity、Durable Idempotency/Recovery、Policy、部分 Risk、强绑定 Decision、Audit Query、Original/Counterfactual Replay、DS-033 安全可观测性、DS-034 应用层 HTTP 安全边界、DS-035 Fail-Closed Dependency/Readiness 契约，以及 DS-036 可重复的真实 PostgreSQL 多实例/竞争 CI 套件。Simulation、Approval、Adapter/Execution、后台 Recovery Scanner、TLS/共享入口和生产运维基线仍缺失，因此不等同于本节的完整目标态 Shadow Mode。
+当前仓库的 Shadow Gateway 已实现 Intent/Profile Validation、Agent Identity、Durable Idempotency/Recovery、Policy、部分 Risk、强绑定 Decision、Audit Query、Original/Counterfactual Replay、DS-033 安全可观测性、DS-034 应用层 HTTP 安全边界、DS-035 Fail-Closed Dependency/Readiness 契约、DS-036 可重复的真实 PostgreSQL 多实例/竞争 CI 套件，以及 DS-037 固定 Hash Replay、Binding Property 与限时 Intent Fuzz 门禁。Simulation、Approval、Adapter/Execution、后台 Recovery Scanner、TLS/共享入口和生产运维基线仍缺失，因此不等同于本节的完整目标态 Shadow Mode。
 
 ### 7.2 Review Mode
 
@@ -1821,6 +1822,12 @@ Durable Shadow Mode 目标指标如下：
 5. 审批不能用于修改后的 Intent。
 6. 累计限额不会被拆单绕过。
 
+当前 DS-037 已将第 1 项和 Decision v1 的完整派生 Binding 变化纳入
+Proptest：每个替换值都重新计算合法的 `ATF_DECISION_V1` Hash，再要求
+权威 Intent/Context 校验拒绝。Intent Canonical Hash 稳定和同 Context
+Policy/Risk 可重复性已有普通/Replay 测试；Approval 与更广泛累计限额属性
+随对应组件扩展，不能由当前测试代替。
+
 ### 28.4 模糊测试
 
 使用 cargo-fuzz：
@@ -1831,6 +1838,12 @@ Durable Shadow Mode 目标指标如下：
 4. Policy Context。
 5. Calldata Decoder。
 6. Audit Event Parser。
+
+当前 DS-037 已实现第 1 项公共边界并覆盖 Common Semantic/Profile Validation
+与 Canonical typed round trip；无效 UTF-8/JSON/Schema/Semantic/Profile 输入
+必须返回拒绝而不是 Panic。Intent Normalizer 的当前 typed round trip 只覆盖
+已支持 Payment Profile；Adapter、Policy Context、Calldata 与 Audit 独立目标
+仍由对应阶段负责。
 
 ---
 
@@ -1843,15 +1856,14 @@ Durable Shadow Mode 目标指标如下：
 3. cargo test
 4. cargo deny check -D warnings
 5. 已加入 Workspace 的 Schema Tests 与 Policy Tests
+6. 两轮真实 PostgreSQL Persistence/Restart/Multi-instance/Contention Suite
+7. 固定 Hash Replay、Decision Binding Property 与真实 PostgreSQL Replay Conformance
+8. 日期固定 nightly 下的 15 秒 Intent cargo-fuzz Smoke（作业外限 10 分钟）
 
 Durable Shadow Mode 完成前必须补充：
 
-1. PostgreSQL Migration 与 Restart Recovery Tests。
-2. Concurrent Idempotency 与 Audit Append Tests。
-3. Replay Determinism Tests。
-4. Property/Fuzz Tests。
-5. cargo audit、Secret Scanning 和 SAST。
-6. Docker Compose End-to-end Test。
+1. cargo audit、Secret Scanning 和 SAST。
+2. 受支持的 Docker Compose End-to-end、Backup/Restore 与 Rollback 演练。
 
 对应模块落地后再启用 Adapter Conformance、TypeScript/Python SDK、Container Scanning、SBOM 和 Artifact Signing Gate。PRD 不得声称尚未出现在 Workflow 中的检查已经启用。
 
@@ -1933,7 +1945,11 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
    Behavior 和 Lifecycle Accounting Boundary，Risk Result/Evidence 返回精确
    Version/Hash。
 6. **P0.6 EvaluationContext（已完成）**：DS-023 已在 Policy/Risk 前将时间、版本、Snapshot、Evidence/Trust、History 与显式不可用状态写入不可变 Canonical Context，并由 `ContextEnriched` 与最终 Evaluation Hash 绑定；DS-024 已移除 Evaluator 的 Wall-clock 与独立特权输入入口，校验 Intent/Profile/Artifact/History 绑定并保证相同 Snapshot 的模块输出字节一致。
-7. **P0.7 Deterministic Replay**：Original 与 Counterfactual Replay。
+7. **P0.7 Deterministic Replay（已完成当前组件边界）**：DS-026/DS-027
+   实现 Original 与 Counterfactual Replay；DS-037 以固定 Context/Decision
+   Hash、Lineage、攻击者重算 Hash 的全 Binding 属性和真实 PostgreSQL
+   Conformance 将它们作为 CI 契约。未来 Simulator/Adapter/Approval 输入
+   必须在自身版本落地时扩展同一门禁。
 8. **P0.8 Context Provenance（类型、防火墙与持久化已完成）**：DS-022 已实现可信来源、Freshness、签名/Hash 校验和 Agent 不可覆盖规则；DS-023 已持久化精确 Evidence/Trust Snapshot，生产 Enricher 仍属于后续工作。
 9. **P0.9 Policy Bundle Versioning（已完成）**：DS-019 落地 Manifest、
    Hash、Scope 与 Cedar Schema；DS-020 落地签名证明、不可变持久化、

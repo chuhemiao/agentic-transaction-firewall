@@ -61,8 +61,32 @@ jobs:
         env:
           ATF_PERSISTENCE_TEST_REPETITIONS: 2
         run: ./scripts/test-persistence.sh
+      - name: Run Replay and property conformance
+        run: ./scripts/test-conformance.sh
       - name: Run workspace tests
         run: cargo test --workspace --all-targets --all-features
+
+  fuzz:
+    name: bounded Intent fuzz smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # rust-toolchain.toml intentionally pins the main workspace to stable;
+      # override it only for libFuzzer instrumentation in this job.
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-08-01
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz -> target
+      - name: Install pinned cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version 0.13.2
+      - name: Fuzz the public Intent boundary for 15 seconds
+        run: ./scripts/test-fuzz.sh
 
   deny:
     name: cargo deny 0.20.2

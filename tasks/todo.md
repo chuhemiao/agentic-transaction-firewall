@@ -158,9 +158,14 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **DS-036:** added a reusable real-PostgreSQL migration/restart/two-
   instance/Audit/lifecycle/idempotency/Nonce/contention suite, repeated in CI
   and runnable through isolated test Compose. Depends: DS-016, DS-025, DS-035.
-- [ ] **NEXT — DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
-- [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.
-- [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO baseline. Depends: DS-033, DS-036, DS-038.
+- [x] **DS-037:** added fixed Original/Counterfactual Context/Decision hash
+  vectors, full derived-binding and Amount properties, real PostgreSQL Replay
+  conformance and a pinned bounded Intent fuzz smoke in CI. Depends: DS-027,
+  DS-036.
+- [ ] **NEXT — DS-038:** add dependency, secret and SAST CI gates. Depends:
+  DS-036.
+- [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO
+  baseline. Depends: DS-033, DS-036, DS-038.
 - [ ] **CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
   millisecond-aligned and cover the real default command path. Discovered by
   DS-030 smoke; must close before DS-040.

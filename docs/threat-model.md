@@ -89,8 +89,11 @@ secret. The realistic attack surface today includes:
   Agent-Commerce Payment selector, requires a typed resource, checks strict
   CAIP-2/10/19 syntax and same-chain asset/payee binding, forbids fields owned
   by other profiles, and rejects all unsupported action pairs before durable
-  admission. Namespace-specific address/asset validation and fuzz/property
-  expansion remain Adapter-profile and DS-037 work. DS-011 returns only fixed
+  admission. DS-037 now runs valid and adversarial seeds through this public
+  boundary under a bounded nightly libFuzzer smoke, and properties prove
+  string-only Amount round trips plus canonical Decision binding rejection.
+  Namespace-specific address/asset validation and corresponding fuzz/property
+  expansion remain owned by future Adapter profiles. DS-011 returns only fixed
   error codes/messages and server-owned semantic code/field details; raw
   request values, Schema diagnostics and internal Store/SQL/policy/key text do
   not cross the HTTP response boundary. PostgreSQL tests prove all validation
@@ -190,8 +193,10 @@ secret. The realistic attack surface today includes:
   labels expose the affected boundary without SQLSTATE, tenant, artifact or
   error-message cardinality. DS-036 repeats two-instance Decision/Nonce races,
   restart verification, lock timeout and real deadlock detection in local/CI
-  PostgreSQL with external deadlines. Background recovery and operational
-  cross-instance incident drills remain DS-039 work.
+  PostgreSQL with external deadlines. DS-037 additionally runs the fixed-hash
+  Replay vector, attacker-resealed binding properties, nine durable Replay
+  scenarios and a bounded sanitizer-backed Intent fuzz job in CI. Background
+  recovery and operational cross-instance incident drills remain DS-039 work.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   warning-free, all-feature/all-target `cargo deny` in CI; the broader controls
   listed above remain open.

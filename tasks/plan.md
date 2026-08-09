@@ -1252,6 +1252,8 @@ PostgreSQL repetitions and a clean Compose run both pass.
 
 ### DS-037 — Add replay/property/fuzz conformance `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Turn replay/fuzz scaffolds into executable gates for canonical
 parsing, semantic validation, hash sensitivity, evaluator determinism and
 original/counterfactual Replay.
@@ -1265,6 +1267,24 @@ original/counterfactual Replay.
   2. Property tests cover amount serialization and every binding mutation class.
   3. A bounded fuzz smoke runs in CI and preserves fail-closed/no-panic behavior.
 - **Verification:** conformance CLI, proptest and timed fuzz smoke; full DoD.
+
+**Delivered boundary:** `decision-hashes.json` is a closed deterministic vector
+whose fixed Original and Counterfactual Evaluation Context/Decision hashes can
+change only through an intentional canonical-contract review. The vector also
+locks same-Intent/same-Snapshot, new Evaluation/Decision identity,
+non-authoritative lineage and changed outcome. Ten Proptest properties retain
+financial Amounts as lossless JSON strings and mutate every derived Decision
+binding class; each mutation is rehashed under `ATF_DECISION_V1` to prove hash
+validity alone cannot bypass authoritative Intent/Context binding. The durable
+fixtures now reject unknown fields and assert their declared invariants.
+`scripts/test-conformance.sh` groups Policy cases, repeated Policy/Risk
+evaluator determinism, pure Replay/properties and the nine
+Original/Counterfactual PostgreSQL cases. A separate pinned
+`cargo-fuzz 0.13.2`/`libfuzzer-sys 0.4.13` workspace fuzzes the public Intent
+boundary from valid and fail-closed seeds under an explicit one-to-60-second
+limit; CI selects `nightly-2026-08-01` despite the root stable toolchain and
+runs a 15-second smoke. The equivalent read-only-source Docker run completed
+719,116 executions without a crash or sanitizer failure.
 
 ### DS-038 — Add dependency, secret and SAST gates `[S]`
 

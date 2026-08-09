@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "fixture_id": "ds037-replay-decision-hashes-v1",
+  "intent": {
+    "spec_version": "1.0",
+    "intent_id": "01J0000000000000000000RV01",
+    "idempotency_key": "idem-ds037-replay-vector",
+    "created_at": "2026-08-08T12:00:00.000Z",
+    "expires_at": "2026-08-08T12:05:00.000Z",
+    "principal": {
+      "organization_id": "alpha-lab",
+      "agent_id": "research-agent-01"
+    },
+    "mandate": {
+      "mandate_id": "mandate-ds037",
+      "purpose": "verify deterministic replay vectors",
+      "human_authorized": true
+    },
+    "action": {
+      "category": "payment",
+      "operation": "purchase_api_resource"
+    },
+    "resource": {
+      "protocol": "x402",
+      "resource_id": "dataset-ds037",
+      "resource_type": "dataset"
+    },
+    "transaction": {
+      "network": "eip155:8453",
+      "asset": "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "amount": "12.50",
+      "destination": "eip155:8453:0x1111111111111111111111111111111111111111"
+    },
+    "context": {
+      "request_origin": "ds037-conformance"
+    },
+    "metadata": {}
+  },
+  "context": {
+    "evaluation_time": "2026-08-08T12:00:01.000Z",
+    "environment": "development",
+    "context_snapshot_id": "01J0000000000000000000RS01",
+    "history_snapshot_id": "audit-chain:alpha-lab:42",
+    "history_through_sequence": 42,
+    "history_snapshot_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "original": {
+    "evaluation_id": "01J0000000000000000000RE01",
+    "decision_id": "01J0000000000000000000RD01",
+    "policy": {
+      "artifact_id": "atf-example-payments",
+      "version": "1.0.0",
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "risk": {
+      "artifact_id": "atf-risk-engine-v1",
+      "version": "risk-rules-1.0.0",
+      "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_ids": [
+      "payment-under-cap"
+    ],
+    "expected_decision": "PERMIT",
+    "expected_context_hash": "e802a584fa1cdd04aa8209c675fbdc3b0e147a84b36bfe4b90a49181dae91241",
+    "expected_decision_hash": "0f9c91650f4cb30a7b089bde20756c40e9f85f3806d12a4912a1d359772c13cf"
+  },
+  "counterfactual": {
+    "evaluation_id": "01J0000000000000000000RE02",
+    "decision_id": "01J0000000000000000000RD02",
+    "policy": {
+      "artifact_id": "atf-example-payments",
+      "version": "1.0.0",
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "risk": {
+      "artifact_id": "atf-risk-engine-v1",
+      "version": "risk-rules-2.0.0",
+      "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "policy_ids": [
+      "payment-under-cap"
+    ],
+    "risk_finding": {
+      "code": "SINGLE_AMOUNT_CAP_EXCEEDED",
+      "severity": "critical",
+      "message": "Amount exceeds the counterfactual single-transaction cap"
+    },
+    "expected_decision": "DENY",
+    "expected_context_hash": "df59bf32fa3ecbcabd3dbd9b74a5b90468c88135473744b51fd91a46f7e43e0f",
+    "expected_decision_hash": "ebfc0337bf629e8b77d9d610367a3c5c4fab5987c6c8269cbef0db256cea95ff"
+  },
+  "lineage": {
+    "authoritative": false,
+    "same_intent": true,
+    "same_snapshot": true,
+    "different_evaluation_id": true,
+    "different_decision_id": true,
+    "outcome_changed": true
+  }
+}

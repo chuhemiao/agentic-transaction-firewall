@@ -130,6 +130,41 @@ uses temporary storage, source is mounted read-only, and Cargo registry/target
 volumes are disposable. Compose defaults to one linker and no test debug
 symbols to remain reliable on small Docker Desktop/CI memory allocations.
 
+## Replay, property and fuzz conformance
+
+DS-037 combines the public Policy cases, repeated Policy/Risk evaluator
+determinism, deterministic Replay vectors, Decision binding properties and
+nine durable Original/Counterfactual Replay scenarios behind one
+PostgreSQL-backed command:
+
+```bash
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  ./scripts/test-conformance.sh
+```
+
+The fixed pure vector locks exact Context/Decision hashes. Durable fixtures
+lock relations and fail-closed errors instead of hard-coding hashes that
+legitimately include generated Audit event IDs. Binding properties modify and
+recompute a valid `ATF_DECISION_V1` hash for every derived class; successful
+hash verification followed by failed authoritative binding is the intended
+result.
+
+The fuzz smoke requires `cargo-fuzz 0.13.2` and nightly Rust. The root
+`rust-toolchain.toml` remains stable, so select the fuzz toolchain explicitly:
+
+```bash
+rustup toolchain install nightly-2026-08-01 --component llvm-tools-preview
+cargo +nightly-2026-08-01 install cargo-fuzz --locked --version 0.13.2
+RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
+```
+
+`ATF_FUZZ_MAX_TOTAL_TIME_SECONDS` defaults to 15 and accepts only 1 through 60.
+Seeds are copied to temporary storage, crash artifacts are not committed, and
+CI has a ten-minute outer job deadline. The DS-037 read-only-source Docker
+verification executed 719,116 inputs in 16 seconds without a crash or
+sanitizer failure; this is conformance evidence, not an SLO or throughput
+claim.
+
 ## HTTP safety boundary
 
 All limits are finite, validated at startup and process-local. Zero, malformed

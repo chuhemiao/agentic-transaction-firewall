@@ -325,10 +325,13 @@ Agent Intent
   [`ADR-0003`](decisions/0003-operator-authentication.md) is implemented for
   the current Decision-read surface.
 
-Everything else under `crates/`, `sdk/`, `examples/`, `conformance/`,
-`deploy/`, and `fuzz/` is a scaffolded directory with a
-`README.md` describing what belongs there and which roadmap phase (PRD §31)
-will fill it in. None of it is wired into the Cargo workspace yet.
+The implemented conformance surface now includes Policy cases, Identity
+vectors, durable Replay fixtures, DS-037 fixed Decision/Context hash vectors,
+binding properties and the separate nightly `fuzz/` Intent workspace. Other
+Simulator/Approval/Adapter/Reconciliation crates and their service, SDK,
+Adapter-conformance and supported deployment directories remain README-only
+scaffolds outside the Cargo workspace; inspect each directory rather than
+assuming its target interface exists.
 
 ## Implemented operator trust boundary
 
@@ -578,7 +581,9 @@ complete Decision Engine:
 - Original and Counterfactual Replay are complete through DS-027; DS-028 adds
   exact bounded Risk-history reconstruction at their original repository
   boundary. Restart, missing/tamper/authorization/non-overwrite tests exist;
-  broader property/fuzz conformance remains DS-037.
+  DS-037 additionally locks fixed pure hashes/lineage, every derived Decision
+  binding class and a bounded public-Intent fuzz smoke. Replay of future
+  Simulator/Adapter/Approval inputs remains owned by those component phases.
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.

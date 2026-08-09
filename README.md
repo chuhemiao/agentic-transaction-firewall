@@ -364,6 +364,13 @@ verify it against the immutable Intent/Context, while current
 Replay, typed non-authoritative replay evidence, stable fail-closed codes and
 the offline `risk install`/`replay original` commands. Restart replay is
 locked by a public conformance fixture and never mutates the original result.
+`DS-037` turns that contract into one executable conformance gate: a fixed
+pure Original/Counterfactual vector locks both Context and Decision hashes plus
+lineage, Proptest reseals every derived Decision binding class and proves the
+authoritative Intent/Context still reject it, and a nightly libFuzzer target
+exercises the public Intent parser with fail-closed invalid inputs and stable
+typed round trips. CI runs the PostgreSQL Replay suite and a bounded 15-second
+fuzz smoke in addition to the normal workspace gates.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -616,6 +623,13 @@ semantics (evaluate only, never execute).
     race by loading each Audit head/event set from one statement snapshot. CI
     runs the suite twice, and an isolated test-only Compose stack runs the same
     command with temporary database state.
+37. ~~Replay, property and fuzz conformance.~~ Done in DS-037: fixed public
+    vectors lock Original/Counterfactual Context and Decision hashes plus
+    non-authoritative lineage; 10 Proptest properties cover string-only Amount
+    serialization and every derived Decision binding class, including
+    attacker-resealed substitutions. `scripts/test-conformance.sh` executes
+    Policy, pure and real-PostgreSQL Replay evidence, while a pinned cargo-fuzz
+    target/seed corpus runs for 15 seconds in a separate nightly CI job.
 
 ### Remaining before Phase 2 can close out
 
@@ -681,6 +695,10 @@ semantics (evaluate only, never execute).
   bind canonical Decisions, and support exact/isolated Replay.~~ Done in
   DS-024..DS-027 with byte-identical Original reproduction and immutable
   non-authoritative Counterfactual lineage.
+- ~~Make deterministic Replay and canonical/binding invariants executable CI
+  contracts.~~ Done in DS-037 with fixed Context/Decision hash vectors,
+  attacker-resealed binding properties, real PostgreSQL Replay conformance and
+  a bounded no-panic public Intent fuzz smoke.
 - ~~Organization-scoped Audit Query API and safe observability.~~ Done through
   DS-034 with bounded stable pagination, verified organization-chain status,
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
@@ -709,7 +727,7 @@ implementation plan and executable checklist are in
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-036.
+  complete through DS-037.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -727,6 +745,13 @@ ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
 # Run the focused persistence/race gate repeatedly against the same test server.
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
 ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh
+
+# Run Policy, fixed-hash/property and durable Replay conformance.
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  ./scripts/test-conformance.sh
+
+# The separate Intent fuzz gate requires the pinned nightly and cargo-fuzz.
+RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
 
 # Or run that gate in the isolated test-only Compose stack.
 docker compose -f deploy/docker/compose.test.yml run --rm persistence-tests

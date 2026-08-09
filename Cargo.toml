@@ -66,6 +66,10 @@ sqlx = { version = "=0.8.6", default-features = false, features = [
 # SQLx 0.8 accepts any home 0.5 release; 0.5.12 raised its MSRV to 1.88.
 # Keep the dependency graph compatible with this workspace's Rust 1.82 floor.
 home = "=0.5.11"
+# Proptest 1.9.0 is the newest release whose declared MSRV matches this
+# workspace's Rust 1.82 floor. Disable process-fork/persistence defaults: the
+# DS-037 properties are deterministic, in-process CI gates.
+proptest = { version = "=1.9.0", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = 3

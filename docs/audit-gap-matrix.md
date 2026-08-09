@@ -105,14 +105,15 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation, closed scoped manifests, Bundle/file hashes, Cedar Schema validation, strict publisher signature, immutable archive and audited activation/rollback are wired. Multi-Bundle composition/conflict analysis and publisher-key revocation remain missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules plus duplicate-purchase, asset-aware daily-spend, normalized first-destination and accepted-request-frequency history rules are wired under an immutable Context and versioned Rule Set; DS-028..DS-031 supply typed bounded PostgreSQL snapshots rather than Audit events. Most other PRD rules remain missing. |
 | `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-031 add typed bounded duplicate/daily-spend/first-destination/request-frequency Risk-history evidence, and current `IntentReceived` binds Profile/action; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. DS-032 exposes bounded verified organization queries; checkpoints, retention and independent verification remain. |
-| `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
+| `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; DS-037 locks exact Original/Counterfactual hashes and uses attacker-resealed properties for every derived binding class. The Simulator branch remains absent. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. DS-032 adds current-role-authorized verified Audit pages from a repeatable-read chain snapshot; DS-033 exposes aggregate typed Replay completion counts without tenant/replay labels. Background recovery scanning, checkpoints and retention remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
 | `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. DS-033 adds fixed-label Prometheus metrics, JSON request spans, response/trace/Audit-event correlation and captured credential/signature/payload redaction. Background recovery, general configured limits and further Admin APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
-| `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
-| Adapter/replay conformance, fuzz, deploy | `SCAFFOLD_ONLY` | README placeholders only. |
+| Policy/Replay conformance | `IMPLEMENTED_AND_WIRED` | Three Policy cases plus fixed pure Context/Decision hashes, nine durable Original/Counterfactual scenarios and ten Amount/binding properties run through `scripts/test-conformance.sh`. |
+| Intent fuzz | `IMPLEMENTED_AND_WIRED` | A pinned separate nightly/libFuzzer workspace feeds valid and fail-closed seeds into the public Intent validator for a bounded 15-second CI smoke. |
+| Adapter conformance and supported deploy | `SCAFFOLD_ONLY` | README/test-stack placeholders only; no Adapter or supported local Gateway stack exists. |
 | SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `identity-envelope.md` plus the published vector fix DS-014 signing bytes, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
 | README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
 
@@ -340,6 +341,10 @@ principals and non-enumerating Decision-read RBAC.
   bytes/hash. DS-027 migration 0010 stores distinct non-authoritative Context/
   Evaluation/Decision lineage under explicit selected Policy/Risk artifacts,
   binds it to typed Audit evidence and never writes authoritative rows.
+  DS-037 adds a closed fixed vector for both Context/Decision hashes and
+  lineage, ten properties that recompute a valid Decision hash after mutating
+  every authoritative binding class, nine real PostgreSQL Replay scenarios and
+  a bounded public-Intent no-panic/fail-closed fuzz smoke in CI.
 - **security_impact:** authorized replay now detects missing/tampered inputs,
   denies resource discovery before RBAC, and keeps investigative output from
   becoming transaction authority.
@@ -347,8 +352,9 @@ principals and non-enumerating Decision-read RBAC.
   immutable, restart-verifiable provenance without changing the recorded
   authorization.
 - **severity:** `CLOSED` (formerly `HIGH`)
-- **recommended_change:** retain exact-input, non-overwrite and typed lineage
-  invariants; expand property/fuzz and operational conformance in DS-037.
+- **recommended_change:** retain exact-input, non-overwrite, typed lineage,
+  attacker-resealed property and fuzz invariants in CI; extend them only when
+  new Simulator/Adapter/Approval bindings become real.
 - **required_tests:** implemented same-input/wall-clock repeatability,
   missing/tampered artifact fail-closed, restart, authorization-before-
   discovery, identity conflict rollback and counterfactual isolation.
@@ -594,5 +600,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-037` is next: add executable Replay fixtures, Decision/input binding
-properties and a bounded fail-closed/no-panic fuzz smoke.
+`DS-038` is next: add pinned dependency-vulnerability, secret and SAST gates
+with reviewed, owned exceptions.

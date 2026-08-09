@@ -7,6 +7,14 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-037 executable Replay, property and fuzz conformance. A closed pure vector
+  locks exact Original/Counterfactual Context and Decision hashes plus
+  non-authoritative same-snapshot lineage; ten Proptest properties retain
+  string-only Amounts and reject every attacker-resealed derived binding.
+  `scripts/test-conformance.sh` groups Policy, pure and real-PostgreSQL Replay
+  evidence, while a pinned nightly/libFuzzer target exercises the public
+  Intent boundary under a bounded 15-second CI smoke.
+
 - DS-032 bounded organization-scoped Audit queries. Authenticated
   `auditor`/`org_admin` operators can use `/v1/audit/events` or the
   Intent-specific alias with exact Intent, Agent, event-type and inclusive

@@ -47,6 +47,19 @@ ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh
 Use the isolated test-only stack documented in `deploy/docker/README.md` when
 no local PostgreSQL is available.
 
+DS-037 adds a focused Replay/property gate and a separately tooled fuzz smoke:
+
+```bash
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  ./scripts/test-conformance.sh
+rustup toolchain install nightly-2026-08-01 --component llvm-tools-preview
+cargo +nightly-2026-08-01 install cargo-fuzz --locked --version 0.13.2
+RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
+```
+
+The fuzz runner is bounded to 15 seconds by default and rejects a non-nightly
+compiler or a cargo-fuzz version different from the CI pin.
+
 ## Commit / PR expectations
 
 - Keep PRs focused on a single crate or concern where possible.

@@ -171,6 +171,11 @@ order. The executable order is:
   runs migrations, Audit/lifecycle/idempotency/Nonce races, restart recovery,
   two independent Gateway states and bounded real lock/deadlock failures on
   PostgreSQL 17.10. CI repeats it twice; test-only Compose runs the same gate.
+- [x] DS-037 Replay/property/fuzz conformance. Fixed pure vectors lock exact
+  Original/Counterfactual Context and Decision hashes plus lineage; Proptest
+  covers string-only Amount encoding and every attacker-resealed binding
+  class; real PostgreSQL Replay and a bounded nightly Intent fuzz smoke run in
+  CI.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -188,8 +193,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-037` — add Replay fixtures, binding properties and
-a bounded fail-closed fuzz smoke to the conformance gates.
+**Immediate next task:** `DS-038` — add dependency vulnerability, secret and
+SAST gates with pinned tools and reviewed exception ownership.
 
 ## Later releases
 

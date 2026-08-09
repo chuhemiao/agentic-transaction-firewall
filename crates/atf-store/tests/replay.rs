@@ -45,14 +45,17 @@ const AUDIENCE: &str = "atf-gateway";
 const OPERATOR_ID: &str = "replay-operator";
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReplayConformance {
     schema_version: u32,
     fixture_id: String,
     expected_decision_relation: String,
     stable_errors: StableReplayErrors,
+    invariants: OriginalReplayInvariants,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StableReplayErrors {
     authorization_denied: String,
     missing_risk_artifact: String,
@@ -61,6 +64,15 @@ struct StableReplayErrors {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalReplayInvariants {
+    matched: bool,
+    authoritative: bool,
+    original_rows_unchanged: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CounterfactualConformance {
     schema_version: u32,
     fixture_id: String,
@@ -71,6 +83,7 @@ struct CounterfactualConformance {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CounterfactualStableErrors {
     authorization_denied: String,
     missing_selected_artifact: String,
@@ -171,9 +184,12 @@ async fn counterfactual_replay_persists_new_lineage_without_overwriting_authorit
         })
         .await?;
 
-    let _ = counterfactual_conformance();
-    assert!(!result.authoritative);
-    assert!(result.outcome_changed);
+    let conformance = counterfactual_conformance();
+    assert_eq!(result.authoritative, conformance.authoritative);
+    assert_eq!(
+        result.outcome_changed,
+        conformance.expected_outcome_relation == "CHANGED"
+    );
     assert_eq!(
         result.original_evaluation_id,
         original.evaluation.evaluation_id
@@ -483,8 +499,10 @@ async fn original_replay_reproduces_hash_after_restart_without_overwriting_autho
         })
         .await?;
 
-    assert!(result.matched);
-    let _ = conformance();
+    let conformance = conformance();
+    assert_eq!(result.matched, conformance.invariants.matched);
+    assert!(!conformance.invariants.authoritative);
+    assert!(conformance.invariants.original_rows_unchanged);
     assert_eq!(result.original_decision_hash, original.decision_hash);
     assert_eq!(result.replayed_decision_hash, original.decision_hash);
     assert_eq!(
