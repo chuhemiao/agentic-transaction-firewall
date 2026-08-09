@@ -7,6 +7,17 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-032 bounded organization-scoped Audit queries. Authenticated
+  `auditor`/`org_admin` operators can use `/v1/audit/events` or the
+  Intent-specific alias with exact Intent, Agent, event-type and inclusive
+  time filters. Store reauthorizes the current durable role and verifies the
+  declared organization chain in one repeatable-read snapshot before exposing
+  stable sequence-ordered pages. Versioned cursors bind the tenant, filters
+  and chain prefix; limits default to 50 and cannot exceed 100. Real
+  Gateway/PostgreSQL tests cover filters, append-stable pagination,
+  cross-tenant/non-enumerating denial, malformed or rebound cursors, disabled
+  subjects, role and principal confusion, and fail-closed chain corruption.
+
 - DS-031 accepted request/order frequency Risk. Rule Set v1.3.0 binds the
   closed `AGENT` subject, `PROFILE` action scope, threshold, window,
   `REQUESTED` accounting and restrictive missing-data behavior. Authenticated

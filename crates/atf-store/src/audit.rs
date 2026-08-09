@@ -1,11 +1,18 @@
+use crate::operator::authorize_audit_read_and_load_chain;
 use crate::{Store, StoreError};
 use atf_audit::{AuditEvent, EventType, NewAuditEvent};
-use atf_core::Timestamp;
+use atf_core::{sha256_hex, sort_json_keys, Timestamp};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, Postgres, Transaction};
 
 const AUDIT_EVENT_SCHEMA_VERSION: i32 = 1;
+const AUDIT_QUERY_CURSOR_VERSION: u8 = 1;
+const AUDIT_QUERY_HASH_DOMAIN: &[u8] = b"ATF_AUDIT_QUERY_V1\0";
+const MAX_QUERY_IDENTIFIER_BYTES: usize = 128;
+pub const DEFAULT_AUDIT_QUERY_PAGE_SIZE: u16 = 50;
+pub const MAX_AUDIT_QUERY_PAGE_SIZE: u16 = 100;
 
 #[derive(Debug, Default)]
 pub(crate) struct AuditReferences {
@@ -25,6 +32,58 @@ pub struct StoredAuditEvent {
     pub decision_id: Option<String>,
 }
 
+/// Closed, organization-bound filters and page boundary for one Audit read.
+/// All filters are conjunctive and time bounds are inclusive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditQuery {
+    organization_id: String,
+    intent_id: Option<String>,
+    agent_id: Option<String>,
+    event_type: Option<EventType>,
+    occurred_from: Option<Timestamp>,
+    occurred_to: Option<Timestamp>,
+    limit: u16,
+    cursor: Option<AuditQueryCursor>,
+}
+
+/// Opaque transport cursor payload. Canonical bytes bind every filter plus
+/// the immutable organization-chain prefix selected by the first page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuditQueryCursor {
+    schema_version: u8,
+    organization_id: String,
+    query_hash: String,
+    after_sequence: i64,
+    through_sequence: i64,
+    through_event_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAuditChainSnapshot {
+    pub through_sequence: i64,
+    pub through_event_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditQueryPage {
+    pub organization_id: String,
+    pub chain: VerifiedAuditChainSnapshot,
+    pub events: Vec<StoredAuditEvent>,
+    pub limit: u16,
+    pub next_cursor: Option<AuditQueryCursor>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditQueryBinding<'a> {
+    organization_id: &'a str,
+    intent_id: Option<&'a str>,
+    agent_id: Option<&'a str>,
+    event_type: Option<EventType>,
+    occurred_from: Option<Timestamp>,
+    occurred_to: Option<Timestamp>,
+}
+
 #[derive(Debug, FromRow)]
 pub(crate) struct AuditEventRow {
     pub(crate) sequence: i64,
@@ -39,6 +98,157 @@ pub(crate) struct AuditEventRow {
     pub(crate) event_hash: String,
     pub(crate) canonical_event: Value,
     pub(crate) canonical_event_bytes: Vec<u8>,
+}
+
+impl AuditQuery {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        organization_id: impl Into<String>,
+        intent_id: Option<String>,
+        agent_id: Option<String>,
+        event_type: Option<EventType>,
+        occurred_from: Option<Timestamp>,
+        occurred_to: Option<Timestamp>,
+        limit: u16,
+        cursor: Option<AuditQueryCursor>,
+    ) -> Result<Self, StoreError> {
+        let query = Self {
+            organization_id: organization_id.into(),
+            intent_id,
+            agent_id,
+            event_type,
+            occurred_from,
+            occurred_to,
+            limit,
+            cursor,
+        };
+        query.validate()?;
+        Ok(query)
+    }
+
+    pub fn organization_id(&self) -> &str {
+        &self.organization_id
+    }
+
+    fn validate(&self) -> Result<(), StoreError> {
+        validate_query_identifier("organization_id", &self.organization_id)?;
+        if let Some(intent_id) = &self.intent_id {
+            validate_query_identifier("intent_id", intent_id)?;
+        }
+        if let Some(agent_id) = &self.agent_id {
+            validate_query_identifier("agent_id", agent_id)?;
+        }
+        for (field, timestamp) in [
+            ("occurred_from", self.occurred_from),
+            ("occurred_to", self.occurred_to),
+        ] {
+            if timestamp
+                .is_some_and(|value| value.as_datetime().timestamp_subsec_nanos() % 1_000_000 != 0)
+            {
+                return Err(invalid_query(format!(
+                    "{field} must use canonical millisecond precision"
+                )));
+            }
+        }
+        if self
+            .occurred_from
+            .zip(self.occurred_to)
+            .is_some_and(|(from, to)| from > to)
+        {
+            return Err(invalid_query("occurred_from must not exceed occurred_to"));
+        }
+        if !(1..=MAX_AUDIT_QUERY_PAGE_SIZE).contains(&self.limit) {
+            return Err(invalid_query(format!(
+                "Audit query limit must be within 1..={MAX_AUDIT_QUERY_PAGE_SIZE}"
+            )));
+        }
+        if let Some(cursor) = &self.cursor {
+            cursor.validate()?;
+            if cursor.organization_id != self.organization_id
+                || cursor.query_hash != self.binding_hash()?
+            {
+                return Err(invalid_query(
+                    "Audit cursor does not match the organization or filters",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn binding_hash(&self) -> Result<String, StoreError> {
+        let binding = AuditQueryBinding {
+            organization_id: &self.organization_id,
+            intent_id: self.intent_id.as_deref(),
+            agent_id: self.agent_id.as_deref(),
+            event_type: self.event_type,
+            occurred_from: self.occurred_from,
+            occurred_to: self.occurred_to,
+        };
+        let value = serde_json::to_value(binding)?;
+        let canonical = serde_json::to_vec(&sort_json_keys(value))?;
+        let mut bytes = Vec::with_capacity(AUDIT_QUERY_HASH_DOMAIN.len() + canonical.len());
+        bytes.extend_from_slice(AUDIT_QUERY_HASH_DOMAIN);
+        bytes.extend_from_slice(&canonical);
+        Ok(sha256_hex(&bytes))
+    }
+
+    fn matches(&self, stored: &StoredAuditEvent) -> bool {
+        self.intent_id
+            .as_deref()
+            .is_none_or(|intent_id| stored.event.intent_id.as_deref() == Some(intent_id))
+            && self.agent_id.as_deref().is_none_or(|agent_id| {
+                stored.event.data.get("agent_id").and_then(Value::as_str) == Some(agent_id)
+            })
+            && self
+                .event_type
+                .is_none_or(|event_type| stored.event.event_type == event_type)
+            && self
+                .occurred_from
+                .is_none_or(|from| stored.event.occurred_at >= from)
+            && self
+                .occurred_to
+                .is_none_or(|to| stored.event.occurred_at <= to)
+    }
+}
+
+impl AuditQueryCursor {
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        let cursor: Self = serde_json::from_slice(bytes)
+            .map_err(|_| invalid_query("Audit cursor is not valid canonical JSON"))?;
+        cursor.validate()?;
+        if cursor.canonical_bytes()? != bytes {
+            return Err(invalid_query("Audit cursor bytes are not canonical"));
+        }
+        Ok(cursor)
+    }
+
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        let value = serde_json::to_value(self)?;
+        Ok(serde_json::to_vec(&sort_json_keys(value))?)
+    }
+
+    fn validate(&self) -> Result<(), StoreError> {
+        if self.schema_version != AUDIT_QUERY_CURSOR_VERSION {
+            return Err(invalid_query("Audit cursor version is unsupported"));
+        }
+        validate_query_identifier("cursor.organization_id", &self.organization_id)?;
+        validate_sha256("cursor.query_hash", &self.query_hash)?;
+        if self.after_sequence < 0
+            || self.through_sequence < 0
+            || self.after_sequence > self.through_sequence
+        {
+            return Err(invalid_query("Audit cursor sequence range is invalid"));
+        }
+        match (self.through_sequence, &self.through_event_hash) {
+            (0, None) if self.after_sequence == 0 => Ok(()),
+            (sequence, Some(hash)) if sequence > 0 => {
+                validate_sha256("cursor.through_event_hash", hash)
+            }
+            _ => Err(invalid_query(
+                "Audit cursor chain sequence and hash are inconsistent",
+            )),
+        }
+    }
 }
 
 impl Store {
@@ -91,6 +301,89 @@ impl Store {
         let verified = load_verified_in_transaction(&mut transaction, organization_id).await?;
         transaction.commit().await?;
         Ok(verified)
+    }
+
+    /// Reauthorize the current durable Operator role, verify the complete
+    /// declared organization chain, then return one bounded stable page from
+    /// that immutable prefix. Authorization and chain verification share one
+    /// repeatable-read snapshot.
+    pub async fn query_verified_audit_events(
+        &self,
+        operator_id: &str,
+        query: AuditQuery,
+    ) -> Result<AuditQueryPage, StoreError> {
+        query.validate()?;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = '30s'")
+            .execute(&mut *transaction)
+            .await?;
+
+        let chain = authorize_audit_read_and_load_chain(
+            &mut transaction,
+            operator_id,
+            query.organization_id(),
+        )
+        .await?;
+        let current_snapshot = VerifiedAuditChainSnapshot {
+            through_sequence: chain.last().map_or(0, |event| event.sequence),
+            through_event_hash: chain.last().map(|event| event.event_hash.clone()),
+        };
+        let (after_sequence, snapshot) = match &query.cursor {
+            Some(cursor) => {
+                verify_cursor_snapshot(cursor, &chain)?;
+                (
+                    cursor.after_sequence,
+                    VerifiedAuditChainSnapshot {
+                        through_sequence: cursor.through_sequence,
+                        through_event_hash: cursor.through_event_hash.clone(),
+                    },
+                )
+            }
+            None => (0, current_snapshot),
+        };
+
+        let take = usize::from(query.limit) + 1;
+        let mut matching: Vec<StoredAuditEvent> = chain
+            .into_iter()
+            .filter(|event| {
+                event.sequence > after_sequence
+                    && event.sequence <= snapshot.through_sequence
+                    && query.matches(event)
+            })
+            .take(take)
+            .collect();
+        let has_more = matching.len() > usize::from(query.limit);
+        if has_more {
+            matching.pop();
+        }
+        let next_cursor = if has_more {
+            let last_sequence = matching
+                .last()
+                .expect("a page with more results contains its requested limit")
+                .sequence;
+            Some(AuditQueryCursor {
+                schema_version: AUDIT_QUERY_CURSOR_VERSION,
+                organization_id: query.organization_id.clone(),
+                query_hash: query.binding_hash()?,
+                after_sequence: last_sequence,
+                through_sequence: snapshot.through_sequence,
+                through_event_hash: snapshot.through_event_hash.clone(),
+            })
+        } else {
+            None
+        };
+
+        transaction.commit().await?;
+        Ok(AuditQueryPage {
+            organization_id: query.organization_id,
+            chain: snapshot,
+            events: matching,
+            limit: query.limit,
+            next_cursor,
+        })
     }
 }
 
@@ -480,6 +773,61 @@ fn map_head_insert_error(error: sqlx::Error, organization_id: &str) -> StoreErro
         }
     } else {
         StoreError::Database(error)
+    }
+}
+
+fn verify_cursor_snapshot(
+    cursor: &AuditQueryCursor,
+    chain: &[StoredAuditEvent],
+) -> Result<(), StoreError> {
+    cursor.validate()?;
+    if cursor.through_sequence == 0 {
+        return Ok(());
+    }
+    let index = usize::try_from(cursor.through_sequence - 1)
+        .map_err(|_| invalid_query("Audit cursor sequence cannot index the chain"))?;
+    let matches = chain.get(index).is_some_and(|event| {
+        event.sequence == cursor.through_sequence
+            && cursor.through_event_hash.as_deref() == Some(event.event_hash.as_str())
+    });
+    if matches {
+        Ok(())
+    } else {
+        Err(invalid_query(
+            "Audit cursor snapshot is not a prefix of the verified organization chain",
+        ))
+    }
+}
+
+fn validate_query_identifier(field: &str, value: &str) -> Result<(), StoreError> {
+    if !(1..=MAX_QUERY_IDENTIFIER_BYTES).contains(&value.len())
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+    {
+        return Err(invalid_query(format!(
+            "{field} must be 1..={MAX_QUERY_IDENTIFIER_BYTES} canonical ASCII bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_sha256(field: &str, value: &str) -> Result<(), StoreError> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(invalid_query(format!(
+            "{field} must be a lowercase SHA-256 hex digest"
+        )));
+    }
+    Ok(())
+}
+
+fn invalid_query(reason: impl Into<String>) -> StoreError {
+    StoreError::InvalidRepositoryInput {
+        reason: reason.into(),
     }
 }
 

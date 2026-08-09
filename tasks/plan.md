@@ -1087,6 +1087,8 @@ rate limiting, using accepted lifecycle events within Evaluation Context time.
 
 ### DS-032 — Add organization-scoped Audit queries `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Query immutable events by organization, Intent, Agent, event
 type and time with bounded pagination. Add an auditor-authorized endpoint and
 chain verification status without exposing other tenants.
@@ -1100,6 +1102,16 @@ chain verification status without exposing other tenants.
   2. Cross-tenant access and unbounded queries are rejected.
   3. Returned events can be verified against the declared organization chain.
 - **Verification:** filter/pagination/tenant tests and authenticated curl smoke; full DoD.
+
+- **Delivered boundary:** `GET /v1/audit/events` and the PRD-specific
+  `/v1/audit/intents/{intent_id}` alias require a valid Operator JWT plus a
+  current `auditor`/`org_admin` role. Store repeats authorization and verifies
+  the full declared organization chain inside one repeatable-read, read-only
+  transaction before filtering. Intent, Agent, event-type and inclusive time
+  filters are conjunctive; pages default to 50, cap at 100 and use a canonical
+  base64url cursor bound to organization, filter hash and a verified chain
+  prefix. Tests cover append-stable pagination, tenant/role/principal
+  isolation, invalid/rebound/unbounded cursors and fail-closed corruption.
 
 ### DS-033 — Add safe metrics and tracing `[M]`
 

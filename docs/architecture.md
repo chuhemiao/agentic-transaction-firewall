@@ -124,7 +124,8 @@ Agent Intent
   Schema is tested against real output for every payload family. *Implemented
   as a domain library. The Gateway commits current admission/finalization
   events through typed constructors and persists them through `atf-store`; it
-  does not use the in-memory ledger as a fallback.*
+  does not use the in-memory ledger as a fallback. DS-032's HTTP query surface
+  returns only events reverified by the Store's durable chain reader.*
 - **`atf-decision`** — the real PRD §10.1 merge plus DS-025's closed Decision
   v1 envelope. The domain-separated canonical hash binds Intent/Profile,
   Policy/Risk artifacts, Evaluation Context/snapshot, explicit Simulation
@@ -138,7 +139,12 @@ Agent Intent
   SHA-256 hashes, composite tenant foreign keys, and append-only Audit
   triggers. It now serializes concurrent appends with a per-organization
   chain-head row lock and reloads/verifies the complete persisted chain under
-  one consistent snapshot. Migration 0002 adds lifecycle state, optimistic
+  one consistent snapshot. DS-032 adds an auditor-authorized, read-only
+  repeatable-read query over that verified chain. It supports conjunctive
+  organization/Intent/Agent/event-type/inclusive-time filters, page sizes from
+  1 to 100, and a canonical cursor bound to the organization, filter hash and
+  verified chain prefix. Current Operator/Role authority is checked inside the
+  same transaction and unauthorized targets are not loaded. Migration 0002 adds lifecycle state, optimistic
   version, contract version, last-event pointer, update time, constraints, and
   an event foreign key. Migration 0003 adds one immutable
   `(organization_id,idempotency_key)` reservation per Intent, database-clock
@@ -243,7 +249,12 @@ Agent Intent
   separate authorized verification operation and never changes that recovery
   record. Agent/Operator credentials are disjoint and
   Decision absence, cross-tenant selection and insufficient read role share
-  one 404. Background recovery, configured general request/rate limits, full
+  one 404. DS-032 adds `GET /v1/audit/events` and the
+  `/v1/audit/intents/{intent_id}` alias with current `auditor`/`org_admin`
+  authority, stable append-insensitive pagination and explicit `VERIFIED`
+  organization-chain status; malformed/unbounded queries, tenant/role
+  confusion and any chain corruption fail closed. Background recovery,
+  configured general request/rate limits, full
   trace/Audit correlation, and metrics remain absent.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
@@ -272,8 +283,8 @@ Agent Intent
   lifecycle plus offline provisioning, DS-016 authenticated Gateway/Nonce
   admission, DS-018 durable Operator subjects/roles plus Gateway JWT/JWKS
   Decision-read RBAC, and DS-023 immutable Evaluation Context persistence now
-  exist. Additional action profiles and Admin/Audit HTTP
-  role matrices remain unimplemented. Accepted
+  exist. Additional action profiles and remaining Admin HTTP role matrices
+  remain unimplemented. Accepted
   [`ADR-0003`](decisions/0003-operator-authentication.md) is implemented for
   the current Decision-read surface.
 
@@ -301,7 +312,7 @@ DS-018 implements the application boundary: migration 0006 and `atf-store`
 own subject/role lifecycle and verification; `atf operator` provisions it
 offline; Gateway startup discovers and loads only the configured HTTPS issuer
 and JWKS; `AgentPrincipal` and `OperatorPrincipal` are disjoint; every Decision
-read reloads current local status/roles; and non-enumerating, revocation,
+or Audit read reloads current local status/roles; and non-enumerating, revocation,
 restart, redaction and real HTTP/PostgreSQL tests cover the role matrix.
 
 TLS terminates at a trusted ingress, while the ingress-to-Gateway hop must be
@@ -570,13 +581,14 @@ complete Decision Engine:
   Gateway-validated JWTs and current durable Operator roles. DS-020 adds the
   first Admin capability: Policy activation/rollback requires `policy_author`
   or `org_admin` and is reauthorized inside the mutation transaction. Other
-  Admin and Audit routes still need their explicit endpoint matrices.
+  Further Admin routes still need their explicit endpoint matrices.
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database, explicitly provisioned organizations/operators,
   and configured HTTPS issuer/JWKS. GET's organization header is a selector
   authorized against the current durable Operator role. Its duplicate-purchase
-  rule uses an indexed bounded query, but broader record integrity readers
-  still verify full organization Audit chains. It has no configured
+  rule uses an indexed bounded query. DS-032's bounded response still verifies
+  the full organization Audit chain on every page; without checkpoints this
+  has O(chain) cost and can be a growth-based availability risk. It has no configured
   header/timeout/rate limits,
   and has no background lifecycle recovery worker. Completed same-hash POSTs
   now return the original verified Decision, an active same-hash duplicate

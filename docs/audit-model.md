@@ -1,10 +1,10 @@
 # ATF Lifecycle and Audit Model
 
-Status: DS-025 authenticated lifecycle, Context and bound Decision evidence
+Status: DS-032 authenticated lifecycle, Context, bound Decision and verified query evidence
 
-Version: 8
+Version: 9
 
-Authority: `docs/PRD.md` §12.5–12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-025
+Authority: `docs/PRD.md` §12.5–12.6 and §16–17, ADR-0002/ADR-0003, and `tasks/plan.md` DS-006/DS-007/DS-015/DS-016/DS-018/DS-020..DS-032
 
 ## Objective
 
@@ -238,6 +238,27 @@ first-destination and request-frequency query inputs/results inside canonical
 `IntentReceived` evidence also binds the admitted Profile/action scope;
 pre-DS-031 events without that optional compatibility field remain decodable
 but are explicit unresolved frequency evidence.
+
+### Verified Audit query transaction
+
+DS-032 exposes `GET /v1/audit/events` plus the Intent-specific alias only to a
+Gateway-validated Operator principal with a current `auditor` or `org_admin`
+binding for the selected organization. The Store repeats active subject and
+role authorization in one repeatable-read, read-only transaction, then loads
+and verifies canonical event bytes, event hashes, contiguous sequence,
+predecessor links and the declared organization head before applying any
+filter or returning an event. An operator with no target role row is rejected
+before the target chain is loaded.
+
+Intent, payload Agent, event type and inclusive millisecond time filters are
+conjunctive. Pages are sequence-ascending, default to 50 and cannot exceed 100.
+The version-1 canonical cursor binds the organization, a domain-separated hash
+of every filter, the last returned sequence and the verified terminal
+sequence/hash for the traversal. Later appends therefore cannot change
+subsequent pages. The cursor is not authorization; JWT verification and the
+current durable role check occur for every page. Until an external checkpoint
+model exists, each query verifies the full organization chain and therefore
+has O(chain) cost even though the HTTP response is bounded.
 
 ### Evaluation finalization transaction
 

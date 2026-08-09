@@ -12,17 +12,21 @@ or execution authority.
 | `GET` | `/readyz` | PostgreSQL/schema and Operator-JWKS readiness text (`ready` or `not ready`) |
 | `POST` | `/v1/intents` | A durably recorded Decision |
 | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
+| `GET` | `/v1/audit/events` | A bounded verified organization Audit page |
+| `GET` | `/v1/audit/intents/{intent_id}` | The same query with an Intent filter fixed by the path |
 | `POST` | `/v1/policy-bundles/{bundle_id}/activate` | Activate one installed signed version |
 | `POST` | `/v1/policy-bundles/{bundle_id}/rollback` | Select the immediately prior signed version |
 
-The Decision read route requires exactly one RFC 9068
+The Decision and Audit read routes require exactly one RFC 9068
 `Authorization: Bearer` access token validated by the Gateway and a current
 PostgreSQL `auditor` or `org_admin` binding for the selected organization.
 Agent Envelopes and Operator tokens are disjoint principal types and fail when
 used on the wrong route. `X-ATF-Organization-ID` remains a canonical tenant
 selector; it and JWT organization/role/email claims never become authority.
 Decision absence, cross-organization selection and insufficient read role all
-return the same `404 DECISION_NOT_FOUND` response.
+return the same `404 DECISION_NOT_FOUND` response. Audit cross-organization
+selection, missing current role and absent organization all return the same
+`404 AUDIT_EVENTS_NOT_FOUND` response.
 
 Both Decision routes return the closed DS-025 Decision v1 envelope defined by
 `schemas/decision.schema.json`. In addition to ID/kind/reasons it carries the
@@ -92,6 +96,68 @@ freshness and HTTP timeout have bounded optional environment settings; a
 private/test CA can be supplied via `ATF_OPERATOR_CA_CERT_PATH`. Startup fails
 closed unless discovery and an initial unique usable key set validate.
 
+## DS-032 Audit query contract
+
+Both Audit routes require an Operator principal with a current durable
+`auditor` or `org_admin` role in the organization selected by the canonical
+`X-ATF-Organization-ID` header. The Gateway performs a fast role check, then
+the Store repeats subject/status/role authorization and verifies the complete
+declared organization chain inside one repeatable-read, read-only snapshot.
+No target chain is loaded when the operator has no role row for that target.
+
+`GET /v1/audit/events` accepts these optional, conjunctive query parameters:
+
+| Parameter | Meaning |
+|---|---|
+| `intent_id` | Exact canonical Intent ID |
+| `agent_id` | Exact `data.agent_id` in a verified typed Audit payload |
+| `event_type` | Exact canonical `EventType` wire value |
+| `occurred_from` | Inclusive RFC 3339 lower bound at millisecond precision |
+| `occurred_to` | Inclusive RFC 3339 upper bound at millisecond precision |
+| `limit` | Page size, `1..=100`; default `50` |
+| `cursor` | Opaque URL-safe base64 cursor from the preceding response |
+
+`GET /v1/audit/intents/{intent_id}` fixes the Intent filter from the path and
+accepts all other filters. Supplying `intent_id` again on that route is
+invalid. Unknown parameters, invalid identifiers/times/event values, a lower
+time greater than the upper time, padded/noncanonical/oversized cursors and an
+out-of-range limit return `400 AUDIT_QUERY_INVALID`.
+
+Success is ordered by ascending organization sequence and has this shape:
+
+```json
+{
+  "schema_version": 1,
+  "organization_id": "alpha-lab",
+  "chain": {
+    "status": "VERIFIED",
+    "through_sequence": 42,
+    "through_event_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "events": [],
+  "pagination": {
+    "order": "SEQUENCE_ASC",
+    "limit": 50,
+    "next_cursor": null
+  }
+}
+```
+
+Each non-empty `events` entry carries `sequence`, `event_hash`, the complete
+closed `AuditEvent` defined by `schemas/audit-event.schema.json`, and nullable
+`evaluation_id`/`decision_id` storage bindings.
+
+The versioned cursor binds the organization, exact filter set, last returned
+sequence and the verified `through_sequence`/hash. Later appends therefore do
+not change an in-progress traversal. A cursor cannot be reused with another
+tenant or filter set. The cursor is opaque state binding, not a bearer
+credential or cryptographic authorization token; JWT validation and current
+durable RBAC are repeated for every page. Any canonical/hash/order/head
+corruption returns `500 DURABLE_STATE_INTEGRITY_ERROR` and exposes no events.
+The current proof verifies the full chain on every query; until Audit
+checkpoints exist this has O(organization event count) cost and remains subject
+to DS-034 operational limits.
+
 ## Request correlation
 
 The Gateway generates a fresh ULID for every HTTP request. Every response,
@@ -152,7 +218,9 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 400 | `INTENT_SEMANTIC_INVALID` | Common or Profile semantic rules rejected the Intent |
 | 400 | `ORGANIZATION_HEADER_INVALID` | Canonical tenant-selector header is malformed |
 | 400 | `ORGANIZATION_NOT_FOUND` | Declared organization is unavailable |
+| 400 | `AUDIT_QUERY_INVALID` | Audit filters, limit or cursor are malformed, unknown, unbounded or mismatched |
 | 404 | `DECISION_NOT_FOUND` | No tenant-scoped durable Decision exists |
+| 404 | `AUDIT_EVENTS_NOT_FOUND` | Audit organization is absent, cross-tenant or not readable by the principal |
 | 404 | `POLICY_BUNDLE_NOT_FOUND` | Policy resource is absent, cross-tenant, unauthorized, or cannot roll back |
 | 404 | `ROUTE_NOT_FOUND` | Path is not registered |
 | 405 | `METHOD_NOT_ALLOWED` | Method is not registered for the path |
@@ -171,9 +239,9 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 Changing or removing an existing code or field is a compatibility decision and
 requires an explicit migration.
 
-## DS-018/DS-020 Operator error mapping
+## DS-018/DS-020/DS-032 Operator error mapping
 
-The current Decision-read contract deliberately minimizes credential and
+The current protected-read contract deliberately minimizes credential and
 resource-state disclosure:
 
 | HTTP | Code | Meaning |
@@ -181,6 +249,7 @@ resource-state disclosure:
 | 401 | `AUTHENTICATION_REQUIRED` | No single valid route-appropriate credential, no active mapped Operator, or principal-type mismatch |
 | 404 | `DECISION_NOT_FOUND` | Decision absent, cross-organization, or not readable by the principal; the cases are indistinguishable |
 | 404 | `POLICY_BUNDLE_NOT_FOUND` | Policy Bundle/pointer absent, cross-organization, wrong-role, or rollback unavailable; the cases are indistinguishable |
+| 404 | `AUDIT_EVENTS_NOT_FOUND` | Audit organization absent, cross-organization, or not readable by the principal; the cases are indistinguishable |
 | 503 | readiness text only | No fresh usable configured issuer key set is available; `/readyz` fails and protected reads fail closed |
 
 401 responses include only a fixed safe `WWW-Authenticate: Bearer` challenge.

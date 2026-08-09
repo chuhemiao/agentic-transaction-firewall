@@ -39,6 +39,10 @@ impl OperatorRole {
         matches!(self, Self::Auditor | Self::OrgAdmin)
     }
 
+    pub const fn can_read_audit(self) -> bool {
+        matches!(self, Self::Auditor | Self::OrgAdmin)
+    }
+
     pub const fn can_change_policy(self) -> bool {
         matches!(self, Self::PolicyAuthor | Self::OrgAdmin)
     }
@@ -651,6 +655,49 @@ pub(crate) async fn authorize_decision_read(
     })?;
     if authorized {
         Ok(())
+    } else {
+        Err(denied())
+    }
+}
+
+pub(crate) async fn authorize_audit_read_and_load_chain(
+    transaction: &mut Transaction<'_, Postgres>,
+    operator_id: &str,
+    organization_id: &str,
+) -> Result<Vec<crate::StoredAuditEvent>, StoreError> {
+    validate_identifier("operator_id", operator_id)?;
+    validate_identifier("organization_id", organization_id)?;
+    let denied = || StoreError::AuditReadAuthorizationDenied {
+        organization_id: organization_id.into(),
+        operator_id: operator_id.into(),
+    };
+    let Some(row) =
+        fetch_operator_query(transaction, "operator_id = $1", operator_id, false).await?
+    else {
+        return Err(denied());
+    };
+    let audit_organization_id = row.audit_organization_id.clone();
+    let operator_chain = load_verified_in_transaction(transaction, &audit_organization_id).await?;
+    let operator = verify_operator_row(row, &operator_chain)?;
+    if operator.status != OperatorStatus::Active {
+        return Err(denied());
+    }
+
+    let role_rows = fetch_roles(transaction, operator_id, organization_id).await?;
+    if role_rows.is_empty() {
+        return Err(denied());
+    }
+    let organization_chain = if organization_id == audit_organization_id {
+        operator_chain
+    } else {
+        load_verified_in_transaction(transaction, organization_id).await?
+    };
+    let authorized = role_rows.into_iter().try_fold(false, |authorized, row| {
+        let binding = verify_role_row(row, &organization_chain)?;
+        Ok::<_, StoreError>(authorized || (binding.active && binding.role.can_read_audit()))
+    })?;
+    if authorized {
+        Ok(organization_chain)
     } else {
         Err(denied())
     }

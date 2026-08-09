@@ -32,7 +32,7 @@ real network request path, but no execution path or production secret.
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
 | 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets in CI, denies advisories, unreviewed licenses/sources/wildcards and new duplicate versions, and fails on every warning; exact current duplicate exceptions carry dependency-path reasons. `cargo audit`, secret scanning, SAST, SBOM, and artifact signing are not configured |
 | 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
-| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. Independent checkpoints, retention, and privileged-database threat controls remain later work |
+| 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. DS-032 exposes only pages from a complete reverified declared-organization chain and fails closed on deletion, mutation, reorder or head mismatch. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Partially mitigated: DS-022 stops reading Agent `historical_vendor_median`, accepts only fresh/hash-verified/allowlisted/exact-scope `ATF_ENRICHED` evidence, and turns stale/tampered/unsigned/ambiguous or Agent-provided inputs into explicit restrictive findings. DS-023 durably binds the exact verified Evidence and trust-policy identity before evaluation; DS-024 makes Risk consume only that closed Context. DS-029 applies the same authority to direct asset quotes: a missing, ambiguous, wrong-scope or inexact quote produces a High/Critical finding and cannot convert daily spend. Production enrichers remain future work |
 | 14 | Exchange API key leakage | Not applicable yet — no Adapter holds any credential in this repo |
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
@@ -52,7 +52,8 @@ secret. The realistic attack surface today includes:
   requires a canonical signed Envelope and current durable exact Key, with
   atomic hashed-Nonce consumption before Policy/Risk. GET requires a
   Gateway-validated configured-issuer JWT and a current durable
-  `auditor`/`org_admin` role for its organization selector. DS-018 ignores
+  `auditor`/`org_admin` role for its organization selector. This protects both
+  Decision reads and DS-032 Audit reads. DS-018 ignores
   token role/organization claims, makes current local disable/revoke immediate,
   rejects credential type confusion and prevents cross-tenant/wrong-role
   resource enumeration. A caller with the exact valid Agent proof can still
@@ -126,6 +127,15 @@ secret. The realistic attack surface today includes:
   evaluation and Replay. Other Store
   integrity readers still verify complete organization chains, and configured
   request/rate limits remain required to resist growth-based denial of service.
+- **Audit query isolation and traversal cost** — DS-032 authenticates before
+  parsing query details, rechecks current local auditor/admin authority inside
+  the Store snapshot, and avoids loading a target chain when no target role row
+  exists. Filters are conjunctive and responses cap at 100. A canonical cursor
+  binds tenant, filters and the verified prefix, preventing cross-filter reuse
+  and append-driven page drift; it is not an authorization token. Every page
+  still verifies the complete organization chain, so an authorized query over
+  a very large chain is an O(chain) availability surface until checkpoints,
+  DS-034 limits and retention controls exist.
 - **Decision substitution or field tampering** — DS-025 rejects Policy/Risk
   output identities that differ from the persisted Context, seals every
   decisive field under `ATF_DECISION_V1`, and makes Store reads require the
@@ -168,6 +178,8 @@ resource-limit controls.
 | Keep using a removed role with a still-valid token | Token role/group claims grant nothing; PostgreSQL subject/role status is checked on every request |
 | Multi-organization operator selects another tenant's resource | Principal binding, selector, durable resource organization, and Audit organization must all agree |
 | Probe whether another tenant's Decision exists | Missing, cross-tenant, and wrong-read-role cases return the same 404 contract |
+| Probe another tenant's Audit chain, role membership, or corruption state | Authentication occurs first; no-role targets are not loaded, and absent/cross-tenant/wrong-role cases return the same `AUDIT_EVENTS_NOT_FOUND` contract |
+| Rebind an Audit cursor to another organization/filter or append between pages | Canonical cursor binds organization, filter hash and verified prefix; every page reauthenticates and later appends do not change the traversal |
 | Share a service credential to erase attribution | One external subject and internal operator ID per human/service principal; no shared or anonymous fallback |
 | Replay a stolen access token or leak it through logs | TLS, exact audience, short lifetime, fixed redaction; sender-constrained tokens are reconsidered before Enforce |
 | Force unbounded JWKS refresh with unknown `kid` values | At most one bounded configured-origin refresh; stale/unavailable keys fail authentication/readiness closed |

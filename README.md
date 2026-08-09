@@ -209,6 +209,11 @@ Only the following crates are implemented so far:
   DS-031. Current admission writes the exact Profile/action binding into the
   append-only `IntentReceived` payload; Store records matching and unresolved
   REQUESTED counts at the same repository sequence/hash.
+  DS-032 adds a repeatable-read Audit query boundary which reloads current
+  Operator/Role authority, verifies the complete declared organization chain,
+  and returns only bounded, sequence-ordered pages. Its versioned cursor binds
+  the organization, exact filters and verified chain prefix so later appends do
+  not move an in-progress traversal.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   `atf risk install`, `atf replay original/counterfactual`,
@@ -220,7 +225,9 @@ Only the following crates are implemented so far:
   (including duplicate-purchase, daily cumulative-spend, first-destination and
   accepted-request-frequency checks), Decision, and
   Audit into one request path: `POST /v1/intents` and
-  `GET /v1/intents/{id}/decision`, authenticated Policy activation/rollback,
+  `GET /v1/intents/{id}/decision`; DS-032 also exposes authenticated
+  `GET /v1/audit/events` and `GET /v1/audit/intents/{intent_id}` queries,
+  alongside authenticated Policy activation/rollback,
   plus `/healthz`/`/readyz`. PostgreSQL is
   required at startup, `/readyz` verifies live storage/schema compatibility
   and fresh usable configured JWKS, and restart/second-instance reads return
@@ -237,8 +244,8 @@ Only the following crates are implemented so far:
   asymmetric algorithm and `at+jwt` checks with bounded key refresh; every
   protected read reloads current local subject status and roles so disable or
   revoke takes effect on the next request. Missing/invalid credentials return
-  one safe 401 challenge; absent, cross-tenant and wrong-role Decision reads
-  are indistinguishable 404 responses.
+  one safe 401 challenge; absent, cross-tenant and wrong-role Decision/Audit
+  reads are indistinguishable route-specific 404 responses.
   Each new evaluation loads and fully revalidates the current signed durable
   active pointer in one repeatable-read snapshot, so an audited activation or
   rollback applies to the next request without restarting the Gateway.
@@ -410,7 +417,7 @@ semantics (evaluate only, never execute).
    tests. **Not** wired in: Simulation or Approval. DS-020 adds only the first
    Admin HTTP subset (Policy activate/rollback); Agent/Operator/Policy
    installation lifecycle provisioning remains an offline CLI. Agent identity
-   is wired on POST and Operator RBAC is wired on Decision GET and Policy
+   is wired on POST and Operator RBAC is wired on Decision/Audit GET and Policy
    mutation routes.
 9. ~~Common Transaction Intent semantic validation.~~ Done in DS-009:
    financial/time/ULID/text invariants produce stable ordered codes, CLI
@@ -472,7 +479,8 @@ semantics (evaluate only, never execute).
     organization roles with typed Audit; offline CLI provisioning never stores
     the raw subject; the Gateway validates configured HTTPS issuer/JWKS RFC
     9068 tokens into disjoint typed principals and requires a freshly loaded
-    `auditor`/`org_admin` role for non-enumerating Decision reads. Revocation,
+    `auditor`/`org_admin` role for non-enumerating Decision reads; DS-032 extends
+    the same current-role boundary to bounded Audit reads. Revocation,
     disable, restart, cross-tenant, confused-deputy, redaction and real HTTP/
     PostgreSQL paths are covered.
 19. ~~Validated Policy Bundle identity.~~ Done in DS-019: the closed manifest,
@@ -546,6 +554,12 @@ semantics (evaluate only, never execute).
     missing-data behavior; migration 0014 indexes immutable admission evidence,
     and Store/Gateway tests prove inclusive windows, concurrent threshold
     enforcement and idempotent retry non-inflation.
+32. ~~Organization-scoped Audit queries.~~ Done in DS-032: current
+    `auditor`/`org_admin` authority is rechecked inside the Store snapshot;
+    exact Intent, Agent, event-type and inclusive time filters return at most
+    100 verified events in stable sequence order. The cursor binds the tenant,
+    filters and verified chain prefix, and cross-tenant, wrong-role, malformed,
+    rebound or corruption cases fail closed without enumeration.
 
 ### Remaining before Phase 2 can close out
 
@@ -604,14 +618,16 @@ semantics (evaluate only, never execute).
 - ~~Wire `atf-identity` into Gateway admission before Policy/Risk.~~ Done in
   DS-016 with atomic Nonce consumption and request Identity/replay evidence.
 - ~~Organization-scoped operator authentication/RBAC following accepted
-  ADR-0003.~~ Done in DS-018 for current Decision reads; Admin/Audit HTTP role
-  matrices remain future endpoint-specific work.
+  ADR-0003.~~ Done in DS-018 for current Decision reads and extended by DS-032
+  to current Audit reads; further Admin HTTP role matrices remain
+  endpoint-specific work.
 - ~~Make Policy/Risk consume only the persisted `EvaluationContext`, strongly
   bind canonical Decisions, and support exact/isolated Replay.~~ Done in
   DS-024..DS-027 with byte-identical Original reproduction and immutable
   non-authoritative Counterfactual lineage.
-- Organization-scoped Audit Query API, metrics, safe tracing, and API
-  security controls.
+- ~~Organization-scoped Audit Query API.~~ Done in DS-032 with bounded stable
+  pagination and verified organization-chain status. Metrics, safe tracing,
+  API security controls, external Audit checkpoints and retention remain.
 - The remaining history-dependent Risk rules, each using the now-required
   explicit lifecycle accounting boundary.
 - `atf evaluate` currently requires an explicit millisecond-aligned
@@ -631,11 +647,11 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation and core libraries exist; the remaining release gate is
-  stateful Risk, Audit query/metrics, operational hardening, and security
+  stateful Risk, metrics, operational hardening, and security
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-031.
+  complete through DS-032.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

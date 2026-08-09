@@ -24,7 +24,10 @@ mod risk;
 use serde::{Deserialize, Serialize};
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
 
-pub use audit::StoredAuditEvent;
+pub use audit::{
+    AuditQuery, AuditQueryCursor, AuditQueryPage, StoredAuditEvent, VerifiedAuditChainSnapshot,
+    DEFAULT_AUDIT_QUERY_PAGE_SIZE, MAX_AUDIT_QUERY_PAGE_SIZE,
+};
 pub use error::StoreError;
 pub use identity::{IdentitySnapshot, StoredAgent, StoredIdentityKey};
 pub use models::{

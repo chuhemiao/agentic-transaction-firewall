@@ -114,6 +114,12 @@ pub enum StoreError {
         operator_id: String,
     },
 
+    #[error("Operator `{operator_id}` is not authorized to read Audit events in organization `{organization_id}`")]
+    AuditReadAuthorizationDenied {
+        organization_id: String,
+        operator_id: String,
+    },
+
     #[error("Policy Bundle `{bundle_id}` version `{policy_version}` already exists in organization `{organization_id}` environment `{environment}`")]
     PolicyBundleConflict {
         organization_id: String,

@@ -140,8 +140,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   frequency with immutable Profile/action admission binding, bounded Store
   aggregates, concurrency enforcement and idempotent retry non-inflation.
   Depends: DS-028.
-- [ ] **NEXT — DS-032:** add organization-scoped Audit query API. Depends: DS-003, DS-018, DS-025.
-- [ ] **DS-033:** add safe metrics, tracing, correlation and redaction. Depends: DS-018, DS-025, DS-032.
+- [x] **DS-032:** added bounded organization-scoped Audit queries with current
+  auditor/admin reauthorization, verified-chain status, exact filters and
+  append-stable tenant/filter/prefix-bound pagination. Depends: DS-003, DS-018, DS-025.
+- [ ] **NEXT — DS-033:** add safe metrics, tracing, correlation and redaction. Depends: DS-018, DS-025, DS-032.
 - [ ] **DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
 - [ ] **DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
 - [ ] **DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.

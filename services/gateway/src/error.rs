@@ -133,6 +133,22 @@ impl ApiError {
         )
     }
 
+    pub(crate) fn audit_query_invalid() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "AUDIT_QUERY_INVALID",
+            "Audit query parameters are invalid.",
+        )
+    }
+
+    pub(crate) fn audit_events_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "AUDIT_EVENTS_NOT_FOUND",
+            "No Audit events were found.",
+        )
+    }
+
     pub(crate) fn invalid_json() -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
@@ -235,6 +251,7 @@ impl ApiError {
             | StoreError::OperatorRoleNotFound { .. }
             | StoreError::PolicyAuthorizationDenied { .. }
             | StoreError::DecisionReadAuthorizationDenied { .. }
+            | StoreError::AuditReadAuthorizationDenied { .. }
             | StoreError::PolicyBundleNotFound { .. }
             | StoreError::RiskRuleSetNotFound { .. }
             | StoreError::ActivePolicyBundleNotFound { .. }

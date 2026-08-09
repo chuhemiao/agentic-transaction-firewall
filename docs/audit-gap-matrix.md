@@ -104,11 +104,11 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-identity` | `IMPLEMENTED_AND_WIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority. DS-016 requires it before Policy/Risk and atomically consumes hashed Nonces. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation, closed scoped manifests, Bundle/file hashes, Cedar Schema validation, strict publisher signature, immutable archive and audited activation/rollback are wired. Multi-Bundle composition/conflict analysis and publisher-key revocation remain missing. |
 | `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules plus duplicate-purchase, asset-aware daily-spend, normalized first-destination and accepted-request-frequency history rules are wired under an immutable Context and versioned Rule Set; DS-028..DS-031 supply typed bounded PostgreSQL snapshots rather than Audit events. Most other PRD rules remain missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-031 add typed bounded duplicate/daily-spend/first-destination/request-frequency Risk-history evidence, and current `IntentReceived` binds Profile/action; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-031 add typed bounded duplicate/daily-spend/first-destination/request-frequency Risk-history evidence, and current `IntentReceived` binds Profile/action; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. DS-032 exposes bounded verified organization queries; checkpoints, retention and independent verification remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. Background recovery scanning remains absent. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. DS-032 adds current-role-authorized verified Audit pages from a repeatable-read chain snapshot. Background recovery scanning, checkpoints and retention remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision GET requires a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and Audit/Admin query APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and further Admin APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | `conformance/policy-tests` | `IMPLEMENTED_AND_WIRED` | Three cases run through `atf policy test`. |
@@ -174,13 +174,17 @@ principals and non-enumerating Decision-read RBAC.
   disjoint; selector/JWT role claims grant nothing; missing/cross-tenant/
   wrong-role resource reads do not enumerate. PostgreSQL/Gateway tests cover
   restart, role revoke/regrant, subject disable, token failures, redaction and
-  confused-deputy cases, with a real authenticated HTTP smoke.
-- **security_impact:** the current POST and Decision GET surfaces require
+  confused-deputy cases, with a real authenticated HTTP smoke. DS-032 applies
+  the same principal boundary to both Audit routes, repeats current
+  auditor/admin authorization in the Store snapshot, does not load an
+  unauthorized target chain, and tests cross-tenant, wrong-role, disabled,
+  Agent-credential, malformed cursor and corruption cases.
+- **security_impact:** the current POST, Decision GET and Audit GET surfaces require
   route-appropriate typed principals; local revocation is immediate on the
-  next request. Future Admin/Audit routes and edge deployment controls remain
+  next request. Future Admin routes and edge deployment controls remain
   separate gaps.
-- **financial_impact:** Decision contents are no longer anonymously readable
-  through a forged organization selector; this route remains read-only.
+- **financial_impact:** Decision and Audit contents are no longer anonymously
+  readable through a forged organization selector; these routes remain read-only.
 - **severity:** `CLOSED` (formerly `CRITICAL`)
 - **recommended_change:** preserve disjoint principals and current durable-role
   reload when adding explicit capability matrices for future routes.
@@ -458,12 +462,12 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** `atf-audit`, Gateway
 - **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** append-only domain API, hash chain, tamper test, and `DecisionRecorded` exist. Migration 0001 adds per-organization PostgreSQL event/head tables and immutable-row triggers. DS-003 row-locks each organization head, assigns sequence/predecessor/hash server-side, checks the locked tail, and reloads/verifies the full chain under one repeatable snapshot. DS-004/DS-005 make atomic admission/finalization authoritative for Gateway and durable Risk history. DS-006 defines typed/versioned payloads and lifecycle effects. DS-007 adds migration 0002 lifecycle materialization, optimistic version locking, typed intermediate events, event-pointer foreign keys, replay verification, compatibility backfill, and fail-closed Policy/Risk errors. Real tests cover all 484 state pairs, every terminal successor, all typed payload/Schema pairs, no-fork concurrency, organization isolation, restart, deletion, mutation, reordering, corrupt-tail refusal, finalizer races, partial-batch rollback, state tampering, migration compatibility, and second-instance Decision reads. Checkpoints, query/retention, and independent verification remain missing.
+- **evidence:** append-only domain API, hash chain, tamper test, and `DecisionRecorded` exist. Migration 0001 adds per-organization PostgreSQL event/head tables and immutable-row triggers. DS-003 row-locks each organization head, assigns sequence/predecessor/hash server-side, checks the locked tail, and reloads/verifies the full chain under one repeatable snapshot. DS-004/DS-005 make atomic admission/finalization authoritative for Gateway and durable Risk history. DS-006 defines typed/versioned payloads and lifecycle effects. DS-007 adds migration 0002 lifecycle materialization, optimistic version locking, typed intermediate events, event-pointer foreign keys, replay verification, compatibility backfill, and fail-closed Policy/Risk errors. DS-032 reauthorizes current auditor/admin access and returns only bounded, filter-bound pages after complete organization-chain verification in the same repeatable-read snapshot. Its cursor fixes the tenant, filters and verified prefix so later appends do not move the result set. Real tests cover all 484 state pairs, every terminal successor, all typed payload/Schema pairs, no-fork concurrency, organization isolation, restart, deletion, mutation, reordering, corrupt-tail refusal, finalizer races, partial-batch rollback, state tampering, migration compatibility, second-instance Decision reads and Audit filter/pagination/tenant/corruption behavior. Checkpoints, retention, independent verification and sublinear verification remain missing.
 - **security_impact:** lifecycle evidence has unambiguous versioned semantics and state/event races fail closed; database/operator compromise or missing external checkpoints can still destroy evidence.
 - **financial_impact:** transaction authorization history may be incomplete or unverifiable.
 - **severity:** `HIGH`
-- **recommended_change:** add query APIs/indexes, verification jobs, and external Merkle checkpoints without weakening atomic lifecycle enforcement.
-- **required_tests:** concurrent append, organization chain isolation, restart verification, tamper/delete/reorder, checkpoint recovery.
+- **recommended_change:** retain the DS-032 bounded query contract; add verification jobs, retention policy and external Merkle checkpoints without weakening atomic lifecycle enforcement.
+- **required_tests:** concurrent append, organization chain isolation, restart verification, tamper/delete/reorder and query authorization/pagination are implemented; checkpoint recovery remains.
 - **dependencies:** PostgreSQL persistence and lifecycle model; the chain scope and lock-order prerequisite is complete in ADR-0002.
 - **target_release:** Durable Shadow Mode P0.1-P0.3, checkpoints later.
 - **acceptance_criteria:** accepted events survive restart, chain verification is deterministic per declared scope, and deletion/reordering is detectable.
@@ -561,5 +565,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-032` is next: add bounded organization-scoped Audit queries with current
-auditor authorization, non-enumerating tenant isolation and chain status.
+`DS-033` is next: add safe low-cardinality metrics, trace/request correlation
+and captured redaction tests without exposing credentials or financial payloads.

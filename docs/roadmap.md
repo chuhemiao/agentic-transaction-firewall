@@ -149,6 +149,10 @@ order. The executable order is:
   0014 indexes immutable Profile/action-bound admission evidence, and real
   PostgreSQL tests cover inclusive boundaries, concurrent threshold
   enforcement and completed-retry non-inflation.
+- [x] DS-032 Organization-scoped Audit queries. Current auditor/admin
+  authority is rechecked in the repeatable-read Store transaction; exact
+  filters and a tenant/filter/chain-prefix-bound cursor expose only verified,
+  append-stable pages of at most 100 events.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -158,13 +162,14 @@ order. The executable order is:
   deterministic identity/Cedar Schema validation; DS-020 adds immutable
   archives, strict publisher proof, audited active pointers, authenticated
   activation/rollback and per-request Gateway resolution.
-- [ ] P0.10 Metrics and organization-scoped Audit query API.
+- [~] P0.10 Metrics and organization-scoped Audit query API. DS-032 completes
+  the bounded verified query surface; metrics and safe trace correlation remain.
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-032` — add bounded organization-scoped Audit
-queries and an auditor-authorized, non-enumerating API.
+**Immediate next task:** `DS-033` — add safe low-cardinality metrics, trace
+correlation and captured redaction guarantees.
 
 ## Later releases
 

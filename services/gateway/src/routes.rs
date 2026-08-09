@@ -1,7 +1,8 @@
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Extension, Path, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
@@ -9,8 +10,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 
 use atf_audit::{
-    OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome, RequiredModuleOutcome,
-    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
+    AuditEvent, EventType, OptionalModuleOutcome, PolicyEvaluatedPayload, PolicyOutcome,
+    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
+    SimulationCompletedPayload,
 };
 use atf_core::{
     EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
@@ -21,9 +23,11 @@ use atf_decision::Decision;
 use atf_intent::{validate_profile, TransactionIntent};
 use atf_policy::PolicyDecision;
 use atf_store::{
-    AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationContextPersistence,
-    EvaluationInput, EvaluatorLease, FinalizationInput, OperatorPrincipal, Store, StoreError,
+    AdmissionGrant, AdmittedIntent, AuditQuery, AuditQueryPage, AuthenticatedAdmissionInput,
+    EvaluationContextPersistence, EvaluationInput, EvaluatorLease, FinalizationInput,
+    OperatorPrincipal, Store, StoreError, DEFAULT_AUDIT_QUERY_PAGE_SIZE,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -34,6 +38,8 @@ use crate::request_id::RequestId;
 use crate::state::AppState;
 
 const EVALUATOR_LEASE_DURATION: Duration = Duration::from_secs(30);
+const MAX_AUDIT_CURSOR_BYTES: usize = 2_048;
+const MAX_AUDIT_CURSOR_DECODED_BYTES: usize = 1_024;
 
 enum AdmissionOutcome {
     Evaluate(Box<AdmissionGrant>),
@@ -46,6 +52,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/v1/intents", post(create_intent))
         .route("/v1/intents/{intent_id}/decision", get(get_decision))
+        .route("/v1/audit/events", get(query_audit_events))
+        .route(
+            "/v1/audit/intents/{intent_id}",
+            get(query_intent_audit_events),
+        )
         .route(
             "/v1/policy-bundles/{bundle_id}/activate",
             post(activate_policy_bundle),
@@ -711,6 +722,197 @@ async fn get_decision(
         Ok(Some(finalized)) => Ok(Json(finalized.decision)),
         Ok(None) => Err(ApiError::decision_not_found().into_response(&request_id)),
         Err(error) => Err(store_error_response(&request_id, "load Decision", error)),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditQueryParameters {
+    intent_id: Option<String>,
+    agent_id: Option<String>,
+    event_type: Option<EventType>,
+    occurred_from: Option<Timestamp>,
+    occurred_to: Option<Timestamp>,
+    limit: Option<u16>,
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditQueryResponse {
+    schema_version: u8,
+    organization_id: String,
+    chain: AuditChainResponse,
+    events: Vec<AuditEventResponse>,
+    pagination: AuditPaginationResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditChainResponse {
+    status: AuditChainStatus,
+    through_sequence: i64,
+    through_event_hash: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum AuditChainStatus {
+    Verified,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditEventResponse {
+    sequence: i64,
+    event_hash: String,
+    event: AuditEvent,
+    evaluation_id: Option<String>,
+    decision_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditPaginationResponse {
+    order: &'static str,
+    limit: u16,
+    next_cursor: Option<String>,
+}
+
+async fn query_audit_events(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    query: Result<Query<AuditQueryParameters>, QueryRejection>,
+) -> Result<Json<AuditQueryResponse>, Response> {
+    query_audit_events_inner(state, request_id, headers, None, query).await
+}
+
+async fn query_intent_audit_events(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(intent_id): Path<String>,
+    headers: HeaderMap,
+    query: Result<Query<AuditQueryParameters>, QueryRejection>,
+) -> Result<Json<AuditQueryResponse>, Response> {
+    query_audit_events_inner(state, request_id, headers, Some(intent_id), query).await
+}
+
+async fn query_audit_events_inner(
+    state: AppState,
+    request_id: RequestId,
+    headers: HeaderMap,
+    path_intent_id: Option<String>,
+    query: Result<Query<AuditQueryParameters>, QueryRejection>,
+) -> Result<Json<AuditQueryResponse>, Response> {
+    let principal = authenticate_operator(&state, &headers, &request_id).await?;
+    if !principal.roles.iter().any(|role| role.can_read_audit()) {
+        return Err(ApiError::audit_events_not_found().into_response(&request_id));
+    }
+    let Query(mut parameters) =
+        query.map_err(|_| ApiError::audit_query_invalid().into_response(&request_id))?;
+    if let Some(intent_id) = path_intent_id {
+        if parameters.intent_id.is_some() {
+            return Err(ApiError::audit_query_invalid().into_response(&request_id));
+        }
+        parameters.intent_id = Some(intent_id);
+    }
+    let cursor = parameters
+        .cursor
+        .as_deref()
+        .map(decode_audit_cursor)
+        .transpose()
+        .map_err(|_| ApiError::audit_query_invalid().into_response(&request_id))?;
+    let query = AuditQuery::new(
+        &principal.organization_id,
+        parameters.intent_id,
+        parameters.agent_id,
+        parameters.event_type,
+        parameters.occurred_from,
+        parameters.occurred_to,
+        parameters.limit.unwrap_or(DEFAULT_AUDIT_QUERY_PAGE_SIZE),
+        cursor,
+    )
+    .map_err(|_| ApiError::audit_query_invalid().into_response(&request_id))?;
+    let page = state
+        .store
+        .query_verified_audit_events(&principal.operator_id, query)
+        .await
+        .map_err(|error| audit_query_error(&request_id, error))?;
+    audit_query_response(page)
+        .map(Json)
+        .map_err(|error| store_error_response(&request_id, "encode Audit query", error))
+}
+
+fn decode_audit_cursor(encoded: &str) -> Result<atf_store::AuditQueryCursor, StoreError> {
+    if encoded.is_empty()
+        || encoded.len() > MAX_AUDIT_CURSOR_BYTES
+        || !encoded
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "Audit cursor encoding is invalid".into(),
+        });
+    }
+    let bytes =
+        URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| StoreError::InvalidRepositoryInput {
+                reason: "Audit cursor encoding is invalid".into(),
+            })?;
+    if bytes.len() > MAX_AUDIT_CURSOR_DECODED_BYTES {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "Audit cursor is too large".into(),
+        });
+    }
+    atf_store::AuditQueryCursor::from_canonical_bytes(&bytes)
+}
+
+fn audit_query_response(page: AuditQueryPage) -> Result<AuditQueryResponse, StoreError> {
+    let next_cursor = page
+        .next_cursor
+        .as_ref()
+        .map(|cursor| {
+            cursor
+                .canonical_bytes()
+                .map(|bytes| URL_SAFE_NO_PAD.encode(bytes))
+        })
+        .transpose()?;
+    Ok(AuditQueryResponse {
+        schema_version: 1,
+        organization_id: page.organization_id,
+        chain: AuditChainResponse {
+            status: AuditChainStatus::Verified,
+            through_sequence: page.chain.through_sequence,
+            through_event_hash: page.chain.through_event_hash,
+        },
+        events: page
+            .events
+            .into_iter()
+            .map(|stored| AuditEventResponse {
+                sequence: stored.sequence,
+                event_hash: stored.event_hash,
+                event: stored.event,
+                evaluation_id: stored.evaluation_id,
+                decision_id: stored.decision_id,
+            })
+            .collect(),
+        pagination: AuditPaginationResponse {
+            order: "SEQUENCE_ASC",
+            limit: page.limit,
+            next_cursor,
+        },
+    })
+}
+
+fn audit_query_error(request_id: &RequestId, error: StoreError) -> Response {
+    if matches!(error, StoreError::InvalidRepositoryInput { .. }) {
+        return ApiError::audit_query_invalid().into_response(request_id);
+    }
+    if matches!(
+        error,
+        StoreError::AuditReadAuthorizationDenied { .. } | StoreError::OrganizationNotFound { .. }
+    ) {
+        ApiError::audit_events_not_found().into_response(request_id)
+    } else {
+        store_error_response(request_id, "query Audit events", error)
     }
 }
 

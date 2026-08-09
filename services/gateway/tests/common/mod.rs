@@ -440,6 +440,7 @@ impl TestDatabase {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn business_record_counts(
         &self,
     ) -> Result<(i64, i64, i64, i64, i64, i64), sqlx::Error> {
@@ -466,6 +467,32 @@ impl TestDatabase {
         )
         .fetch_one(&self.pool)
         .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn corrupt_audit_event_for_test(
+        &self,
+        organization_id: &str,
+        sequence: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("ALTER TABLE audit_events DISABLE TRIGGER audit_events_reject_update_delete")
+            .execute(&self.pool)
+            .await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE audit_events
+            SET canonical_event = jsonb_set(canonical_event, '{data,ds032_tampered}', 'true'::jsonb)
+            WHERE organization_id = $1 AND sequence = $2
+            "#,
+        )
+        .bind(organization_id)
+        .bind(sequence)
+        .execute(&self.pool)
+        .await;
+        sqlx::query("ALTER TABLE audit_events ENABLE TRIGGER audit_events_reject_update_delete")
+            .execute(&self.pool)
+            .await?;
+        result.map(|_| ())
     }
 
     pub async fn destroy(self) -> Result<(), Box<dyn Error>> {
