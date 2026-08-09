@@ -40,6 +40,11 @@ pub(crate) enum ResolvedPolicyBundle {
     Durable(Arc<PolicyBundle>),
 }
 
+pub(crate) enum ServingReadinessError {
+    DurableState(atf_store::StoreError),
+    ActivePolicy(atf_store::StoreError),
+}
+
 impl ResolvedPolicyBundle {
     pub(crate) fn bundle(&self) -> &PolicyBundle {
         match self {
@@ -137,5 +142,29 @@ impl AppState {
                 Ok(ResolvedPolicyBundle::Durable(Arc::new(active.bundle)))
             }
         }
+    }
+
+    pub(crate) async fn check_serving_ready(&self) -> Result<(), ServingReadinessError> {
+        self.store
+            .check_ready()
+            .await
+            .map_err(ServingReadinessError::DurableState)?;
+        if let PolicySource::Durable {
+            organization_id,
+            environment,
+            bundle_id,
+        } = &self.policy_source
+        {
+            self.store
+                .load_active_policy_bundle(
+                    organization_id,
+                    environment,
+                    bundle_id,
+                    Timestamp::now_millis(),
+                )
+                .await
+                .map_err(ServingReadinessError::ActivePolicy)?;
+        }
+        Ok(())
     }
 }

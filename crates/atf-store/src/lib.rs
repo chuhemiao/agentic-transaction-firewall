@@ -23,12 +23,13 @@ mod risk;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
+use std::time::Duration;
 
 pub use audit::{
     AuditQuery, AuditQueryCursor, AuditQueryPage, StoredAuditEvent, VerifiedAuditChainSnapshot,
     DEFAULT_AUDIT_QUERY_PAGE_SIZE, MAX_AUDIT_QUERY_PAGE_SIZE,
 };
-pub use error::StoreError;
+pub use error::{StoreDependencyFailure, StoreError};
 pub use identity::{IdentitySnapshot, StoredAgent, StoredIdentityKey};
 pub use models::{
     AdmissionGrant, AdmittedIntent, AuthenticatedAdmissionInput, EvaluationContextPersistence,
@@ -52,6 +53,7 @@ static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
 pub const CURRENT_SCHEMA_VERSION: i32 = 14;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
+const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMetadata {
@@ -80,6 +82,7 @@ impl Store {
     pub async fn connect(database_url: &str) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
+            .acquire_timeout(POOL_ACQUIRE_TIMEOUT)
             .connect(database_url)
             .await?;
         let schema = verify_schema(&pool).await?;

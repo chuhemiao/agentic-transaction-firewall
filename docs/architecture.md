@@ -233,8 +233,9 @@ Agent Intent
   bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
   requires a canonical `X-ATF-Organization-ID`, one validated RFC 9068 Bearer
   JWT, and a current durable `auditor` or `org_admin` binding before returning
-  a fully verified durable Decision; `/readyz` checks live database/schema and
-  configured-JWKS readiness. *Implemented and verified through restart and two
+  a fully verified durable Decision; `/healthz` reports only process liveness,
+  while `/readyz` checks live database/schema, the configured signed active
+  Policy Bundle and configured-JWKS serving readiness. *Implemented and verified through restart and two
   real Gateway processes. Startup requires a validated
   `ATF_RISK_RULE_SET_PATH` whose exact identity exists in the audited durable
   archive; POST persists its version/hash with Risk evidence.
@@ -259,7 +260,7 @@ Agent Intent
   organization-chain status; malformed/unbounded queries, tenant/role
   confusion and any chain corruption fail closed. Background recovery and
   independent Audit checkpoints remain absent. DS-033 adds `/metrics`, fixed-label request/Decision/Policy/
-  Risk/idempotency/freshness/Audit-failure process metrics, durable typed Replay
+  Risk/idempotency/freshness/Audit/dependency-failure process metrics, durable typed Replay
   totals, and JSON request spans. The server Request ID is shared by the API
   response/span and allowlisted completion events carrying their durable Audit
   event ID; captured canaries prove credentials, signatures, raw URLs and full
@@ -272,7 +273,14 @@ Agent Intent
   loopback, requires an explicit trusted-proxy TLS assertion for non-loopback
   binding, strips forwarding Headers and never grants them authority. Shared
   ingress rate state, TLS, parser/handshake timeouts and direct-port isolation
-  remain deployment responsibilities.*
+  remain deployment responsibilities. DS-035 classifies database, active
+  Policy, bounded-history Snapshot, Audit and lock failures with closed metric
+  labels. A three-second pool-acquisition cap keeps database loss inside the
+  evaluator/request budgets. Database/lock failure rejects before Admission when durability is
+  unavailable; a healthy Store can instead persist active-Policy
+  unavailability and atomically terminate with `Decision(ERROR)`. Evaluation,
+  Decision, lifecycle and final Audit evidence remain one transaction, so no
+  new Decision response can escape a failed Finalization.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
@@ -611,15 +619,17 @@ complete Decision Engine:
   authorized against the current durable Operator role. Its duplicate-purchase
   rule uses an indexed bounded query. DS-032's bounded response still verifies
   the full organization Audit chain on every page; without checkpoints this
-  has O(chain) cost and can be a growth-based availability risk. It has no configured
-  header/timeout/rate limits,
-  and has no background lifecycle recovery worker. Completed same-hash POSTs
+  has O(chain) cost and can be a growth-based availability risk. DS-034 bounds
+  application body/Header, request time and process-local source/principal
+  rates; shared ingress enforcement remains external. There is no background
+  lifecycle recovery worker. Completed same-hash POSTs
   now return the original verified Decision, an active same-hash duplicate
   stops before evaluation, and a different hash returns
   `IDEMPOTENCY_CONFLICT`. A failure between admission and finalization can
   leave a fenced admitted Intent without a Decision until a retry triggers
-  DS-013 recovery. Operator authentication, deterministic Context-based
-  recovery and operational scanning remain later gaps, not reasons to
+  DS-013 recovery. DS-035 makes that partial lifecycle and every dependency
+  outcome explicit; background scanning, Audit checkpoints and measured
+  operational recovery procedures remain later gaps, not reasons to
   reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent`,
   `atf-audit`, DS-019 Policy Bundle hashing and DS-021 Risk Rule Set hashing.

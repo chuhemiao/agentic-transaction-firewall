@@ -9,7 +9,7 @@ or execution authority.
 | Method | Path | Response |
 |---|---|---|
 | `GET` | `/healthz` | Liveness text (`ok`) |
-| `GET` | `/readyz` | PostgreSQL/schema and Operator-JWKS readiness text (`ready` or `not ready`) |
+| `GET` | `/readyz` | PostgreSQL/schema, configured signed active Policy and Operator-JWKS readiness text (`ready` or `not ready`) |
 | `GET` | `/metrics` | Low-cardinality Prometheus text metrics |
 | `POST` | `/v1/intents` | A durably recorded Decision |
 | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
@@ -195,16 +195,19 @@ durable Audit event ID. Store/readiness failures include only stable codes,
 never the underlying database diagnostic. See [`operations.md`](operations.md)
 for the allowlist, redaction tests and correlation procedure.
 
-## DS-033 Metrics contract
+## DS-033/DS-035 Metrics contract
 
 `GET /metrics` returns `text/plain; version=0.0.4; charset=utf-8`. Labels are
 closed route templates, method/status classes and domain outcomes/severities;
 raw URLs, organization/request/Intent IDs, credentials, signatures, full
 payloads, error text, Policy IDs and Risk rule IDs are excluded. Replay totals
 come from durable typed Audit evidence because Replay runs in the offline CLI.
-The endpoint is an infrastructure scrape surface and shares DS-034 request and
-source limits, but must remain behind a trusted private network or authenticated
-ingress.
+The endpoint is an infrastructure scrape surface, shares DS-034 body/Header,
+request-timeout and source-rate limits, and must remain behind a trusted
+private network or authenticated ingress. DS-035 adds
+`atf_gateway_dependency_failures_total{dependency}` with the closed values
+`DATABASE`, `ACTIVE_POLICY`, `HISTORY_SNAPSHOT`, `AUDIT`, and `LOCK`. It never
+uses tenant IDs, artifact IDs, SQLSTATE, error text or other unbounded labels.
 
 ## Error envelope
 
@@ -238,7 +241,27 @@ not an error envelope. Its Policy failure reason is likewise fixed to
 Cedar/request-mapping diagnostic is not serialized.
 
 Health and readiness probes deliberately retain their minimal text bodies for
-operators and orchestrators. They still carry `X-ATF-Request-ID`.
+operators and orchestrators. They still carry `X-ATF-Request-ID`. `/healthz`
+answers only whether the process can serve HTTP. `/readyz` answers whether the
+Gateway can safely serve the configured durable workload: the schema is live
+and compatible, the production durable Policy pointer resolves to a current
+signed Bundle, and Operator JWKS is fresh and usable.
+
+## DS-035 dependency failure contract
+
+| Failure | HTTP/lifecycle outcome | Decision exposure | Metric |
+|---|---|---|---|
+| Database/schema unavailable before Admission | `503 DURABLE_STATE_UNAVAILABLE`; no Intent lifecycle is created | none | `DATABASE` |
+| PostgreSQL lock timeout/deadlock | bounded `503 DURABLE_STATE_UNAVAILABLE`; the active transaction rolls back | none | `LOCK` |
+| Configured active Policy absent/invalid/expired with healthy storage | readiness is `not ready`; an already authenticated POST records unavailable Policy Context and atomically finalizes `Decision(ERROR)` | only the finalized `ERROR` Decision | `ACTIVE_POLICY` |
+| Bounded history Snapshot invalid/corrupt | `500 DURABLE_STATE_INTEGRITY_ERROR`; admitted work remains fenced for fail-closed recovery | none from the failed request | `HISTORY_SNAPSHOT` |
+| Audit chain/evidence corrupt | `500 DURABLE_STATE_INTEGRITY_ERROR`; the transaction rolls back | none | `AUDIT` plus the fixed Audit operation counter |
+| Database failure while appending final Audit evidence | `503 DURABLE_STATE_UNAVAILABLE`; Evaluation, Decision and phase events roll back together | none | root `DATABASE`/`LOCK` plus the fixed Audit operation counter |
+
+A new Decision response is emitted only from a `FinalizedDecision` returned
+after the Store commits Evaluation, Decision, lifecycle and matching Audit
+evidence. An admitted request interrupted before that boundary can later be
+reclaimed only by the existing generation-fenced fail-closed recovery path.
 
 ## Stable error mapping
 

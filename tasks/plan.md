@@ -216,7 +216,7 @@ flowchart TD
 | GAP-AUD-001 | DS-001..DS-007, DS-032 and C4 review of checkpoint/retention residuals |
 | GAP-PER-001 | DS-001..DS-007, DS-036, DS-039 |
 | GAP-SEC-001 | DS-011, DS-018, DS-033..DS-035 |
-| GAP-OBS-001 | DS-033 |
+| GAP-OBS-001 | DS-033, DS-035 |
 | GAP-CI-001 | BL-001..BL-002, DS-036..DS-038; artifact gates expand at EN-012 |
 | GAP-DOC-001 | Every feature DoD, DS-040, RA-008 and EN-012 |
 | GAP-PRD-001 | DS-039..DS-040; production remains a separate operator review after EN-012 |
@@ -1178,6 +1178,8 @@ remain ingress/deployment responsibilities and are documented explicitly.
 
 ### DS-035 — Define fail-closed dependency behavior `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Standardize behavior for DB, active bundle, snapshot, Audit and
 lock failures. Reject before acceptance when durability is unavailable and
 never return a new Decision whose evidence was not atomically finalized.
@@ -1191,6 +1193,23 @@ never return a new Decision whose evidence was not atomically finalized.
   2. No new Permit is returned after required durability/evidence fails.
   3. Health and readiness distinguish liveness from serving safety.
 - **Verification:** fault-injection route tests and live DB-stop smoke; full DoD.
+
+**Delivered boundary:** Gateway dependency failures now map to one closed
+operational contract. Process liveness remains `200 ok`; serving readiness
+requires a compatible live database, the configured signed active Policy
+Bundle for durable production state, and fresh usable Operator JWKS. Database,
+active-Policy, bounded-history Snapshot, Audit-integrity and PostgreSQL lock
+failures increment only fixed dependency labels. Database/schema and lock
+failures retain the safe `503 DURABLE_STATE_UNAVAILABLE` response; corrupt
+durable Snapshot/Audit evidence uses `500 DURABLE_STATE_INTEGRITY_ERROR`.
+Store pool acquisition is capped at three seconds so a disappeared PostgreSQL
+process reaches 503 before the 15/30-second evaluator/request deadlines.
+Missing active Policy with healthy storage is persisted as unavailable Context
+evidence and atomically terminates as `Decision(ERROR)`. Real PostgreSQL fault
+tests close the Store, corrupt an Audit row, reject `DecisionRecorded` append,
+and hold an exclusive table lock: admission or finalization rolls back at its
+transaction boundary and no new Permit/Decision is returned without complete
+atomic evidence.
 
 ### DS-036 — Build the multi-instance persistence test suite `[M]`
 

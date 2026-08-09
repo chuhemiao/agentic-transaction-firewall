@@ -6,7 +6,7 @@ and cannot sign or submit a transaction.
 
 ## On-call questions
 
-The DS-033 signals are designed to answer four questions without inspecting a
+The DS-033/DS-035 signals are designed to answer six questions without inspecting a
 financial payload:
 
 1. Is the HTTP surface available, and which fixed route/status class is slow?
@@ -16,6 +16,8 @@ financial payload:
    unhealthy?
 5. Are clients being rejected by body/Header, deadline, source-rate or
    principal-rate controls?
+6. Which required serving dependency failed, and did the request stop before
+   exposing an unfinalized Decision?
 
 ## Metrics endpoint
 
@@ -45,11 +47,12 @@ Implemented families:
 | `atf_gateway_replays_total` | counter | `mode` | Cumulative typed Replay completion Audit events |
 | `atf_gateway_replay_metrics_available` | gauge | none | Whether the durable Replay aggregate was readable |
 | `atf_gateway_audit_failures_total` | counter | `operation` | Audit-backed write or verified-read failures |
+| `atf_gateway_dependency_failures_total` | counter | `dependency` | Database, active Policy, history Snapshot, Audit-integrity or lock failures |
 | `atf_gateway_request_rejections_total` | counter | `reason` | Body/Header, request/evaluator timeout, source-rate and principal-rate rejections |
 
-HTTP, Decision, evaluator, idempotency, freshness, and Audit-failure metrics
-are process-local. Sum counters across Gateway instances; do not sum histogram
-quantiles. Replay runs in an offline CLI, so its two counters are read from
+HTTP, Decision, evaluator, idempotency, freshness, Audit-failure and dependency-
+failure metrics are process-local. Sum counters across Gateway instances; do
+not sum histogram quantiles. Replay runs in an offline CLI, so its two counters are read from
 durable typed Audit evidence on each scrape rather than a misleading local
 process counter. If that aggregate is unavailable, the scrape still exposes
 process metrics, sets `atf_gateway_replay_metrics_available` to `0`, and
@@ -59,6 +62,42 @@ Simulation latency, Adapter errors, Approval wait, Kill Switch, settlement,
 and reconciliation metrics are intentionally absent because those components
 do not exist. Their metric contracts must be added with the component that can
 produce truthful observations.
+
+## Dependency failure and readiness boundary
+
+`/healthz` is liveness only and remains `200 ok` while the HTTP process is
+running. `/readyz` is serving safety: it returns `200 ready` only when the live
+schema is compatible, the configured durable active Policy resolves to a
+current signed Bundle, and Operator JWKS is fresh and usable. A `503 not ready`
+must remove the instance from serving rotation; it does not imply the process
+should be killed before diagnostics can be scraped.
+
+Store pool acquisition is capped at three seconds, below the 15-second
+evaluation and 30-second whole-request budgets. A disappeared database
+therefore reaches the stable 503 dependency contract before the generic HTTP
+deadline. Write transactions separately retain their five-second PostgreSQL
+lock timeout.
+
+| Failure | Safe outcome | Signals |
+|---|---|---|
+| Database/schema unavailable before Admission | `503 DURABLE_STATE_UNAVAILABLE`; no Intent or reservation | readiness down; dependency `DATABASE` |
+| PostgreSQL lock timeout/deadlock | bounded `503 DURABLE_STATE_UNAVAILABLE`; transaction rollback | dependency `LOCK` |
+| Active signed Policy unavailable with storage healthy | readiness down; POST persists unavailable Policy Context and returns only an atomically finalized `Decision(ERROR)` | dependency `ACTIVE_POLICY`; Policy/Decision `ERROR` |
+| Bounded history Snapshot invalid | `500 DURABLE_STATE_INTEGRITY_ERROR`; no new Decision response | dependency `HISTORY_SNAPSHOT` |
+| Audit chain/evidence corrupt | `500 DURABLE_STATE_INTEGRITY_ERROR`; no new Decision response | dependency `AUDIT`; fixed Audit operation |
+| Audit/finalization database write fails | `503 DURABLE_STATE_UNAVAILABLE`; Evaluation, Decision and phase events roll back together | root `DATABASE`/`LOCK`; fixed Audit operation |
+
+Dependency labels are a closed set: `DATABASE`, `ACTIVE_POLICY`,
+`HISTORY_SNAPSHOT`, `AUDIT`, and `LOCK`. The existing Audit counter records the
+affected operation; the dependency counter records the root serving boundary.
+Neither contains a tenant, artifact, SQLSTATE or error message.
+
+After a failed POST, do not infer a Decision from local logs or evaluator
+output. A Decision is authoritative only if the response contains it and a
+subsequent authorized read verifies the committed Store/Audit binding.
+Admission that committed before a later dependency failure remains fenced; an
+exact retry can reclaim it only after lease expiry and can then produce only
+the existing generation-fenced recovery `Decision(ERROR)`.
 
 ## HTTP safety boundary
 
@@ -172,6 +211,9 @@ claiming SLO-derived thresholds:
 
 - page on sustained `5xx` request growth or readiness failure;
 - page immediately when `atf_gateway_audit_failures_total` increases;
+- page on any sustained `DATABASE`, `AUDIT` or `LOCK` dependency failure;
+- investigate `ACTIVE_POLICY` or `HISTORY_SNAPSHOT` immediately before
+  returning an instance to serving rotation;
 - investigate `atf_gateway_replay_metrics_available == 0`;
 - investigate increases in Policy/Risk `ERROR`, Decision `ERROR`, or
   high/critical Risk findings;

@@ -495,6 +495,12 @@ impl TestDatabase {
         result.map(|_| ())
     }
 
+    #[allow(dead_code)]
+    pub async fn execute_for_test(&self, statement: &str) -> Result<(), sqlx::Error> {
+        sqlx::raw_sql(statement).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn destroy(self) -> Result<(), Box<dyn Error>> {
         self.pool.close().await;
         let quoted_name = quote_identifier(&self.name);

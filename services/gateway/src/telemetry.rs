@@ -34,6 +34,7 @@ struct Metrics {
     idempotency: BTreeMap<IdempotencyOutcome, u64>,
     freshness: BTreeMap<FreshnessLabel, u64>,
     audit_failures: BTreeMap<AuditOperation, u64>,
+    dependency_failures: BTreeMap<DependencyFailure, u64>,
     request_rejections: BTreeMap<RequestRejection, u64>,
 }
 
@@ -316,6 +317,27 @@ pub(crate) enum AuditOperation {
     ReadVerification,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum DependencyFailure {
+    Database,
+    ActivePolicy,
+    HistorySnapshot,
+    Audit,
+    Lock,
+}
+
+impl DependencyFailure {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Database => "DATABASE",
+            Self::ActivePolicy => "ACTIVE_POLICY",
+            Self::HistorySnapshot => "HISTORY_SNAPSHOT",
+            Self::Audit => "AUDIT",
+            Self::Lock => "LOCK",
+        }
+    }
+}
+
 impl AuditOperation {
     fn as_str(self) -> &'static str {
         match self {
@@ -445,6 +467,10 @@ impl GatewayTelemetry {
 
     pub(crate) fn record_audit_failure(&self, operation: AuditOperation) {
         increment(&mut self.lock().audit_failures, operation, 1);
+    }
+
+    pub(crate) fn record_dependency_failure(&self, dependency: DependencyFailure) {
+        increment(&mut self.lock().dependency_failures, dependency, 1);
     }
 
     pub(crate) fn record_request_rejection(&self, reason: RequestRejection) {
@@ -584,6 +610,16 @@ impl GatewayTelemetry {
             "operation",
             metrics
                 .audit_failures
+                .iter()
+                .map(|(label, value)| (label.as_str(), *value)),
+        );
+        render_counter(
+            &mut output,
+            "atf_gateway_dependency_failures_total",
+            "Fail-closed serving dependency failures by closed dependency class.",
+            "dependency",
+            metrics
+                .dependency_failures
                 .iter()
                 .map(|(label, value)| (label.as_str(), *value)),
         );

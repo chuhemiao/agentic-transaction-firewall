@@ -581,5 +581,6 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-035` is next: standardize fail-closed database, active-Bundle, snapshot,
-Audit and lock-failure behavior without returning an unfinalized Decision.
+`DS-036` is next: turn the existing restart, second-instance, contention,
+idempotency, Nonce and Audit-race proofs into one reusable real-PostgreSQL
+local/CI persistence suite.

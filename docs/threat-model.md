@@ -175,6 +175,21 @@ secret. The realistic attack surface today includes:
   `RECOVERY_REPLAY_NOT_IMPLEMENTED`. Recovery is request-driven, so an
   abandoned Intent remains `RECEIVED` until a retry arrives; no background
   scanner or operational alert exists yet.
+- **Dependency outage, lock exhaustion, or partial finalization** — DS-035
+  separates process liveness from serving readiness: compatible live
+  PostgreSQL, the configured signed active Policy and fresh Operator JWKS are
+  all required before an instance is ready. Database/schema and bounded lock
+  failures reject with a stable safe 503 and roll back the active transaction;
+  corrupt history/Audit evidence fails with the stable integrity contract.
+  Active Policy loss with healthy storage is explicitly bound into the
+  Evaluation Context and can produce only an atomically finalized
+  `Decision(ERROR)`. Store Finalization commits Evaluation, Decision,
+  lifecycle and final Audit evidence together, and the Gateway responds only
+  with the committed `FinalizedDecision`; injected `DecisionRecorded` failure
+  proves no Permit or partial Evaluation/Decision escapes. Closed dependency
+  labels expose the affected boundary without SQLSTATE, tenant, artifact or
+  error-message cardinality. Background recovery and cross-instance incident
+  drills remain DS-036/DS-039 work.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   warning-free, all-feature/all-target `cargo deny` in CI; the broader controls
   listed above remain open.

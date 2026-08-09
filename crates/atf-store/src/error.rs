@@ -1,6 +1,12 @@
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreDependencyFailure {
+    Database,
+    Lock,
+}
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("Risk history snapshot domain rejected durable state: {0}")]
@@ -359,4 +365,23 @@ pub enum StoreError {
 
     #[error("durable JSON is invalid: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+impl StoreError {
+    /// Classify only serving-dependency failures. Domain conflicts and corrupt
+    /// evidence remain separate fail-closed outcomes at the caller boundary.
+    pub fn dependency_failure(&self) -> Option<StoreDependencyFailure> {
+        match self {
+            Self::Database(sqlx::Error::Database(database_error))
+                if matches!(database_error.code().as_deref(), Some("40P01" | "55P03")) =>
+            {
+                Some(StoreDependencyFailure::Lock)
+            }
+            Self::Database(_)
+            | Self::Migration(_)
+            | Self::MissingSchemaMetadata
+            | Self::IncompatibleSchema { .. } => Some(StoreDependencyFailure::Database),
+            _ => None,
+        }
+    }
 }

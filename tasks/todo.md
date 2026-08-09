@@ -151,8 +151,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   deadlines, source plus verified-principal operational rate limits, stable
   safe rejection codes/metrics and explicit loopback/TLS/proxy assumptions.
   Depends: DS-018, DS-033.
-- [ ] **NEXT — DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
-- [ ] **DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
+- [x] **DS-035:** standardized database, active-Policy, bounded-history
+  Snapshot, Audit and lock failure outcomes/metrics; readiness now verifies the
+  durable active Policy and no unfinalized Decision can escape. Depends:
+  DS-025, DS-033, DS-034.
+- [ ] **NEXT — DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
 - [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
 - [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.
 - [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO baseline. Depends: DS-033, DS-036, DS-038.

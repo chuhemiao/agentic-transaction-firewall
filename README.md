@@ -232,7 +232,7 @@ Only the following crates are implemented so far:
   `GET /v1/audit/events` and `GET /v1/audit/intents/{intent_id}` queries,
   alongside authenticated Policy activation/rollback,
   plus `/healthz`/`/readyz` and Prometheus `/metrics`. DS-033 records fixed-
-  label HTTP/Decision/Policy/Risk/idempotency/freshness/Audit-failure metrics,
+  label HTTP/Decision/Policy/Risk/idempotency/freshness/Audit/dependency-failure metrics,
   reads Replay totals from durable typed Audit evidence, and emits JSON request
   spans. A fresh server Request ID links the response and span to allowlisted
   business completion logs containing the corresponding Audit event ID;
@@ -244,9 +244,13 @@ Only the following crates are implemented so far:
   defaults to loopback plaintext, refuses non-loopback binding without an
   explicit trusted-proxy TLS assertion, and strips forwarding Headers rather
   than treating them as source or identity authority. PostgreSQL is
-  required at startup, `/readyz` verifies live storage/schema compatibility
-  and fresh usable configured JWKS, and restart/second-instance reads return
-  the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
+  required at startup. DS-035 keeps `/healthz` as process liveness while
+  `/readyz` verifies live storage/schema compatibility, the configured signed
+  active Policy Bundle and fresh usable JWKS. Database, Bundle, bounded-history
+  Snapshot, Audit and lock failures have closed dependency metrics and stable
+  fail-closed outcomes; no new Decision is returned unless its Evaluation,
+  Decision and Audit evidence committed atomically. Restart/second-instance
+  reads return the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
   a current PostgreSQL `auditor` or `org_admin` role for the canonical
   `X-ATF-Organization-ID` selector. JWT role/organization/email claims and the
   selector itself grant no authority. POST requires one canonical detached
@@ -587,6 +591,14 @@ semantics (evaluate only, never execute).
     traffic control separate from financial velocity. Forwarding Headers are
     ignored/stripped, loopback is the default bind, and non-loopback startup
     requires an explicit trusted-proxy TLS assertion.
+35. ~~Fail-closed serving dependencies.~~ Done in DS-035: liveness remains
+    independent of serving safety, while readiness now requires compatible
+    PostgreSQL, a usable configured signed active Policy Bundle and fresh
+    Operator JWKS. Database, active Policy, bounded-history Snapshot, Audit and
+    lock failures use closed metrics and stable outcomes; a three-second Store
+    acquisition cap returns database loss before the HTTP deadline. Failed
+    durability or evidence never returns a new Decision, while a healthy database can
+    atomically terminate Policy unavailability as `Decision(ERROR)`.
 
 ### Remaining before Phase 2 can close out
 
@@ -680,7 +692,7 @@ implementation plan and executable checklist are in
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-034.
+  complete through DS-035.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

@@ -26,7 +26,8 @@ use atf_policy::PolicyDecision;
 use atf_store::{
     AdmissionGrant, AdmittedIntent, AuditQuery, AuditQueryPage, AuthenticatedAdmissionInput,
     EvaluationContextPersistence, EvaluationInput, EvaluatorLease, FinalizationInput,
-    FinalizedDecision, OperatorPrincipal, Store, StoreError, DEFAULT_AUDIT_QUERY_PAGE_SIZE,
+    FinalizedDecision, OperatorPrincipal, Store, StoreDependencyFailure, StoreError,
+    DEFAULT_AUDIT_QUERY_PAGE_SIZE,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
@@ -40,7 +41,8 @@ use crate::principal::{AgentPrincipal, RequestPrincipal};
 use crate::request_id::RequestId;
 use crate::state::AppState;
 use crate::telemetry::{
-    AuditOperation, IdempotencyOutcome, PolicyOutcomeLabel, RiskOutcomeLabel, SeverityLabel,
+    AuditOperation, DependencyFailure, IdempotencyOutcome, PolicyOutcomeLabel, RiskOutcomeLabel,
+    SeverityLabel,
 };
 
 const EVALUATOR_LEASE_DURATION: Duration = Duration::from_secs(30);
@@ -104,6 +106,9 @@ async fn metrics(State(state): State<AppState>) -> Response {
             state
                 .telemetry
                 .record_audit_failure(AuditOperation::ReadVerification);
+            state
+                .telemetry
+                .record_dependency_failure(DependencyFailure::Database);
             tracing::warn!(
                 event_name = "telemetry.replay_snapshot.unavailable",
                 error_code = "DURABLE_STATE_UNAVAILABLE",
@@ -123,11 +128,31 @@ async fn readyz(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
 ) -> Response {
-    let (store_ready, auth_ready) =
-        tokio::join!(state.store.check_ready(), state.operator_auth.check_ready());
-    match (store_ready, auth_ready) {
+    let (serving_ready, auth_ready) = tokio::join!(
+        state.check_serving_ready(),
+        state.operator_auth.check_ready()
+    );
+    match (serving_ready, auth_ready) {
         (Ok(()), Ok(())) => (StatusCode::OK, "ready").into_response(),
-        _ => {
+        (serving_ready, _) => {
+            if let Err(error) = serving_ready {
+                match error {
+                    crate::state::ServingReadinessError::DurableState(error) => {
+                        record_store_dependency_failure(
+                            &state,
+                            DependencyBoundary::DurableState,
+                            &error,
+                        );
+                    }
+                    crate::state::ServingReadinessError::ActivePolicy(error) => {
+                        record_store_dependency_failure(
+                            &state,
+                            DependencyBoundary::ActivePolicy,
+                            &error,
+                        );
+                    }
+                }
+            }
             tracing::warn!(
                 request_id = request_id.as_str(),
                 error_code = "DURABLE_STATE_UNAVAILABLE",
@@ -177,7 +202,12 @@ async fn create_intent(
                     .telemetry
                     .record_audit_failure(AuditOperation::AdmissionWrite);
             }
-            return store_error_response(&request_id, "record identity rejection", store_error);
+            return store_error_response(
+                &state,
+                &request_id,
+                "record identity rejection",
+                store_error,
+            );
         }
         return ApiError::authentication_required().into_response(&request_id);
     }
@@ -196,7 +226,12 @@ async fn create_intent(
                         .telemetry
                         .record_audit_failure(AuditOperation::AdmissionWrite);
                 }
-                return store_error_response(&request_id, "record identity rejection", store_error);
+                return store_error_response(
+                    &state,
+                    &request_id,
+                    "record identity rejection",
+                    store_error,
+                );
             }
             return ApiError::identity_rejected(reason_code).into_response(&request_id);
         }
@@ -261,7 +296,7 @@ async fn create_intent(
                     .telemetry
                     .record_audit_failure(AuditOperation::AdmissionWrite);
             }
-            return store_error_response(&request_id, "admit or recover Intent", error);
+            return store_error_response(&state, &request_id, "admit or recover Intent", error);
         }
     };
     tracing::info!(
@@ -288,13 +323,26 @@ async fn create_intent(
     let evaluated_at = Timestamp::now_millis();
     let evaluation_id = atf_core::new_ulid();
     let resolved_policy = state.resolve_policy(&intent, evaluated_at).await;
+    if resolved_policy.is_err() {
+        state
+            .telemetry
+            .record_dependency_failure(DependencyFailure::ActivePolicy);
+    }
     let history = match state
         .store
         .capture_risk_history(&intent, &state.risk_rule_set, evaluated_at)
         .await
     {
         Ok(history) => history,
-        Err(error) => return store_error_response(&request_id, "load Evaluation history", error),
+        Err(error) => {
+            return store_error_response_at(
+                &state,
+                &request_id,
+                "load Evaluation history",
+                DependencyBoundary::HistorySnapshot,
+                error,
+            )
+        }
     };
     let evaluation_context = match build_evaluation_context(
         &state,
@@ -308,7 +356,9 @@ async fn create_intent(
         history.repository(),
     ) {
         Ok(context) => context,
-        Err(error) => return store_error_response(&request_id, "build Evaluation Context", error),
+        Err(error) => {
+            return store_error_response(&state, &request_id, "build Evaluation Context", error)
+        }
     };
     let freshness: Vec<_> = evaluation_context
         .evidence_envelopes()
@@ -330,7 +380,7 @@ async fn create_intent(
                 .telemetry
                 .record_audit_failure(AuditOperation::ContextWrite);
         }
-        return store_error_response(&request_id, "persist Evaluation Context", error);
+        return store_error_response(&state, &request_id, "persist Evaluation Context", error);
     }
 
     let policy_started = Instant::now();
@@ -381,7 +431,12 @@ async fn create_intent(
     {
         Ok(evaluator_lease) => evaluator_lease,
         Err(error) => {
-            return store_error_response(&request_id, "renew evaluator lease after Policy", error)
+            return store_error_response(
+                &state,
+                &request_id,
+                "renew evaluator lease after Policy",
+                error,
+            )
         }
     };
 
@@ -509,7 +564,12 @@ async fn create_intent(
     {
         Ok(evaluator_lease) => evaluator_lease,
         Err(error) => {
-            return store_error_response(&request_id, "renew evaluator lease after Risk", error)
+            return store_error_response(
+                &state,
+                &request_id,
+                "renew evaluator lease after Risk",
+                error,
+            )
         }
     };
 
@@ -551,6 +611,7 @@ async fn create_intent(
                 "Decision input binding failed closed"
             );
             return store_error_response(
+                &state,
                 &request_id,
                 "bind Decision",
                 StoreError::InvalidRepositoryInput {
@@ -591,7 +652,7 @@ async fn create_intent(
                     .telemetry
                     .record_audit_failure(AuditOperation::DecisionWrite);
             }
-            return store_error_response(&request_id, "finalize Decision", error);
+            return store_error_response(&state, &request_id, "finalize Decision", error);
         }
     };
 
@@ -924,7 +985,12 @@ async fn get_decision(
     {
         Ok(Some(finalized)) => Ok(Json(finalized.decision)),
         Ok(None) => Err(ApiError::decision_not_found().into_response(&request_id)),
-        Err(error) => Err(store_error_response(&request_id, "load Decision", error)),
+        Err(error) => Err(store_error_response(
+            &state,
+            &request_id,
+            "load Decision",
+            error,
+        )),
     }
 }
 
@@ -1055,7 +1121,7 @@ async fn query_audit_events_inner(
     }
     audit_query_response(page)
         .map(Json)
-        .map_err(|error| store_error_response(&request_id, "encode Audit query", error))
+        .map_err(|error| store_error_response(&state, &request_id, "encode Audit query", error))
 }
 
 fn decode_audit_cursor(encoded: &str) -> Result<atf_store::AuditQueryCursor, StoreError> {
@@ -1141,7 +1207,13 @@ fn audit_query_error(state: &AppState, request_id: &RequestId, error: StoreError
                 .telemetry
                 .record_audit_failure(AuditOperation::ReadVerification);
         }
-        store_error_response(request_id, "query Audit events", error)
+        store_error_response_at(
+            state,
+            request_id,
+            "query Audit events",
+            DependencyBoundary::Audit,
+            error,
+        )
     }
 }
 
@@ -1276,7 +1348,7 @@ async fn authenticate_operator(
                     .telemetry
                     .record_audit_failure(AuditOperation::ReadVerification);
             }
-            store_error_response(request_id, "resolve Operator", error)
+            store_error_response(state, request_id, "resolve Operator", error)
         })?
         .ok_or_else(|| ApiError::authentication_required().into_response(request_id))?;
     let principal = RequestPrincipal::Operator(principal)
@@ -1316,7 +1388,7 @@ fn policy_mutation_error(state: &AppState, request_id: &RequestId, error: StoreE
                 .telemetry
                 .record_audit_failure(AuditOperation::PolicyWrite);
         }
-        store_error_response(request_id, "change active Policy Bundle", error)
+        store_error_response(state, request_id, "change active Policy Bundle", error)
     }
 }
 
@@ -1335,6 +1407,43 @@ fn is_audit_failure(error: &StoreError) -> bool {
     )
 }
 
+#[derive(Clone, Copy)]
+enum DependencyBoundary {
+    DurableState,
+    ActivePolicy,
+    HistorySnapshot,
+    Audit,
+}
+
+fn record_store_dependency_failure(
+    state: &AppState,
+    boundary: DependencyBoundary,
+    error: &StoreError,
+) {
+    if let Some(dependency) = store_dependency_failure(boundary, error) {
+        state.telemetry.record_dependency_failure(dependency);
+    }
+}
+
+fn store_dependency_failure(
+    boundary: DependencyBoundary,
+    error: &StoreError,
+) -> Option<DependencyFailure> {
+    match error.dependency_failure() {
+        Some(StoreDependencyFailure::Lock) => Some(DependencyFailure::Lock),
+        Some(StoreDependencyFailure::Database) => Some(DependencyFailure::Database),
+        None => match boundary {
+            DependencyBoundary::ActivePolicy => Some(DependencyFailure::ActivePolicy),
+            DependencyBoundary::HistorySnapshot => Some(DependencyFailure::HistorySnapshot),
+            DependencyBoundary::Audit => Some(DependencyFailure::Audit),
+            DependencyBoundary::DurableState if is_audit_failure(error) => {
+                Some(DependencyFailure::Audit)
+            }
+            DependencyBoundary::DurableState => None,
+        },
+    }
+}
+
 fn organization_header(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("x-atf-organization-id")
@@ -1348,10 +1457,28 @@ fn organization_header(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn store_error_response(
+    state: &AppState,
     request_id: &RequestId,
     operation: &'static str,
     error: StoreError,
 ) -> Response {
+    store_error_response_at(
+        state,
+        request_id,
+        operation,
+        DependencyBoundary::DurableState,
+        error,
+    )
+}
+
+fn store_error_response_at(
+    state: &AppState,
+    request_id: &RequestId,
+    operation: &'static str,
+    boundary: DependencyBoundary,
+    error: StoreError,
+) -> Response {
+    record_store_dependency_failure(state, boundary, &error);
     let api_error = ApiError::from_store(error);
     tracing::warn!(
         request_id = request_id.as_str(),
@@ -1368,4 +1495,23 @@ async fn route_not_found(Extension(request_id): Extension<RequestId>) -> Respons
 
 async fn method_not_allowed(Extension(request_id): Extension<RequestId>) -> Response {
     ApiError::method_not_allowed().into_response(&request_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{store_dependency_failure, DependencyBoundary};
+    use crate::telemetry::DependencyFailure;
+    use atf_store::StoreError;
+
+    #[test]
+    fn history_snapshot_domain_failure_has_a_closed_dependency_metric() {
+        let error = StoreError::InvalidRepositoryInput {
+            reason: "injected bounded snapshot failure".into(),
+        };
+
+        assert_eq!(
+            store_dependency_failure(DependencyBoundary::HistorySnapshot, &error),
+            Some(DependencyFailure::HistorySnapshot)
+        );
+    }
 }

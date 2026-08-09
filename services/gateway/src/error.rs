@@ -264,7 +264,8 @@ impl ApiError {
                 "DURABLE_STATE_CONFLICT",
                 "The request conflicts with existing durable state.",
             ),
-            StoreError::DurableStateCorrupt { .. }
+            StoreError::HistorySnapshotDomain(_)
+            | StoreError::DurableStateCorrupt { .. }
             | StoreError::IdentityStateCorrupt { .. }
             | StoreError::OperatorStateCorrupt { .. }
             | StoreError::PolicyStateCorrupt { .. }
@@ -280,7 +281,6 @@ impl ApiError {
             ),
             StoreError::AuditPayload(_)
             | StoreError::EvaluationContextDomain(_)
-            | StoreError::HistorySnapshotDomain(_)
             | StoreError::IdentityDomain(_)
             | StoreError::PolicyDomain(_)
             | StoreError::InvalidAuditEvent { .. }
@@ -347,5 +347,23 @@ impl ApiError {
             details: Vec::new(),
             bearer_challenge: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApiError;
+    use atf_core::HistorySnapshotError;
+    use atf_store::StoreError;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn invalid_durable_history_snapshot_uses_the_integrity_contract() {
+        let error = ApiError::from_store(StoreError::HistorySnapshotDomain(
+            HistorySnapshotError::Invalid("injected snapshot corruption".into()),
+        ));
+
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "DURABLE_STATE_INTEGRITY_ERROR");
     }
 }

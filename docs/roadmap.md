@@ -162,6 +162,11 @@ order. The executable order is:
   request limits, Intent evaluation has a nested deadline, and process-local
   source plus verified-principal GCRA limits return stable safe errors. The
   server defaults to loopback and makes trusted-proxy TLS assumptions explicit.
+- [x] DS-035 Fail-closed serving dependencies. Liveness remains independent of
+  readiness, which now verifies compatible PostgreSQL, the configured signed
+  active Policy and Operator JWKS. Database, Bundle, bounded-history Snapshot,
+  Audit and lock failures have closed metrics and cannot expose a new Decision
+  before its durable evidence commits atomically.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -179,8 +184,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-035` — standardize fail-closed dependency and
-readiness behavior across database, Bundle, snapshot, Audit and lock failures.
+**Immediate next task:** `DS-036` — make restart, multi-instance, race,
+contention and recovery persistence proofs reusable in local and CI PostgreSQL.
 
 ## Later releases
 
