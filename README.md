@@ -36,9 +36,12 @@ Current product vision and release gates: [`docs/PRD.md`](docs/PRD.md)
 ## Status
 
 This repository is in **Phase 2: Durable Shadow Mode**. Phase 1 is complete;
-the current release gate requires persistence, lifecycle/idempotency,
-Gateway identity, deterministic replay, context provenance, versioned bundles,
-and observability before any real execution work begins (PRD §31–32).
+DS-040's technical re-audit is published, but Checkpoint C4 is **blocked**.
+`GET /metrics` does not meet the PRD's non-health API authentication/RBAC
+acceptance criterion, and the required independent human security approval is
+pending. See [`docs/release-candidate-checklist.md`](docs/release-candidate-checklist.md).
+No RA-001, tagged release, internet-exposed deployment or real execution work
+may start while C4 is blocked (PRD §31–32).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
@@ -660,6 +663,11 @@ semantics (evaluate only, never execute).
     audited Policy rollback/forward and bounded load. The recorded local
     baseline is P95 178 ms at 28.328 evaluations/second with zero failures;
     it is regression evidence, not a production SLO claim.
+40. ~~Complete Durable Shadow re-audit and publish the release-candidate
+    checklist.~~ Done in DS-040: PRD §32.1/§32.2, STRIDE, CRITICAL/HIGH gap
+    disposition and executable gate evidence are recorded. The honest result
+    is `BLOCKED`, not a status-only C4 pass: metrics authentication/RBAC and
+    independent human sign-off remain open.
 
 ### Remaining before Phase 2 can close out
 
@@ -740,8 +748,11 @@ semantics (evaluate only, never execute).
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
   totals, captured redaction/correlation guarantees and finite application HTTP
   safety controls. External Audit checkpoints and retention remain.
-- The remaining history-dependent Risk rules, each using the now-required
-  explicit lifecycle accounting boundary.
+- `C4-GAP-001`: approve and enforce a metrics access boundary that satisfies
+  non-health API authentication/RBAC without losing database-outage telemetry.
+- `C4-SIGNOFF-001`: obtain independent human security approval after the
+  metrics boundary has executable evidence. Until both close, C4 and RA-001
+  remain blocked.
 - ~~Make the advertised `atf evaluate` default satisfy the immutable Context
   time contract.~~ Done in `CLI-GAP-001`: the omitted `--evaluated-at` path
   samples a millisecond-aligned current time, and a real-binary integration
@@ -758,11 +769,12 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation, core libraries and supported local recovery path exist;
-  the remaining release gate is the DS-040 security re-audit. Strongly bound
+  DS-040's technical security re-audit is complete, while C4 remains blocked
+  by the metrics access boundary and independent human sign-off. Strongly bound
   Decisions plus Original/Counterfactual Replay and bounded durable Risk-history
   reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-039.
+  complete through DS-039; the evidence disposition is recorded in DS-040.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

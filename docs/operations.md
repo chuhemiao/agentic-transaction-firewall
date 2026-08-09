@@ -25,7 +25,10 @@ financial payload:
 because it is an infrastructure scrape endpoint, not a business API. It shares
 the same DS-034 body/Header, timeout and source-rate controls, but must still be
 exposed only on a trusted private operations network or authenticated ingress;
-do not publish it directly to the Internet.
+do not publish it directly to the Internet. The supported local topology does
+not yet enforce a separate scrape identity. DS-040 therefore records
+`C4-GAP-001`: this deployment assumption does not satisfy the PRD's non-health
+API authentication/RBAC acceptance criterion and blocks C4.
 
 ```bash
 curl --fail --silent http://127.0.0.1:8080/metrics

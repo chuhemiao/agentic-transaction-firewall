@@ -29,6 +29,14 @@ new duplicates are now denied, current exceptions are exact-versioned with
 upstream-path reasons, target coverage remains unrestricted, and CI rejects
 all other warnings plus stale exceptions.
 
+DS-040 revalidated the repository and supported local runtime on 2026-08-09
+from input commit `a0cc1a6`. The PRD §32.1/§32.2 mapping, full gate commands,
+STRIDE review and CRITICAL/HIGH disposition are published in
+`docs/release-candidate-checklist.md`. The technical verdict is `BLOCKED`:
+`/metrics` does not satisfy the PRD's non-health API principal/RBAC invariant,
+and the required independent human security approval is still pending. No gap
+severity is reduced by this documentation-only review.
+
 DS-001 fixed the missing persistence design contract on 2026-08-07 in
 ADR-0002. It selects one PostgreSQL storage boundary, per-organization
 row-locked Audit chains, atomic admission/finalization, evaluator fencing, and
@@ -108,15 +116,15 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; DS-037 locks exact Original/Counterfactual hashes and uses attacker-resealed properties for every derived binding class. The Simulator branch remains absent. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. DS-032 adds current-role-authorized verified Audit pages from a repeatable-read chain snapshot; DS-033 exposes aggregate typed Replay completion counts without tenant/replay labels. Background recovery scanning, checkpoints and retention remain absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
-| `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. DS-033 adds fixed-label Prometheus metrics, JSON request spans, response/trace/Audit-event correlation and captured credential/signature/payload redaction. Background recovery, general configured limits and further Admin APIs are missing. |
+| `services/gateway` | `PARTIALLY_IMPLEMENTED` | The implemented HTTP surface uses durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision and DS-032 Audit GET require a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior, bounded append-stable Audit pagination, chain corruption and retry-driven fail-closed recovery are tested. DS-033 adds fixed-label Prometheus metrics, JSON request spans, response/trace/Audit-event correlation and captured credential/signature/payload redaction. DS-034 adds finite body/Header/time/rate bounds and DS-039 supplies loopback TLS/direct-port isolation for the supported local stack. Background recovery, authenticated metrics access and further Admin APIs remain missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
 | Policy/Audit/Approval/Reconciliation services | `SCAFFOLD_ONLY` | Each contains only a README and is not runnable. |
 | Policy/Replay conformance | `IMPLEMENTED_AND_WIRED` | Three Policy cases plus fixed pure Context/Decision hashes, nine durable Original/Counterfactual scenarios and ten Amount/binding properties run through `scripts/test-conformance.sh`. |
 | Intent fuzz | `IMPLEMENTED_AND_WIRED` | A pinned separate nightly/libFuzzer workspace feeds valid and fail-closed seeds into the public Intent validator for a bounded 15-second CI smoke. |
 | Security PR gates | `IMPLEMENTED_AND_WIRED` | DS-038 pins every Action/tool, audits root/fuzz locks with RustSec, scans complete history/current source with Gitleaks, forbids first-party unsafe code with Clippy, and proves every gate plus exception expiry through safe negative fixtures. |
-| Adapter conformance and supported deploy | `SCAFFOLD_ONLY` | README/test-stack placeholders only; no Adapter or supported local Gateway stack exists. |
-| SDKs and most target documentation | `MISSING` | No SDK implementation; `policy-model.md`, quickstart, and adapter manifest Schema are absent. `intent-spec.md` fixes the DS-010 Payment Profile, `identity-envelope.md` plus the published vector fix DS-014 signing bytes, `api.md` fixes the DS-011 live route/error contract, and `audit-model.md` defines the DS-007 transactional lifecycle/payload contract. |
-| README/Architecture/Threat Model | `IMPLEMENTATION_DOCUMENTATION_DRIFT` | Several stale claims were corrected in this change; ongoing schema/API/status checks are still needed. |
+| Adapter conformance and supported deploy | `PARTIALLY_IMPLEMENTED` | Adapter conformance remains a README-only Phase 3 scaffold. DS-039 provides the supported digest-pinned single-host local Shadow Gateway stack, clean migration/provisioning, restart/Replay, backup/isolated restore, Policy rollback/forward and bounded load evidence. |
+| SDKs and most target documentation | `PARTIALLY_IMPLEMENTED` | SDKs, a standalone Replay specification and the Adapter manifest Schema remain missing. `intent-spec.md`, `identity-envelope.md`, `policy-model.md`, `audit-model.md`, `api.md`, `quickstart.md` and `operations.md` document the other current implemented contracts and supported local path. |
+| README/Architecture/Threat Model | `PARTIALLY_IMPLEMENTED` | DS-040 corrected stale DS-034/DS-039 inventory claims and linked the release-candidate evidence. The documents intentionally retain future-phase and production gaps, and C4 stays blocked rather than rewriting them as complete. |
 
 ## Gap matrix
 
@@ -165,7 +173,7 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-API-001 — Authentication and Authorization
 
 - **module:** `services/gateway`
-- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **current_state:** `BLOCKED_C4_METRICS_BOUNDARY`
 - **evidence:** DS-018 migration 0006 persists immutable issuer/subject
   fingerprints, local Operator status and explicit organization roles with
   canonical records, typed Audit pointers and mutation guards. Offline CLI
@@ -181,24 +189,33 @@ principals and non-enumerating Decision-read RBAC.
   auditor/admin authorization in the Store snapshot, does not load an
   unauthorized target chain, and tests cross-tenant, wrong-role, disabled,
   Agent-credential, malformed cursor and corruption cases.
+  DS-040 found that `GET /metrics` is routed without either typed principal.
+  The endpoint has DS-034's generic finite limits and safe fixed-label output,
+  but its documented private-network/ingress assumption does not satisfy the
+  PRD §22/§32.2.2 application authentication and RBAC requirement.
 - **security_impact:** the current POST, Decision GET and Audit GET surfaces require
   route-appropriate typed principals; local revocation is immediate on the
-  next request. Future Admin routes and edge deployment controls remain
-  separate gaps.
+  next request. Aggregate metrics remain anonymously readable to any caller
+  that can reach the Gateway port, so C4 cannot pass on documentation alone.
 - **financial_impact:** Decision and Audit contents are no longer anonymously
-  readable through a forged organization selector; these routes remain read-only.
-- **severity:** `CLOSED` (formerly `CRITICAL`)
-- **recommended_change:** preserve disjoint principals and current durable-role
-  reload when adding explicit capability matrices for future routes.
-- **required_tests:** implemented for the current route matrix; retain token,
+  readable through a forged organization selector. Metrics contain no tenant
+  identifiers or payloads, but access to operational state is still outside
+  the approved principal contract.
+- **severity:** `HIGH` (C4 blocker; business-route RBAC remains implemented)
+- **recommended_change:** obtain explicit approval for an operations access
+  boundary that preserves database-outage telemetry, then enforce and test it;
+  preserve disjoint principals and current durable-role reload on business routes.
+- **required_tests:** retain token,
   cross-tenant, role, revocation, restart, tamper, redaction and confused-deputy
-  regressions.
+  regressions; add direct-port rejection and authenticated-scrape tests for the
+  selected metrics boundary.
 - **dependencies:** identity envelope, durable Operator/Role lifecycle and
   configured HTTPS issuer/JWKS and DS-034 application request boundaries are
   complete; deployment TLS/direct-port isolation remain operations controls.
 - **target_release:** Durable Shadow Mode before any shared deployment.
-- **acceptance_criteria:** met for current non-health routes; new routes must
-  add an explicit principal/capability contract before exposure.
+- **acceptance_criteria:** not met because `/metrics` is a non-health route
+  without an enforced principal/RBAC boundary. New routes must also add an
+  explicit principal/capability contract before exposure.
 
 ### GAP-RPL-001 — Idempotency and Replay Protection
 
@@ -521,7 +538,7 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-SEC-001 — API Security
 
 - **module:** `services/gateway`
-- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **current_state:** `PARTIAL_C4_BLOCKED_BY_GAP_API_001`
 - **evidence:** DS-011 supplies the fixed safe error envelope and fresh request
   ID; DS-018 adds bounded JWT/JWKS validation, durable RBAC and non-enumerating
   reads; DS-033 adds fixed-cardinality telemetry and captured redaction
@@ -530,13 +547,14 @@ principals and non-enumerating Decision-read RBAC.
   fixed security response Headers and closed rejection metrics to every route.
   Tests cover oversized, pending-body, evaluator-timeout, source spoofing,
   forged Agent proof, valid Agent/Operator quota and non-loopback startup cases.
-- **security_impact:** current application routes are bounded, attributable,
-  scoped and safely observable. Forwarding Headers are stripped and cannot
-  alter source identity or authorization.
+- **security_impact:** current application routes are bounded and safely
+  observable, and forwarding Headers cannot alter source identity or
+  authorization. Business routes are attributable and scoped; `/metrics` is
+  source-rate-limited but not attributable to a typed principal.
 - **financial_impact:** one process now contains abusive request cost before a
   second admission/evaluation while preserving durable financial velocity as
   a separate Risk rule.
-- **severity:** `CLOSED` (formerly `CRITICAL`)
+- **severity:** `HIGH` until `C4-GAP-001` is resolved
 - **recommended_change:** retain these application limits and DS-039's
   loopback-TLS/direct-port-isolated local topology; a shared deployment must
   still add production ingress handshake/parser policy and shared quotas.
@@ -544,7 +562,8 @@ principals and non-enumerating Decision-read RBAC.
   redaction, oversized/slow/rate-limited requests and live sockets.
 - **dependencies:** Authentication/Authorization and observability.
 - **target_release:** Durable Shadow Mode before shared deployment.
-- **acceptance_criteria:** met for the current HTTP surface; ingress must still
+- **acceptance_criteria:** met for body/Header/time/rate/error controls, but
+  not for the complete HTTP authentication surface; ingress must additionally
   enforce TLS, direct-port isolation, parser/handshake timeouts and any shared
   multi-instance source quota.
 
@@ -634,10 +653,18 @@ principals and non-enumerating Decision-read RBAC.
 - **target_release:** production readiness is not claimed in the current roadmap.
 - **acceptance_criteria:** production documentation names tested guarantees, residual risks, recovery procedures, and a default-disabled execution path.
 
+## DS-040 C4 disposition
+
+DS-040's technical review is published in
+`docs/release-candidate-checklist.md`. PRD §32.1's ten functional checks have
+executable evidence. §32.2 remains blocked by `C4-GAP-001`, and Checkpoint C4
+also requires an independent human reviewer. Budget, Simulator, Approval,
+Execution, Adapter and Reconciliation gaps remain future-phase blockers while
+their routes are absent; persistence/Audit/CI/production residuals retain their
+original severity and forbid a production claim.
+
 ## Next vertical feature
 
-`CLI-GAP-001` is closed: `atf evaluate` now samples a millisecond-aligned
-default evaluation time, and a real-binary integration test plus direct
-default-command smoke produce a typed Decision. `DS-040` is next and performs
-the C4-oriented re-audit; no production or release-gate severity closes by
-documentation alone.
+No implementation task may advance to RA-001 while C4 is blocked. The next
+authorized decision is the metrics access-boundary design and independent
+human security disposition recorded by `C4-GAP-001` and `C4-SIGNOFF-001`.

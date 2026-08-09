@@ -204,7 +204,10 @@ payloads, error text, Policy IDs and Risk rule IDs are excluded. Replay totals
 come from durable typed Audit evidence because Replay runs in the offline CLI.
 The endpoint is an infrastructure scrape surface, shares DS-034 body/Header,
 request-timeout and source-rate limits, and must remain behind a trusted
-private network or authenticated ingress. DS-035 adds
+private network or authenticated ingress. That boundary is not application-
+enforced today: DS-040 records it as `C4-GAP-001` because PRD §22/§32.2.2
+exempts only health checks from the principal/RBAC requirement. C4 remains
+blocked pending an approved, tested operations access boundary. DS-035 adds
 `atf_gateway_dependency_failures_total{dependency}` with the closed values
 `DATABASE`, `ACTIVE_POLICY`, `HISTORY_SNAPSHOT`, `AUDIT`, and `LOCK`. It never
 uses tenant IDs, artifact IDs, SQLSTATE, error text or other unbounded labels.

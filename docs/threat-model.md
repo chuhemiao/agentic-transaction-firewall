@@ -1,8 +1,11 @@
-# Threat Model (draft)
+# Threat Model
 
-This draft covers the threats enumerated in `docs/PRD.md` §18.2, annotated
+This model covers the threats enumerated in `docs/PRD.md` §18.2, annotated
 against the current Phase 2 Shadow Mode implementation. The gateway has a
 real network request path, but no execution path or production secret.
+DS-040 revalidated it on 2026-08-09 against input commit `a0cc1a6`; the C4
+technical verdict remains blocked as documented in
+`docs/release-candidate-checklist.md`.
 
 ## Security principles (PRD §18.1)
 
@@ -78,8 +81,11 @@ secret. The realistic attack surface today includes:
   PostgreSQL Audit remains authoritative. Replay counts are aggregated from
   typed durable events without tenant labels. `/metrics` remains an
   unauthenticated infrastructure endpoint, but it now shares the same finite
-  request/source limits. It still belongs behind a trusted private operations
-  network or authenticated ingress.
+  request/source limits. A trusted private operations network or authenticated
+  ingress is documented but not enforced by the application or supported
+  local topology. Because PRD §22 and §32.2.2 exempt health checks only, this
+  is `C4-GAP-001` and blocks C4 until an approved, tested operations access
+  boundary exists.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -241,6 +247,28 @@ local subject disable for incidents. DS-034's process-local quotas do not
 replace TLS ingress, firewall/direct-port isolation or shared edge limits;
 production high-risk or Enforce authority also requires another
 sender-constraint review.
+
+## DS-040 C4 threat disposition
+
+The complete STRIDE table and PRD acceptance mapping are in
+`docs/release-candidate-checklist.md`. Spoofing, tampering, repudiation,
+information disclosure, denial-of-service and elevation-of-privilege controls
+were rechecked across the exact current Router, middleware, Store authority,
+local Compose boundary and CI configuration.
+
+The review found no execution route, float-backed financial type, first-party
+unsafe Rust, core LLM dependency or plaintext production secret. It did find
+one current-scope access-control contradiction: `/metrics` bypasses the typed
+principal invariant and exposes aggregate operational state to any caller that
+can reach the Gateway port. Its fixed labels and redaction reduce disclosure
+impact but do not provide authentication or RBAC. C4 therefore remains
+blocked; the reviewer must not reinterpret private-network documentation as
+an implemented control.
+
+Future Budget, Simulator, Approval, Execution, Adapter and Reconciliation
+threats remain non-applicable only because those capabilities and routes are
+absent. Their CRITICAL/HIGH gaps are not closed and become mandatory before
+the relevant later phase can expose authority.
 
 ## Secret management (PRD §18.3)
 

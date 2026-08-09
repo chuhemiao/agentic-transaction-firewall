@@ -14,6 +14,15 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-040 Durable Shadow release-candidate review. The new checklist maps every
+  PRD §32.1/§32.2 item to code, tests and runtime commands, records a STRIDE and
+  five-axis assessment, and classifies every CRITICAL/HIGH gap without reducing
+  severity by documentation. The technical verdict is intentionally
+  `BLOCKED`: `/metrics` lacks the PRD-required non-health API principal/RBAC
+  boundary, and independent human security approval remains pending. README,
+  PRD, Architecture, Threat Model, Roadmap, Gap Matrix and task plans now agree
+  that C4 and RA-001 cannot advance.
+
 - DS-039 supported local Durable Shadow operations. A digest-pinned,
   non-root Compose stack keeps PostgreSQL/Gateway private and exposes only a
   loopback Caddy TLS edge with a generated public CA export. One-shot migration

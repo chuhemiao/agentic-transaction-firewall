@@ -8,7 +8,7 @@
 开源许可：Apache License 2.0
 文档版本：PRD v1.3（Authenticated Durable Shadow 修订版）
 更新日期：2026-08-09
-项目阶段：Phase 2 — Durable Shadow Mode
+项目阶段：Phase 2 — DS-040 已复审，Checkpoint C4 阻断
 目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
 
 ---
@@ -41,6 +41,11 @@
 10. DS-032 提供 `GET /v1/audit/events` 与 `GET /v1/audit/intents/{intent_id}`：Gateway JWT 与当前 `auditor`/`org_admin` Role 保护入口，Store 在只读 Repeatable Read 中再次授权并验证目标组织完整 Hash Chain 后才应用 Intent、Agent、Event Type 与闭区间时间过滤。响应默认 50、最多 100 条，按 Sequence 升序；Canonical Cursor 绑定 Organization、Filter Hash 与已验证 Chain Prefix，后续 Append 不改变当前遍历。跨组织、错 Role、Cursor 重绑及链损坏均 Fail Closed。
 11. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 12. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
+13. DS-040 已发布 `docs/release-candidate-checklist.md`，并把 §32.1/§32.2
+    映射到测试和运行命令。技术结论仍为 `BLOCKED`：`GET /metrics` 没有形成
+    Agent/Operator Principal，违反本 PRD §22 与 §32.2.2 仅豁免健康检查的要求；
+    独立人工安全审核也尚未签字。该结论不得通过把 Metrics 重命名为“基础设施接口”
+    或仅声明私有网络假设来绕过。
 
 当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
 
@@ -1971,7 +1976,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
 10. **P0.10 Metrics & Audit Query API（当前组件范围已完成）**：DS-032 已完成组织隔离、完整链验证、限界稳定分页的 Audit Query；DS-033 已完成请求、Decision、Policy/Risk、Replay、Idempotency、Freshness、Audit Failure 的低基数 Metrics，以及 Request/Trace/Audit Event Correlation 和 Captured-log Redaction。未实现组件的指标不伪造；Checkpoint/Retention 继续作为 C4 残余审计项。
 11. **Local Operations & Recovery Evidence（单机本地范围已完成）**：DS-039 提供 digest-pinned、loopback-only TLS 的 PostgreSQL/Gateway Compose，执行前向 Migration 和幂等 Provisioning；clean E2E 已验证 Submit/Restart/Replay，Backup/隔离 Restore 后 Audit Head 与计数一致，Policy Rollback/Forward 后 Replay 不变。实测 P95 178 ms、28.328 evaluations/s 未达到 §26 目标；共享 Ingress、HA/故障切换、生产 Backup Retention、后台 Recovery Scanner 和生产容量仍是 C4 阻断/残余项。
 
-**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。未通过 Gate 不启动真实 Adapter 或执行权限集成。
+**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。DS-040 技术复审已完成，但 §32.2.2 的 Metrics 访问边界和独立人工签字仍未通过，因此 Checkpoint C4 未批准。未通过 Gate 不启动 RA-001、真实 Adapter 或执行权限集成。
 
 ### Phase 3：Reference Simulation 与 Adapter
 

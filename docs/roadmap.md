@@ -206,13 +206,21 @@ order. The executable order is:
   components. DS-032 completes the bounded verified query surface and DS-033
   completes low-cardinality metrics plus safe trace/Audit correlation. Future
   component metrics ship with their Simulator/Adapter/Approval owners.
+- [x] DS-040 technical re-audit and release-candidate checklist. All PRD
+  §32.1/§32.2 items and CRITICAL/HIGH gaps have evidence dispositions; the
+  result is blocked rather than promoted to C4.
+- [ ] C4-GAP-001 metrics access boundary. The fixed-label output is safe, but
+  `/metrics` is not a health check and currently lacks the PRD-required
+  principal/RBAC boundary.
+- [ ] C4-SIGNOFF-001 independent human security approval.
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-040` — perform the complete Durable Shadow
-re-audit and publish the release-candidate checklist. Status cannot advance to
-C4 without independent human approval.
+**Immediate next decision:** resolve `C4-GAP-001`, the metrics access boundary
+recorded by the completed DS-040 technical re-audit. C4 then requires
+`C4-SIGNOFF-001`, an independent human security approval. RA-001 remains
+blocked until both are complete.
 
 ## Later releases
 

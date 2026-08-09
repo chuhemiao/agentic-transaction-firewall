@@ -23,7 +23,13 @@ Agent Intent
   -> Immutable Audit                (atf-audit)
 ```
 
-## What exists today (Phase 2 in progress)
+## What exists today (Phase 2 re-audited, C4 blocked)
+
+DS-040 revalidated the implemented module, route, storage, CI and supported
+local deployment boundaries on 2026-08-09. The evidence mapping is in
+`docs/release-candidate-checklist.md`. The system remains Phase 2 because the
+unauthenticated `/metrics` route contradicts the PRD non-health API principal
+requirement and independent human C4 approval is pending.
 
 - **`atf-core`** — shared domain primitives: fixed-point `Amount`, `Timestamp`
   (RFC 3339), shared Decision kind, 22 stable Intent lifecycle states, and an
@@ -265,7 +271,10 @@ Agent Intent
   totals, and JSON request spans. The server Request ID is shared by the API
   response/span and allowlisted completion events carrying their durable Audit
   event ID; captured canaries prove credentials, signatures, raw URLs and full
-  financial payloads are not emitted. DS-034 places finite body and aggregate
+  financial payloads are not emitted. `/metrics` intentionally remains usable
+  during database loss, but it currently has no application principal/RBAC;
+  the documented private-network/ingress assumption is `C4-GAP-001`, not an
+  implemented access control. DS-034 places finite body and aggregate
   Header/count limits plus a whole-request deadline around every route and a
   shorter evaluator deadline around Intent execution. One bounded process-local
   GCRA keys direct socket IPs and domain-hashed principals; Agent quota is
@@ -600,6 +609,11 @@ submits a transaction.
 
 These are called out explicitly so nobody mistakes today's skeleton for a
 complete Decision Engine:
+
+- C4 cannot close until the operations metrics access boundary is explicitly
+  approved and tested without silently removing database-outage telemetry,
+  and an independent human security reviewer signs the candidate. See
+  `docs/release-candidate-checklist.md`.
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).

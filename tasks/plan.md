@@ -1373,6 +1373,43 @@ exists.
   3. Independent human security review approves C4 before RA-001 starts.
 - **Verification:** full DoD, clean CI/Compose E2E, audit checklist and human sign-off.
 
+**Status:** Technical review complete (2026-08-09); C4 blocked.
+
+**Delivered:** `docs/release-candidate-checklist.md` maps all PRD §32.1/§32.2
+items to executable evidence, records STRIDE/five-axis review and classifies
+every CRITICAL/HIGH gap without reducing severity by documentation. It found
+`C4-GAP-001`: `/metrics` lacks the non-health API principal/RBAC boundary.
+Independent sign-off remains pending, so acceptance criterion 3 and C4 are not
+complete.
+
+### C4-GAP-001 — Resolve the metrics operations access boundary `[M]`
+
+**Description:** Select and implement an authenticated operations boundary for
+`GET /metrics` that satisfies PRD §22/§32.2.2 while retaining useful telemetry
+when PostgreSQL is unavailable. Do not silently redefine the endpoint as a
+health check or make a private-network assumption count as application RBAC.
+
+- **Dependencies:** DS-033..DS-040; explicit maintainer approval because this
+  changes an authentication boundary.
+- **Acceptance criteria:** unauthenticated callers cannot scrape; the selected
+  operations identity cannot call business routes; direct Gateway access is
+  unavailable in the supported topology; an authorized scrape still returns
+  process metrics with Replay availability `0` during database loss.
+- **Verification:** unit/Router tests, live TLS topology tests, database-outage
+  scrape, redaction/cardinality canaries and full DoD.
+
+### C4-SIGNOFF-001 — Independent Durable Shadow security approval `[S]`
+
+**Description:** A human reviewer who did not author the implementation checks
+the DS-040 checklist and the `C4-GAP-001` evidence, then records approval or
+rejection. Codex/self-review cannot satisfy this gate.
+
+- **Dependencies:** C4-GAP-001.
+- **Acceptance criteria:** named reviewer, date, reviewed commit, explicit
+  scope/residual risks and approve/reject decision are recorded in the release
+  candidate checklist.
+- **Verification:** signed review record; no automated test can substitute.
+
 ## 8. Phase 3 — Reference Simulation and Adapters
 
 ### RA-001 — Add the Simulator result contract `[M]`

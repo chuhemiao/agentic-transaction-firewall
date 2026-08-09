@@ -173,9 +173,17 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 - [x] **CLI-GAP-001:** made `atf evaluate`'s omitted `--evaluated-at` path use
   a millisecond-aligned current time and covered the real binary/default
   command. Discovered by DS-030 smoke.
-- [ ] **NEXT — DS-040:** re-audit and close the Durable Shadow release gate.
-  Depends: DS-028..DS-039 and CLI-GAP-001.
-- [ ] **Checkpoint C4:** human security review approves Durable Shadow; execution remains unavailable.
+- [x] **DS-040:** published the PRD §32.1/§32.2 evidence map, STRIDE review,
+  CRITICAL/HIGH disposition and release-candidate checklist. The technical
+  verdict is blocked rather than a status-only pass. Depends: DS-028..DS-039
+  and CLI-GAP-001.
+- [ ] **NEXT — C4-GAP-001:** approve and implement an authenticated metrics
+  operations boundary that preserves database-outage telemetry; prove direct
+  Gateway-port isolation and authorized scrape behavior.
+- [ ] **C4-SIGNOFF-001:** independent human security reviewer signs or rejects
+  the candidate after `C4-GAP-001` closes.
+- [ ] **Checkpoint C4:** human security review approves Durable Shadow;
+  execution remains unavailable.
 
 ## Phase 3 — Reference Simulation and Adapters
 
