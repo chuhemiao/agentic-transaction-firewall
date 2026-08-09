@@ -980,6 +980,8 @@ the original and clearly marked non-authoritative.
 
 ### DS-028 — Move duplicate-purchase history to durable snapshots `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Replace the Gateway's full-chain durable Audit scan (and the
 legacy in-memory caller interface) with an organization-scoped repository
 snapshot query using `evaluation_time` and explicit `PERMITTED` accounting
@@ -989,11 +991,19 @@ semantics.
 - **Likely files:** `crates/atf-store/src/history.rs`,
   `crates/atf-risk/src/history_rules.rs`, `services/gateway/src/routes.rs`,
   `crates/atf-store/tests/history.rs`.
+- **Delivered boundary:** `atf-core` owns a closed `RiskHistorySnapshot` whose
+  repository boundary and duplicate-purchase query/result are typed and
+  validated. Store migration 0011 indexes permitted purchase history and
+  captures/reconstructs an organization/Agent/resource/time/sequence-bounded
+  query under repeatable read. Gateway records the snapshot in canonical Risk
+  Evaluation/Audit evidence; Risk has no Audit dependency, and Original plus
+  Counterfactual Replay reload the exact boundary without seeing later rows.
 - **Acceptance criteria:**
   1. Restart/multi-instance history produces the same finding.
   2. DENY, other organizations and events after evaluation time do not count.
   3. Query inputs and result are part of the recorded context/evidence.
-- **Verification:** temporal/tenant/restart integration tests; full DoD.
+- **Verification:** temporal/tenant/restart/two-instance PostgreSQL integration,
+  typed contract/schema/replay tests, evaluator dependency scan and full DoD.
 
 ### DS-029 — Add daily cumulative spend risk `[S]`
 

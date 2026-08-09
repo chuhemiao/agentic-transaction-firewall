@@ -3,6 +3,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("Risk history snapshot domain rejected durable state: {0}")]
+    HistorySnapshotDomain(#[from] atf_core::HistorySnapshotError),
+
     #[error("Evaluation Context domain rejected durable state: {0}")]
     EvaluationContextDomain(#[from] atf_core::EvaluationContextError),
 

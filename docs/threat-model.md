@@ -38,7 +38,7 @@ real network request path, but no execution path or production secret.
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
 | 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Partially mitigated: the Gateway reads verified durable Audit history across restarts/instances, the versioned DS-021 rule explicitly counts the `PERMITTED` boundary for the same organization/Agent/resource over 86,400 seconds, and DS-023 pins the exact Audit-history prefix. Bounded snapshot queries remain DS-028 |
+| 18 | Duplicate purchase | Partially mitigated: DS-028 uses an indexed, repeatable-read, organization/Agent/resource/time/sequence-bounded query over prior `DecisionRecorded(PERMIT)` evidence, records its exact inputs/result, and reproduces it across restart, instances and Replay. Daily spend, destination and frequency rules remain DS-029..DS-031 |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
 | 20 | High-frequency small-order splitting to bypass per-transaction limits | Not applicable yet — cumulative-spend risk rules are Phase 2 |
 
@@ -94,10 +94,11 @@ secret. The realistic attack surface today includes:
   versions, invalid thresholds/windows and non-canonical deny lists, then
   domain-separates a canonical hash over every decision-affecting field.
   Gateway startup fails if the configured artifact cannot validate, and Risk
-  evidence records its exact version/hash. The artifact is still process-local
-  rather than durable/organization-scoped. DS-022 enforces provenance for the
-  current vendor-price consumer, and DS-023 durably snapshot-binds the selected
-  artifact, trust-policy identity and verified Evidence before evaluation.
+  evidence records its exact version/hash. DS-026 archives that artifact
+  immutably by organization/environment with typed installer evidence, and
+  startup/replay require the exact archived hash. DS-022 enforces provenance
+  for the current vendor-price consumer, and DS-023 durably snapshot-binds the
+  selected artifact, trust-policy identity and verified Evidence before evaluation.
   DS-024 rejects any Rule Set other than that exact Context-bound artifact and
   prevents an enabled vendor-price rule from treating absent trusted data as
   not applicable.
@@ -113,13 +114,13 @@ secret. The realistic attack surface today includes:
   Production evidence acquisition is still absent.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot trigger the duplicate-purchase rule, and
-  restart no longer clears history. The Gateway currently reloads and verifies
-  the full organization chain for each permitted request. DS-024 requires the
-  exact Context-bound prefix length, predecessor chain, snapshot identity and
-  canonical tail hash, so later or substituted history fails closed rather
-  than changing a replay. Bounded snapshot
-  queries and request/rate limits are still required to resist growth-based
-  denial of service.
+  restart no longer clears history. DS-028 replaces Risk's full-chain input
+  with a typed indexed query capped at one prior `PERMITTED` result and bounded
+  by organization, Agent, resource, evaluation window and repository sequence.
+  Query/result evidence plus the Context repository hash make later or
+  substituted history fail closed in evaluation and Replay. Other Store
+  integrity readers still verify complete organization chains, and configured
+  request/rate limits remain required to resist growth-based denial of service.
 - **Decision substitution or field tampering** — DS-025 rejects Policy/Risk
   output identities that differ from the persisted Context, seals every
   decisive field under `ATF_DECISION_V1`, and makes Store reads require the

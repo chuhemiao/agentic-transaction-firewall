@@ -102,11 +102,11 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-core` | `IMPLEMENTED_AND_WIRED` | Fixed-point `Amount`, timestamps, ULIDs, canonical JSON sorting, SHA-256, shared Decision kind, and the exhaustive 22-state lifecycle transition contract; used throughout the workspace. |
 | `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, common financial/time/ULID/text semantics, and the versioned Agent-Commerce Payment Profile are wired with stable ordered errors; every other action pair fails closed until its Profile exists. |
 | `atf-identity` | `IMPLEMENTED_AND_WIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority. DS-016 requires it before Policy/Risk and atomically consumes hashed Nonces. |
-| `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation is wired; bundle manifest/version/hash/signature/scope and Cedar schema validation are missing. |
-| `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired; the Gateway supplies verified PostgreSQL Audit events, while trusted context, versioning, deterministic time, bounded history queries, and most PRD rules are missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 37 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-015 adds four Agent/Key events, DS-016 adds `ReplayDetected`, and DS-018 adds four Operator/Role events; the Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
+| `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation, closed scoped manifests, Bundle/file hashes, Cedar Schema validation, strict publisher signature, immutable archive and audited activation/rollback are wired. Multi-Bundle composition/conflict analysis and publisher-key revocation remain missing. |
+| `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules and one history rule are wired under an immutable Context and versioned Rule Set; DS-028 supplies a typed bounded PostgreSQL snapshot rather than Audit events. Daily spend, first-destination, frequency and most PRD rules remain missing. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028 adds typed bounded Risk-history evidence; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
-| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only triggers, row-locked per-org Audit append, authenticated atomic admission/finalization, persisted/replayed Intent, Agent/Key and Operator/Role lifecycle, immutable hashed Nonce bindings, evidence-gated reads, evaluator lease/fencing, immutable completed idempotency results, exact completed-result reads, request-driven fail-closed recovery, and live readiness exist. Background scanning and provenance-pinned deterministic recovery remain absent. |
+| `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. Background recovery scanning remains absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
 | `services/gateway` | `PARTIALLY_IMPLEMENTED` | Four live routes use durable admission/finalization and verified history; POST requires current durable Agent identity and atomic Nonce protection, while Decision GET requires a Gateway-validated JWT plus current durable organization read role. Restart/second-instance reads, database/JWKS readiness, stable safe errors, validation ordering, exact retry, conflicting replay, concurrency, local role revocation, confused-deputy behavior and retry-driven fail-closed recovery are tested. Background recovery, general configured limits, full correlation, metrics, and Audit/Admin query APIs are missing. |
 | Simulator, Approval, Reconciliation, Adapter crates | `SCAFFOLD_ONLY` | Each contains only a README and is not a workspace member. |
@@ -251,8 +251,12 @@ principals and non-enumerating Decision-read RBAC.
   under a closed DS-021 artifact whose version/hash binds enabled state,
   severity, thresholds, deny lists, explicit missing-data behavior and all
   lifecycle accounting-boundary choices. Gateway evidence records that exact
-  identity. Most PRD §12 rules, dynamic active Rule Set selection and
-  production trusted inputs do not exist.
+  identity. DS-028 captures an indexed repeatable-read snapshot whose exact
+  organization/Agent/resource/current Intent/time/window/accounting query and
+  optional prior permitted result are retained in Evaluation/Audit evidence;
+  restart, two-instance, tenant, future-event and Replay tests cover it. Most
+  PRD §12 rules, dynamic active Rule Set selection and production trusted
+  inputs do not exist.
 - **security_impact:** common split-order, allowance, withdrawal, leverage, concentration, and velocity threats are unchecked.
 - **financial_impact:** budget, market, protocol, and execution-risk losses are not bounded.
 - **severity:** `HIGH`
@@ -281,8 +285,10 @@ principals and non-enumerating Decision-read RBAC.
   PostgreSQL coverage proves Agent median cannot preserve Permit. DS-023
   persists the exact verified
   envelopes, trust-policy identity, Agent-context hash, evaluation time and
-  Audit-history prefix in one immutable canonical Evaluation Context before
+  Audit-history boundary in one immutable canonical Evaluation Context before
   Policy/Risk, with typed Audit, fencing, restart and tamper verification.
+  DS-028 binds the exact bounded query/result in Risk evidence and requires its
+  repository boundary to equal that Context.
 - **security_impact:** the requester no longer controls the current vendor
   comparison input, and persisted snapshots cannot be silently substituted.
   Production enrichers are absent. DS-024 now ensures every evaluator uses
@@ -541,5 +547,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-028` is next: replace full-chain duplicate-purchase scans with bounded,
-organization-scoped durable history snapshots.
+`DS-029` is next: add asset-aware daily cumulative spend Risk using the
+DS-028 bounded durable history snapshot contract.

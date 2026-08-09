@@ -5,8 +5,8 @@ use std::str::FromStr;
 
 use atf_core::{
     Amount, EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
-    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    ExternalSnapshotReference, RepositorySnapshot, RiskHistorySnapshot, SimulationReference,
+    Timestamp, VersionedArtifactReference,
 };
 use atf_decision::{
     decide, Decision, DecisionInput, DecisionKind, PolicyDecisionInput, RiskDecisionInput,
@@ -109,6 +109,11 @@ fn risk(findings: Vec<RiskFinding>) -> RiskEvaluation {
         rule_set_version: "1.0.0".into(),
         rule_set_hash: "b".repeat(64),
         findings,
+        history: RiskHistorySnapshot::new(
+            RepositorySnapshot::new("audit-chain:alpha-lab:1", 1, "c".repeat(64)).unwrap(),
+            None,
+        )
+        .unwrap(),
     }
 }
 

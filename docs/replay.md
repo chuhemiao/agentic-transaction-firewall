@@ -1,8 +1,9 @@
 # Deterministic Replay
 
-DS-026 implements **Original Replay** and DS-027 implements isolated
-**Counterfactual Replay**. Neither operation can create, replace, or update an
-authoritative Evaluation or Decision.
+DS-026 implements **Original Replay**, DS-027 implements isolated
+**Counterfactual Replay**, and DS-028 makes both reconstruct the bounded Risk
+history query at the original repository boundary. Neither operation can
+create, replace, or update an authoritative Evaluation or Decision.
 
 ## Authority and inputs
 
@@ -18,7 +19,8 @@ Replay loads and verifies:
    organization, environment, and evaluation time;
 4. the exact canonical Risk Rule Set identified by engine version, Rule Set
    version, hash, organization, and environment;
-5. exactly the Audit prefix named by the Context's sequence and head hash.
+5. exactly the Audit prefix named by the Context's sequence and head hash;
+6. the typed bounded Risk-history query/result reconstructed at that boundary.
 
 Migration 0009 adds the append-only `risk_rule_sets` archive. Installation
 requires current `policy_author` or `org_admin` authority and atomically binds
@@ -28,8 +30,9 @@ start unless its configured Rule Set resolves to this exact audited archive.
 
 ## Reproduction contract
 
-Policy and Risk are rerun against the original Context and Audit prefix. Their
-typed evidence must equal the original Evaluation evidence. Decision merge
+Policy is rerun against the original Context; Risk is rerun against that
+Context plus the reconstructed bounded history snapshot. Their typed evidence
+must equal the original Evaluation evidence. Decision merge
 then reuses the original Decision ID; the complete canonical Decision bytes
 and embedded `ATF_DECISION_V1` hash must be identical.
 

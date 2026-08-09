@@ -5,8 +5,9 @@ use std::str::FromStr;
 
 use atf_audit::*;
 use atf_core::{
-    Amount, DecisionKind, ExecutionConstraints, ProfileBinding, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    AccountingBoundary, Amount, DecisionKind, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
+    DuplicatePurchaseQuery, ExecutionConstraints, ProfileBinding, RepositorySnapshot,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use jsonschema::Validator;
 
@@ -45,6 +46,39 @@ fn hash(byte: char) -> String {
 
 fn amount() -> Amount {
     Amount::from_str("12.50").unwrap()
+}
+
+fn risk_history() -> RiskHistorySnapshot {
+    let evaluated_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
+    RiskHistorySnapshot::new(
+        RepositorySnapshot::new("audit-chain:alpha-lab:10", 10, hash('e')).unwrap(),
+        Some(
+            DuplicatePurchaseHistory::new(
+                DuplicatePurchaseQuery::new(
+                    "alpha-lab",
+                    "agent-1",
+                    "dataset-1",
+                    "intent-1",
+                    evaluated_at,
+                    86_400,
+                    AccountingBoundary::Permitted,
+                )
+                .unwrap(),
+                Some(
+                    DuplicatePurchaseMatch::new(
+                        "intent-0",
+                        "decision-0",
+                        "event-0",
+                        9,
+                        Timestamp::from_str("2026-08-08T11:00:00Z").unwrap(),
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap()
 }
 
 fn decision_binding() -> DecisionBindingEvidence {
@@ -151,6 +185,7 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
             AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
                 risk_rule_set_version: Some(text("risk-rules-1.0.0")),
                 risk_rule_set_hash: Some(hash('a')),
+                history: Some(risk_history()),
                 outcome: OptionalModuleOutcome::Succeeded {
                     result: vec![RiskFindingEvidence {
                         code: text("DUPLICATE_PURCHASE"),

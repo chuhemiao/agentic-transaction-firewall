@@ -783,8 +783,10 @@ impl ReplayFixture {
             .await?;
 
         let policy_result = policy.evaluate(&intent, &context)?;
-        let history_events = history.iter().map(|event| &event.event).collect::<Vec<_>>();
-        let risk_result = atf_risk::evaluate_context(&intent, &risk, &context, history_events)?;
+        let risk_history = store
+            .load_risk_history_at(&intent, &risk, context.evaluation_time(), context.history())
+            .await?;
+        let risk_result = atf_risk::evaluate_context(&intent, &risk, &context, &risk_history)?;
         let decision = decide(DecisionInput {
             decision_id: "01J0000000000000000000DE01".into(),
             intent: &intent,
@@ -1018,6 +1020,7 @@ fn evaluation_input(
         risk: RiskEvaluatedPayload {
             risk_rule_set_version: Some(risk.rule_set_version.clone()),
             risk_rule_set_hash: Some(risk.rule_set_hash.clone()),
+            history: Some(risk.history.clone()),
             outcome: OptionalModuleOutcome::Succeeded {
                 result: risk
                     .findings

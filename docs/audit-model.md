@@ -223,13 +223,18 @@ advancing the accepted Intent.
 ### Evaluation Context transaction
 
 After admission, Gateway resolves the exact Policy/Risk artifacts, captures
-one time and verifies the Audit history it will supply to Risk. A separate
+one time and one typed bounded Risk-history snapshot. A separate
 short transaction verifies the same active fenced evaluator lease and the
 immutable Intent/Profile/Agent-context binding, then inserts one canonical
 Evaluation Context and its `ContextEnriched` event atomically. This event is
 decision evidence but does not advance the Intent lifecycle version. Exact
 retries return the original context/event; conflicting contexts and stale
 generations fail closed.
+
+The Context stores the repository sequence/hash boundary. DS-028 additionally
+stores the exact organization/Agent/resource/current Intent/time/window query
+and optional prior permitted result inside canonical `RiskEvaluated` evidence;
+Risk itself receives no raw Audit events.
 
 ### Evaluation finalization transaction
 

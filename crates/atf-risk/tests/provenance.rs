@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
-use atf_audit::{AuditEvent, EventType, NewAuditEvent};
 use atf_core::{
-    EvaluationContext, EvaluationContextInput, EvidenceEnvelope, EvidenceKind, EvidenceSource,
-    EvidenceTrustPolicy, EvidenceTrustPolicyReference, ExternalSnapshotReference,
-    RepositorySnapshot, SimulationReference, Timestamp, TrustedEvidenceSource, VerifiedEvidence,
+    sha256_hex, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
+    EvaluationContextInput, EvidenceEnvelope, EvidenceKind, EvidenceSource, EvidenceTrustPolicy,
+    EvidenceTrustPolicyReference, ExternalSnapshotReference, RepositorySnapshot,
+    RiskHistorySnapshot, SimulationReference, Timestamp, TrustedEvidenceSource, VerifiedEvidence,
     VersionedArtifactReference,
 };
 use atf_intent::{validate_profile, TransactionIntent};
@@ -52,20 +52,19 @@ fn vendor_median(intent: &TransactionIntent, amount: &str) -> EvidenceEnvelope {
     .unwrap()
 }
 
-fn anchor(intent: &TransactionIntent) -> AuditEvent {
-    NewAuditEvent::new(
-        EventType::IdentityVerified,
-        timestamp("2026-08-08T11:58:00Z"),
-        Some(intent.intent_id.clone()),
-        serde_json::json!({}),
+fn anchor(intent: &TransactionIntent) -> RepositorySnapshot {
+    RepositorySnapshot::new(
+        format!("audit-chain:{}:1", intent.principal.organization_id),
+        1,
+        sha256_hex(format!("test-history:{}", intent.canonical_hash()).as_bytes()),
     )
-    .chain(None)
+    .unwrap()
 }
 
 fn context(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,
-    anchor: &AuditEvent,
+    anchor: &RepositorySnapshot,
     evidence: Vec<VerifiedEvidence>,
     policy: Option<&EvidenceTrustPolicy>,
 ) -> EvaluationContext {
@@ -99,16 +98,35 @@ fn context(
         agent_context: intent.context.clone(),
         evidence,
         evidence_trust_policy,
-        history: RepositorySnapshot::new(
-            format!("audit-chain:{}:1", intent.principal.organization_id),
-            1,
-            anchor.canonical_hash(),
-        )
-        .unwrap(),
+        history: anchor.clone(),
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
     })
     .unwrap()
+}
+
+fn history(
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    context: &EvaluationContext,
+) -> RiskHistorySnapshot {
+    let duplicate = rule_set.duplicate_purchase_enabled().then(|| {
+        DuplicatePurchaseHistory::new(
+            DuplicatePurchaseQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.resource.resource_id,
+                &intent.intent_id,
+                context.evaluation_time(),
+                rule_set.duplicate_purchase_window_seconds(),
+                rule_set.duplicate_purchase_accounting_boundary(),
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap()
+    });
+    RiskHistorySnapshot::new(context.history().clone(), duplicate).unwrap()
 }
 
 #[test]
@@ -123,12 +141,27 @@ fn agent_vendor_values_cannot_suppress_or_create_a_trusted_finding() {
     let first_context = context(&first, &rule_set, &first_anchor, Vec::new(), None);
     let second_context = context(&second, &rule_set, &second_anchor, Vec::new(), None);
 
-    let first_result =
-        evaluate_context(&first, &rule_set, &first_context, [&first_anchor]).unwrap();
-    let second_result =
-        evaluate_context(&second, &rule_set, &second_context, [&second_anchor]).unwrap();
+    let first_result = evaluate_context(
+        &first,
+        &rule_set,
+        &first_context,
+        &history(&first, &rule_set, &first_context),
+    )
+    .unwrap();
+    let second_result = evaluate_context(
+        &second,
+        &rule_set,
+        &second_context,
+        &history(&second, &rule_set, &second_context),
+    )
+    .unwrap();
 
-    assert_eq!(first_result, second_result);
+    assert_eq!(
+        first_result.rule_set_version,
+        second_result.rule_set_version
+    );
+    assert_eq!(first_result.rule_set_hash, second_result.rule_set_hash);
+    assert_eq!(first_result.findings, second_result.findings);
     assert!(first_result
         .iter()
         .any(|finding| finding.code == "VENDOR_PRICE_DATA_MISSING"));
@@ -151,7 +184,13 @@ fn only_context_persisted_verified_evidence_drives_vendor_deviation() {
         .unwrap();
     let context = context(&intent, &rule_set, &anchor, vec![evidence], Some(&policy));
 
-    let result = evaluate_context(&intent, &rule_set, &context, [&anchor]).unwrap();
+    let result = evaluate_context(
+        &intent,
+        &rule_set,
+        &context,
+        &history(&intent, &rule_set, &context),
+    )
+    .unwrap();
 
     assert!(result
         .iter()
@@ -170,7 +209,13 @@ fn context_cannot_be_reused_for_a_different_intent() {
     let mut changed = original.clone();
     changed.context["historical_vendor_median"] = serde_json::json!("0.01");
 
-    let error = evaluate_context(&changed, &rule_set, &context, [&anchor]).unwrap_err();
+    let error = evaluate_context(
+        &changed,
+        &rule_set,
+        &context,
+        &history(&original, &rule_set, &context),
+    )
+    .unwrap_err();
 
     assert!(matches!(error, RiskEvaluationError::ContextBinding(_)));
 }

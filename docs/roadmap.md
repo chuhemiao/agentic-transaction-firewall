@@ -131,6 +131,10 @@ order. The executable order is:
   Risk archives and non-authoritative evidence. DS-027 adds immutable,
   separately identified Counterfactual output with exact selected artifacts,
   changed-outcome reporting and no authoritative overwrite.
+- [x] DS-028 Bounded durable Risk history. An indexed repeatable-read query
+  records exact organization/Agent/resource/time/sequence inputs and its
+  optional prior permitted result; Gateway, Risk and both Replay modes share
+  the typed snapshot contract without handing Audit events to the evaluator.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -145,8 +149,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-028` — move duplicate-purchase history from full
-Audit-chain scanning to bounded durable snapshot queries.
+**Immediate next task:** `DS-029` — add asset-aware daily cumulative spend
+Risk over the DS-028 bounded durable snapshot boundary.
 
 ## Later releases
 

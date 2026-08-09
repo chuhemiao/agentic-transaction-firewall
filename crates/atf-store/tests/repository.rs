@@ -6,7 +6,7 @@ use atf_audit::{
 use atf_core::{
     Amount, EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
     ExternalSnapshotReference, IntentLifecycleState as State, RepositorySnapshot,
-    SimulationReference, Timestamp, VersionedArtifactReference,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use atf_decision::{
     decide, Decision, DecisionInput, DecisionKind, PolicyDecisionInput, RiskDecisionInput,
@@ -898,11 +898,16 @@ async fn persist_test_context_with_risk(
 
 trait TestContextHash {
     fn test_context_hash(&self) -> &str;
+    fn test_history(&self) -> Option<RiskHistorySnapshot>;
 }
 
 impl TestContextHash for EvaluationContext {
     fn test_context_hash(&self) -> &str {
         self.evaluation_context_hash()
+    }
+
+    fn test_history(&self) -> Option<RiskHistorySnapshot> {
+        Some(RiskHistorySnapshot::new(self.history().clone(), None).unwrap())
     }
 }
 
@@ -910,11 +915,19 @@ impl TestContextHash for str {
     fn test_context_hash(&self) -> &str {
         self
     }
+
+    fn test_history(&self) -> Option<RiskHistorySnapshot> {
+        None
+    }
 }
 
 impl TestContextHash for String {
     fn test_context_hash(&self) -> &str {
         self
+    }
+
+    fn test_history(&self) -> Option<RiskHistorySnapshot> {
+        None
     }
 }
 
@@ -936,6 +949,7 @@ fn evaluation_input<T: TestContextHash + ?Sized>(
         risk: RiskEvaluatedPayload {
             risk_rule_set_version: Some("risk-test-1".into()),
             risk_rule_set_hash: Some("c".repeat(64)),
+            history: evaluation_context.test_history(),
             outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
         },
         simulation: SimulationCompletedPayload {
@@ -1022,6 +1036,7 @@ fn bound_decision(
             .available_parts()
             .map_or_else(|| "c".repeat(64), |(_, _, hash)| hash.into()),
         findings: Vec::new(),
+        history: RiskHistorySnapshot::new(context.history().clone(), None).unwrap(),
     };
     let (policy_input, risk_input) = if decision_kind == DecisionKind::Error {
         if context.policy().available_parts().is_some() {

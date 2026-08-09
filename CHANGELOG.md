@@ -7,6 +7,13 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-028 bounded durable Risk-history snapshots. A closed core contract binds
+  the repository sequence/hash, organization/Agent/resource/current Intent,
+  evaluation window, explicit `PERMITTED` accounting and optional prior
+  Decision result. Migration 0011 adds the supporting index; Gateway records
+  the query/result in Risk Evaluation/Audit evidence, `atf-risk` no longer
+  depends on Audit events, and both Replay modes reconstruct the exact boundary.
+
 - DS-025 strongly bound canonical Decision v1. The closed envelope binds the
   exact Intent/Profile, Policy/Risk artifacts, Evaluation Context/snapshot,
   explicit Simulation state, evaluation/expiry times, future Approval and

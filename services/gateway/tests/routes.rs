@@ -943,6 +943,23 @@ async fn a_second_process_uses_durable_history_to_flag_a_duplicate() -> Result<(
         .unwrap()
         .iter()
         .any(|reason| reason["code"] == "DUPLICATE_PURCHASE"));
+    let finalized = second_store
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000D200")
+        .await?
+        .expect("the duplicate Decision is durable");
+    let history = &finalized.evaluation.evidence["risk"]["history"];
+    assert_eq!(
+        history["duplicate_purchase"]["query"]["accounting_boundary"],
+        "PERMITTED"
+    );
+    assert_eq!(
+        history["duplicate_purchase"]["query"]["current_intent_id"],
+        "01J0000000000000000000D200"
+    );
+    assert_eq!(
+        history["duplicate_purchase"]["result"]["intent_id"],
+        "01J0000000000000000000D100"
+    );
 
     second_store.close().await;
     database.destroy().await?;
@@ -971,6 +988,54 @@ async fn a_denied_request_does_not_count_as_a_duplicate_purchase() -> Result<(),
         .unwrap()
         .iter()
         .any(|reason| reason["code"] == "DUPLICATE_PURCHASE"));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bounded_history_excludes_future_and_other_organization_rows() -> Result<(), Box<dyn Error>>
+{
+    let database = provisioned_database("bounded_history").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+    let prior_id = "01J0000000000000000000B100";
+    let response = app.oneshot(post_intent_request(prior_id, "12.50")).await?;
+    assert_eq!(body_json(response).await?["decision"], "PERMIT");
+    let prior = store
+        .load_finalized_decision("alpha-lab", prior_id)
+        .await?
+        .expect("the prior Decision is durable");
+    let before_prior = Timestamp::from_datetime(
+        prior.decided_at.as_datetime() - chrono::Duration::milliseconds(1),
+    );
+    let current: atf_intent::TransactionIntent =
+        serde_json::from_value(sample_intent_json("01J0000000000000000000B200", "12.50"))?;
+    let future_excluded = store
+        .capture_risk_history(&current, &test_risk_rule_set(), before_prior)
+        .await?;
+    assert!(future_excluded
+        .duplicate_purchase()
+        .expect("the enabled query is recorded")
+        .result()
+        .is_none());
+
+    database.seed_organization("beta-lab").await?;
+    let mut other_organization = current;
+    other_organization.principal.organization_id = "beta-lab".into();
+    let tenant_excluded = store
+        .capture_risk_history(
+            &other_organization,
+            &test_risk_rule_set(),
+            Timestamp::now_millis(),
+        )
+        .await?;
+    assert!(tenant_excluded
+        .duplicate_purchase()
+        .expect("the enabled query is recorded")
+        .result()
+        .is_none());
 
     store.close().await;
     database.destroy().await?;

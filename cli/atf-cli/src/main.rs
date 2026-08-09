@@ -4,10 +4,10 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use atf_audit::{AuditEvent, EventType};
 use atf_core::{
-    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
-    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    sha256_hex, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
+    EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
+    RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
     VersionedArtifactReference,
 };
 use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
@@ -965,14 +965,9 @@ fn run_evaluate(
     // Only score Risk if Policy didn't already deny — PRD §10.1.2: a
     // forbidden request terminates the merge before Risk is consulted.
     let risk_result = match &policy_result {
-        Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => {
-            Some(atf_risk::evaluate_context(
-                &intent,
-                &risk_rule_set,
-                &evaluation_context,
-                history.iter(),
-            ))
-        }
+        Ok(outcome) if outcome.decision == atf_policy::PolicyDecision::Permit => Some(
+            atf_risk::evaluate_context(&intent, &risk_rule_set, &evaluation_context, &history),
+        ),
         _ => None,
     };
 
@@ -1011,17 +1006,14 @@ fn local_evaluation_context(
     bundle: &atf_policy::PolicyBundle,
     risk_rule_set: &atf_risk::RiskRuleSet,
     evaluated_at: Timestamp,
-) -> Result<(EvaluationContext, Vec<AuditEvent>)> {
+) -> Result<(EvaluationContext, RiskHistorySnapshot)> {
     let profile = atf_intent::validate_profile(intent)
         .map_err(|error| anyhow::anyhow!("resolving Intent Profile: {error}"))?;
-    let history = vec![AuditEvent {
-        event_id: "cli-evaluation-anchor-v1".into(),
-        event_type: EventType::IdentityVerified,
-        occurred_at: evaluated_at,
-        intent_id: Some(intent.intent_id.clone()),
-        prev_event_hash: None,
-        data: serde_json::json!({}),
-    }];
+    let repository = RepositorySnapshot::new(
+        format!("audit-chain:{}:1", intent.principal.organization_id),
+        1,
+        sha256_hex(format!("cli-history:{}", intent.intent_id).as_bytes()),
+    )?;
     let context = EvaluationContext::new(EvaluationContextInput {
         evaluation_id: format!("cli-evaluation-{}", intent.intent_id),
         intent_id: intent.intent_id.clone(),
@@ -1046,13 +1038,30 @@ fn local_evaluation_context(
         evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
             "TRUST_POLICY_NOT_CONFIGURED",
         )?,
-        history: RepositorySnapshot::new(
-            format!("audit-chain:{}:1", intent.principal.organization_id),
-            1,
-            history[0].canonical_hash(),
-        )?,
+        history: repository.clone(),
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
     })?;
-    Ok((context, history))
+    let duplicate_purchase = risk_rule_set.duplicate_purchase_enabled().then(|| {
+        DuplicatePurchaseHistory::new(
+            DuplicatePurchaseQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.resource.resource_id,
+                &intent.intent_id,
+                evaluated_at,
+                risk_rule_set.duplicate_purchase_window_seconds(),
+                risk_rule_set.duplicate_purchase_accounting_boundary(),
+            )?,
+            None,
+        )
+    });
+    let duplicate_purchase = match duplicate_purchase {
+        Some(history) => Some(history?),
+        None => None,
+    };
+    Ok((
+        context,
+        RiskHistorySnapshot::new(repository, duplicate_purchase)?,
+    ))
 }

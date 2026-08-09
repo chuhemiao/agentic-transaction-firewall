@@ -935,6 +935,21 @@ fn validate_context_binding(
         });
     }
 
+    let history_binding = match &input.evaluation.risk.outcome {
+        OptionalModuleOutcome::Succeeded { .. } | OptionalModuleOutcome::Error { .. } => input
+            .evaluation
+            .risk
+            .history
+            .as_ref()
+            .is_some_and(|history| history.repository() == context.history()),
+        OptionalModuleOutcome::NotRun { .. } => input.evaluation.risk.history.is_none(),
+    };
+    if !history_binding {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "Risk history evidence disagrees with its Evaluation Context".into(),
+        });
+    }
+
     let simulation_binding = matches!(
         &input.evaluation.simulation.outcome,
         OptionalModuleOutcome::NotRun { reason_code }

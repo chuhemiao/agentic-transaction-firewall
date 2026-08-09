@@ -128,8 +128,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
 
 ### C4 Release hardening
 
-- [ ] **NEXT — DS-028:** move duplicate-purchase history to durable snapshot queries. Depends: DS-024, DS-025.
-- [ ] **DS-029:** add asset-aware daily cumulative spend risk. Depends: DS-028.
+- [x] **DS-028:** moved duplicate-purchase history to typed, bounded durable
+  snapshot queries with recorded inputs/results and Replay reconstruction.
+  Depends: DS-024, DS-025.
+- [ ] **NEXT — DS-029:** add asset-aware daily cumulative spend risk. Depends: DS-028.
 - [ ] **DS-030:** add normalized first-time destination risk. Depends: DS-028.
 - [ ] **DS-031:** add business request/order frequency risk. Depends: DS-028.
 - [ ] **DS-032:** add organization-scoped Audit query API. Depends: DS-003, DS-018, DS-025.

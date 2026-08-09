@@ -4,8 +4,8 @@ use atf_audit::{
 };
 use atf_core::{
     Amount, EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
-    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    ExternalSnapshotReference, RepositorySnapshot, RiskHistorySnapshot, SimulationReference,
+    Timestamp, VersionedArtifactReference,
 };
 use atf_decision::{decide, DecisionInput, DecisionKind, PolicyDecisionInput, RiskDecisionInput};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
@@ -548,6 +548,7 @@ fn finalization_input(
                 RiskEvaluatedPayload {
                     risk_rule_set_version: None,
                     risk_rule_set_hash: None,
+                    history: None,
                     outcome: OptionalModuleOutcome::NotRun {
                         reason_code: "POLICY_ERROR".into(),
                     },
@@ -556,6 +557,7 @@ fn finalization_input(
                 RiskEvaluatedPayload {
                     risk_rule_set_version: None,
                     risk_rule_set_hash: None,
+                    history: None,
                     outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
                 }
             },
@@ -630,6 +632,7 @@ fn recovery_decision(
         rule_set_version: "1.0.0".into(),
         rule_set_hash: "c".repeat(64),
         findings: Vec::new(),
+        history: RiskHistorySnapshot::new(synthetic_context.history().clone(), None).unwrap(),
     };
     decide(DecisionInput {
         decision_id: decision_id.into(),

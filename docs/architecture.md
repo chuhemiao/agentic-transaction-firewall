@@ -35,7 +35,8 @@ Agent Intent
   context-snapshot and overall hashes. It binds the Intent/Profile, one time,
   Policy/Risk artifacts, sorted fresh verified Evidence and trust identity,
   an exact Audit-history prefix, external snapshot availability and explicit
-  Simulation `NOT_RUN`. *Implemented.*
+  Simulation `NOT_RUN`. DS-028 adds the closed `RiskHistorySnapshot` contract:
+  repository boundary plus exact typed query inputs and result. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -79,22 +80,22 @@ Agent Intent
   deny lists, missing-data behavior, history windows and accounting boundaries
   form one domain-separated canonical hash. DS-024 replaces the former
   `evaluate*`/`*_at` family with one `evaluate_context` entry point returning
-  `RiskEvaluation { rule_set_version, rule_set_hash, findings }`. It validates
-  the exact Intent/Profile/Rule Set and verified Audit prefix named by the
+  the Rule Set identity, exact Risk-history snapshot and findings. It validates
+  the exact Intent/Profile/Rule Set and repository boundary named by the
   immutable Context and reads evaluation time and Evidence only from it.
   Stateless rules cover
   request expiry, single-transaction cap, fee ratio, vendor price deviation
-  and high-risk network/protocol. Duplicate purchase reads verified durable
-  Audit history using an explicit `PERMITTED` boundary; the engine can select
+  and high-risk network/protocol. DS-028 makes duplicate purchase consume only
+  a typed bounded durable query result using an explicit `PERMITTED` boundary;
+  no Audit-event iterator remains in `atf-risk`. The engine can select
   `REQUESTED`, `PERMITTED`, `EXECUTED`, or `SETTLED` lifecycle facts.
   DS-022/DS-024 keep the internal typed Risk input restricted to Evidence
   already verified and persisted by `EvaluationContext`; raw Intent context is
   checked only as one hash and privileged keys are never inspected. Vendor
   median requires exact organization/resource/asset-bound ATF Evidence, and an
   enabled vendor rule cannot configure missing trusted data as not applicable.
-  *Implemented (partial — production enrichment, durable bounded history
-  queries, daily cumulative spend, first-time destination and frequency rules
-  remain later work).*
+  *Implemented (partial — production enrichment, daily cumulative spend,
+  first-time destination and frequency rules remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 40 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -160,7 +161,10 @@ Agent Intent
   exact selected Policy/Risk foreign keys, changed-outcome relation and the
   authorized `CounterfactualReplayCompleted` event are verified together.
   These rows are permanently non-authoritative and never enter the one-per-
-  Intent Evaluation/Decision authority path.
+  Intent Evaluation/Decision authority path. Migration 0011 adds the partial
+  permitted-purchase history index. Store captures or reconstructs the exact
+  organization/Agent/resource/time/sequence-bounded query in a repeatable-read,
+  read-only transaction and verifies the returned typed Audit event.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
@@ -172,9 +176,9 @@ Agent Intent
 - **`services/gateway`** (`atf-gateway`) — an Axum HTTP service:
   `POST /v1/intents` runs Schema/type/common semantic/profile validation ->
   durable admission -> immutable Evaluation Context -> Policy -> (if permitted)
-  Risk (via verified durable Audit history) -> Decision merge. PostgreSQL
+  Risk (via a typed bounded durable history snapshot) -> Decision merge. PostgreSQL
   admission commits Intent + `IntentReceived`; a short DS-023 transaction pins
-  the selected Policy/Risk identities, evaluation time and verified history
+  the selected Policy/Risk identities, evaluation time and repository boundary
   before module execution and appends `ContextEnriched`; finalization commits Evaluation,
   typed Identity/Policy/Risk/Simulation events, Decision, lifecycle state, and
   bound `DecisionRecorded`. `GET /v1/intents/{id}/decision`
@@ -390,9 +394,10 @@ implementation order are in ADR-0002.
    pointer selectable. Gateway requests resolve that pointer and revalidate
    the archive/signature in one repeatable-read snapshot before evaluation.
 5. If (and only if) Policy did not `forbid`, `atf-risk::evaluate_context`
-   validates the same Context's Intent/Profile/Rule Set and exact verified
-   Audit prefix, then runs the rules using only its time and Evidence. It
-   returns the exact Rule Set version/hash plus findings. A denied request
+   validates the same Context's Intent/Profile/Rule Set and typed bounded
+   history snapshot, then runs the rules using only its time, Evidence and
+   recorded query result. It returns the exact Rule Set version/hash, history
+   and findings. A denied request
    never reaches Risk scoring, but its durable
    `NOT_RUN` evidence still names the selected Rule Set. DS-022 prevents raw
    Agent context from supplying privileged Risk inputs; the current vendor
@@ -422,10 +427,10 @@ implementation order are in ADR-0002.
     1-6. After validation, it parses a bounded canonical detached Envelope and
     signature; authenticated admission atomically consumes the hashed Nonce
     and stores canonical Intent, `IntentReceived`, and `IdentityVerified`.
-    Gateway resolves the exact Policy, captures one evaluation time and loads
-    the exact verified Audit prefix. It then persists one immutable
+    Gateway resolves the exact Policy, captures one evaluation time and one
+    bounded durable Risk-history snapshot, then persists one immutable
     `EvaluationContext` plus `ContextEnriched` before Policy runs. When
-    permitted, Risk uses the same pinned time, Rule Set and history snapshot.
+    permitted, Risk uses the same pinned time, Rule Set and typed query/result.
     The Simulator is not
     wired, so the Gateway records a stable reason-coded Simulation `NOT_RUN`.
     Finalization atomically stores typed Policy/Risk/Simulation evidence in an
@@ -477,16 +482,16 @@ complete Decision Engine:
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).
-- Original and Counterfactual Replay are complete through DS-027. Exact
-  Original reproduction and isolated selected-artifact lineage have restart,
-  missing/tamper/authorization/non-overwrite tests; broader property/fuzz
-  conformance remains DS-037.
+- Original and Counterfactual Replay are complete through DS-027; DS-028 adds
+  exact bounded Risk-history reconstruction at their original repository
+  boundary. Restart, missing/tamper/authorization/non-overwrite tests exist;
+  broader property/fuzz conformance remains DS-037.
 - Common Intent semantics and the versioned Agent-Commerce Payment Profile are
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.
 - Risk rules that need history/state (PRD §12.2) — duplicate purchase is
-  done (`atf_risk::evaluate_context`, wired to the Context-bound verified
-  PostgreSQL Audit prefix in `services/gateway`);
+  done (`atf_risk::evaluate_context`, wired to the Context-bound bounded
+  PostgreSQL history snapshot in `services/gateway`);
   daily cumulative spend, first-time destination address, and order
   frequency are not. `DecisionRecorded` now provides a reliable PERMIT
   signal and normalized fields. DS-021 makes a lifecycle accounting boundary
@@ -494,9 +499,10 @@ complete Decision Engine:
   DS-022 removes the current vendor rule's untrusted Agent-context read, and
   DS-023 now durably pins the evaluation time, verified Evidence/trust
   selection and history boundary. DS-024 now makes both evaluators consume
-  that Context, rejects mismatched artifacts/Intent/history and prevents later
-  Audit events from entering the snapshot. DS-028 will replace full-chain
-  loading with bounded durable snapshot queries.
+  that Context and rejects mismatched artifacts/Intent/history. DS-028 now
+  records the exact query/result in Risk Evaluation/Audit evidence, excludes
+  future/current-Intent/cross-tenant rows, and reconstructs the same snapshot
+  for Original and Counterfactual Replay.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for
@@ -512,8 +518,10 @@ complete Decision Engine:
 - `services/gateway` is durable but not production-ready. It requires an
   already migrated database, explicitly provisioned organizations/operators,
   and configured HTTPS issuer/JWKS. GET's organization header is a selector
-  authorized against the current durable Operator role. It loads the full organization
-  Audit chain for history rules, has no configured header/timeout/rate limits,
+  authorized against the current durable Operator role. Its duplicate-purchase
+  rule uses an indexed bounded query, but broader record integrity readers
+  still verify full organization Audit chains. It has no configured
+  header/timeout/rate limits,
   and has no background lifecycle recovery worker. Completed same-hash POSTs
   now return the original verified Decision, an active same-hash duplicate
   stops before evaluation, and a different hash returns

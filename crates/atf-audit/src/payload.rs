@@ -5,8 +5,8 @@ use thiserror::Error;
 
 use atf_core::{
     validate_lifecycle_transition, Amount, DecisionKind, DecisionObligation, ExecutionConstraints,
-    IntentLifecycleState, ProfileBinding, RequiredApproval, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    IntentLifecycleState, ProfileBinding, RequiredApproval, RiskHistorySnapshot,
+    SimulationReference, Timestamp, VersionedArtifactReference,
 };
 
 use crate::EventType;
@@ -138,6 +138,8 @@ pub struct RiskEvaluatedPayload {
     pub risk_rule_set_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub risk_rule_set_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<RiskHistorySnapshot>,
     pub outcome: OptionalModuleOutcome<Vec<RiskFindingEvidence>>,
 }
 
@@ -760,6 +762,22 @@ impl AuditPayload {
                             "Risk Rule Set version and hash must appear together",
                         ));
                     }
+                }
+                if let Some(history) = &value.history {
+                    history.validate().map_err(|error| {
+                        invalid(
+                            event_type,
+                            format!("Risk history snapshot is invalid: {error}"),
+                        )
+                    })?;
+                }
+                if value.history.is_some()
+                    && matches!(value.outcome, OptionalModuleOutcome::NotRun { .. })
+                {
+                    return Err(invalid(
+                        event_type,
+                        "Risk history cannot be recorded when Risk did not run",
+                    ));
                 }
                 if let OptionalModuleOutcome::Succeeded { result } = &value.outcome {
                     for finding in result {

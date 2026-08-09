@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
-use atf_audit::{AuditEvent, EventType};
 use atf_core::{
-    EvaluationContext, EvaluationContextInput, EvidenceTrustPolicyReference,
-    ExternalSnapshotReference, RepositorySnapshot, SimulationReference, Timestamp,
+    AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext,
+    EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
+    RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
     VersionedArtifactReference,
 };
 use atf_intent::{validate_profile, TransactionIntent};
@@ -17,7 +17,7 @@ fn fixture() -> (
     TransactionIntent,
     RiskRuleSet,
     EvaluationContext,
-    Vec<AuditEvent>,
+    RiskHistorySnapshot,
 ) {
     let mut intent: TransactionIntent = serde_json::from_str(include_str!(
         "../../../examples/x402-research-agent/intent.json"
@@ -25,14 +25,12 @@ fn fixture() -> (
     .unwrap();
     intent.expires_at = timestamp("2099-01-01T00:00:00Z");
     let rule_set = RiskRuleSet::default();
-    let history = vec![AuditEvent {
-        event_id: "deterministic-history-anchor-v1".into(),
-        event_type: EventType::IdentityVerified,
-        occurred_at: timestamp("2026-08-08T11:59:00Z"),
-        intent_id: Some(intent.intent_id.clone()),
-        prev_event_hash: None,
-        data: serde_json::json!({}),
-    }];
+    let repository = RepositorySnapshot::new(
+        format!("audit-chain:{}:1", intent.principal.organization_id),
+        1,
+        "a".repeat(64),
+    )
+    .unwrap();
     let profile = validate_profile(&intent).unwrap();
     let context = EvaluationContext::new(EvaluationContextInput {
         evaluation_id: "01J0000000000000000000EVAL".into(),
@@ -56,16 +54,26 @@ fn fixture() -> (
             "TRUST_POLICY_NOT_CONFIGURED",
         )
         .unwrap(),
-        history: RepositorySnapshot::new(
-            format!("audit-chain:{}:1", intent.principal.organization_id),
-            1,
-            history[0].canonical_hash(),
-        )
-        .unwrap(),
+        history: repository.clone(),
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
     })
     .unwrap();
+    let duplicate_purchase = DuplicatePurchaseHistory::new(
+        DuplicatePurchaseQuery::new(
+            &intent.principal.organization_id,
+            &intent.principal.agent_id,
+            &intent.resource.resource_id,
+            &intent.intent_id,
+            context.evaluation_time(),
+            86_400,
+            AccountingBoundary::Permitted,
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let history = RiskHistorySnapshot::new(repository, Some(duplicate_purchase)).unwrap();
     (intent, rule_set, context, history)
 }
 
@@ -73,8 +81,8 @@ fn fixture() -> (
 fn repeated_evaluation_of_one_snapshot_is_byte_equivalent() {
     let (intent, rule_set, context, history) = fixture();
 
-    let first = evaluate_context(&intent, &rule_set, &context, history.iter()).unwrap();
-    let second = evaluate_context(&intent, &rule_set, &context, history.iter()).unwrap();
+    let first = evaluate_context(&intent, &rule_set, &context, &history).unwrap();
+    let second = evaluate_context(&intent, &rule_set, &context, &history).unwrap();
 
     assert_eq!(
         serde_json::to_vec(&first).unwrap(),
@@ -84,23 +92,16 @@ fn repeated_evaluation_of_one_snapshot_is_byte_equivalent() {
 
 #[test]
 fn history_after_the_context_boundary_cannot_change_the_result() {
-    let (intent, rule_set, context, mut history) = fixture();
-    let previous_hash = history.last().unwrap().canonical_hash();
-    history.push(AuditEvent {
-        event_id: "later-event-v1".into(),
-        event_type: EventType::DecisionRecorded,
-        occurred_at: timestamp("2026-08-08T12:00:01Z"),
-        intent_id: Some("01J0000000000000000000LATE".into()),
-        prev_event_hash: Some(previous_hash),
-        data: serde_json::json!({
-            "decision": "PERMIT",
-            "organization_id": intent.principal.organization_id,
-            "agent_id": intent.principal.agent_id,
-            "resource_id": intent.resource.resource_id
-        }),
-    });
+    let (intent, rule_set, context, _) = fixture();
+    let later_repository = RepositorySnapshot::new(
+        format!("audit-chain:{}:2", intent.principal.organization_id),
+        2,
+        "b".repeat(64),
+    )
+    .unwrap();
+    let history = RiskHistorySnapshot::new(later_repository, None).unwrap();
 
-    let error = evaluate_context(&intent, &rule_set, &context, history.iter()).unwrap_err();
+    let error = evaluate_context(&intent, &rule_set, &context, &history).unwrap_err();
 
     assert!(matches!(error, RiskEvaluationError::HistoryBinding(_)));
 }
@@ -113,7 +114,7 @@ fn a_different_rule_set_cannot_run_under_the_persisted_identity() {
     document["rule_set_version"] = serde_json::json!("risk-rules-other");
     let different = RiskRuleSet::from_json(&document.to_string()).unwrap();
 
-    let error = evaluate_context(&intent, &different, &context, history.iter()).unwrap_err();
+    let error = evaluate_context(&intent, &different, &context, &history).unwrap_err();
 
     assert_eq!(error, RiskEvaluationError::RuleSetMismatch);
 }

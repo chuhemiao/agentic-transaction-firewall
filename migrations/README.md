@@ -85,6 +85,12 @@ Foreign keys, closed outcome checks and mutation/delete/truncate guards enforce
 tenant isolation, `authoritative = false`, exact changed-outcome reporting and
 non-overwrite semantics.
 
+Migration 0011 adds DS-028's partial expression index over prior
+`DecisionRecorded(PERMIT)` evidence, ordered by organization, Agent, resource,
+occurrence time and sequence. Store uses it to capture or reconstruct an exact
+repeatable-read Risk-history snapshot without supplying the full Audit chain
+to the evaluator. Schema compatibility advances to reader/writer version 11.
+
 ```bash
 DATABASE_URL=postgres://... cargo run -p atf-store --bin atf-store-migrate
 ```

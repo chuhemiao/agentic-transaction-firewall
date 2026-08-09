@@ -12,6 +12,7 @@ mod decision_binding;
 mod error;
 mod evaluation;
 mod evidence;
+mod history;
 mod id;
 mod lifecycle;
 mod time;
@@ -31,6 +32,10 @@ pub use evaluation::{
 pub use evidence::{
     EvidenceEnvelope, EvidenceError, EvidenceFreshness, EvidenceKind, EvidenceSignature,
     EvidenceSource, EvidenceTrustPolicy, TrustedEvidenceSource, VerifiedEvidence,
+};
+pub use history::{
+    AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
+    HistorySnapshotError, RiskHistorySnapshot,
 };
 pub use id::new_ulid;
 pub use lifecycle::{

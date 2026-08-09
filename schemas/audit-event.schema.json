@@ -463,6 +463,7 @@
         "schema_version": { "const": 1 },
         "risk_rule_set_version": { "$ref": "#/$defs/nonEmpty" },
         "risk_rule_set_hash": { "$ref": "#/$defs/sha256" },
+        "history": { "$ref": "#/$defs/riskHistorySnapshot" },
         "outcome": { "$ref": "#/$defs/riskOutcome" }
       },
       "allOf": [
@@ -475,6 +476,66 @@
           "then": { "required": ["risk_rule_set_version"] }
         }
       ]
+    },
+    "riskHistorySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/repositorySnapshot" },
+        "duplicate_purchase": { "$ref": "#/$defs/duplicatePurchaseHistory" }
+      }
+    },
+    "repositorySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "through_sequence", "snapshot_hash"],
+      "properties": {
+        "snapshot_id": { "$ref": "#/$defs/nonEmpty" },
+        "through_sequence": { "type": "integer", "minimum": 1 },
+        "snapshot_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "duplicatePurchaseHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "result"],
+      "properties": {
+        "query": { "$ref": "#/$defs/duplicatePurchaseQuery" },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/duplicatePurchaseMatch" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "duplicatePurchaseQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organization_id", "agent_id", "resource_id", "current_intent_id", "evaluation_time", "window_start", "window_seconds", "accounting_boundary"],
+      "properties": {
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "resource_id": { "$ref": "#/$defs/nonEmpty" },
+        "current_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "evaluation_time": { "type": "string", "format": "date-time" },
+        "window_start": { "type": "string", "format": "date-time" },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "accounting_boundary": { "enum": ["REQUESTED", "PERMITTED", "EXECUTED", "SETTLED"] }
+      }
+    },
+    "duplicatePurchaseMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_id", "decision_id", "boundary_event_id", "boundary_sequence", "occurred_at"],
+      "properties": {
+        "intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "decision_id": { "$ref": "#/$defs/nonEmpty" },
+        "boundary_event_id": { "$ref": "#/$defs/nonEmpty" },
+        "boundary_sequence": { "type": "integer", "minimum": 1 },
+        "occurred_at": { "type": "string", "format": "date-time" }
+      }
     },
     "simulationCompleted": {
       "type": "object",

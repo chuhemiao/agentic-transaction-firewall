@@ -24,8 +24,8 @@ state and severity, all thresholds and deny lists, missing-data behavior, the
 duplicate-purchase window and its accounting boundary. Reordering JSON object
 keys does not change the hash; any decision-affecting field change does.
 
-Every `RiskEvaluation` owns the exact `rule_set_version`, `rule_set_hash` and
-findings. Gateway `RiskEvaluated` evidence records the same pair for both
+Every `RiskEvaluation` owns the exact `rule_set_version`, `rule_set_hash`,
+typed `RiskHistorySnapshot` and findings. Gateway `RiskEvaluated` evidence records the same pair for both
 `SUCCEEDED` and `NOT_RUN`; old version-1 Audit payloads without the pair remain
 decodable, while a partial version/hash pair is invalid.
 
@@ -50,9 +50,13 @@ History rules must declare exactly one boundary:
 - `EXECUTED` — `ExecutionConfirmed`;
 - `SETTLED` — `SettlementVerified`.
 
-The current duplicate-purchase rule uses `PERMITTED` over 86,400 seconds. For
-execution/settlement boundaries, the verified Audit chain joins the boundary
-event to its immutable `IntentReceived` subject fields by Intent ID.
+The current duplicate-purchase rule uses `PERMITTED` over 86,400 seconds.
+DS-028 captures an indexed, repeatable-read query bounded by organization,
+Agent, resource, current Intent, evaluation window and repository sequence; it
+returns at most one prior matching `DecisionRecorded(PERMIT)`. The complete
+query and optional result are canonical Evaluation/Audit evidence. Future
+execution/settlement query families must retain the same explicit boundary and
+immutable subject binding.
 
 ## Runtime selection and limits
 
@@ -64,8 +68,8 @@ Set through migration 0009; the installer must currently hold
 the reference file. Gateway evaluates stateless and history rules through
 `evaluate_context` after the immutable Context has been persisted. The
 evaluator obtains time, verified Evidence and repository boundary from that
-Context, verifies the supplied Audit prefix and returns the version/hash in
-canonical Evaluation and Audit evidence.
+Context, verifies the supplied typed history snapshot and returns the
+version/hash plus exact query/result in canonical Evaluation and Audit evidence.
 
 DS-026 makes the artifact durable and organization/environment-scoped so
 Original Replay never substitutes a process default. DS-027 requires the same
@@ -75,4 +79,6 @@ provenance-bearing Evidence and the privileged-context firewall:
 the vendor rule no longer reads Agent context and requires fresh verified,
 scope-bound ATF evidence. DS-023 persists the exact Evaluation Context;
 DS-024 removes the former clock/time/context convenience APIs and rejects
-Intent, Rule Set or Audit-prefix substitutions before rule execution.
+Intent, Rule Set or history-query substitutions before rule execution. DS-028
+removes `atf-risk`'s Audit dependency; Store alone performs the bounded durable
+query, and Replay reconstructs it at the original Context boundary.

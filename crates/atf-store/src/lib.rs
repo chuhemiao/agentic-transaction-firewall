@@ -9,6 +9,7 @@
 mod audit;
 mod error;
 mod evaluation;
+mod history;
 mod idempotency;
 mod identity;
 mod lifecycle;
@@ -46,7 +47,7 @@ pub use risk::StoredRiskRuleSet;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 10;
+pub const CURRENT_SCHEMA_VERSION: i32 = 11;
 const DURABLE_STATE_COMPONENT: &str = "durable_state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

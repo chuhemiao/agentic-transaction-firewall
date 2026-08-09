@@ -171,12 +171,12 @@ async fn create_intent(
     let evaluated_at = Timestamp::now_millis();
     let evaluation_id = atf_core::new_ulid();
     let resolved_policy = state.resolve_policy(&intent, evaluated_at).await;
-    let chain = match state
+    let history = match state
         .store
-        .load_verified_audit_chain(&agent_principal.organization_id)
+        .capture_risk_history(&intent, &state.risk_rule_set, evaluated_at)
         .await
     {
-        Ok(chain) => chain,
+        Ok(history) => history,
         Err(error) => return store_error_response(&request_id, "load Evaluation history", error),
     };
     let evaluation_context = match build_evaluation_context(
@@ -188,7 +188,7 @@ async fn create_intent(
             .as_ref()
             .ok()
             .map(|resolved| resolved.bundle()),
-        &chain,
+        history.repository(),
     ) {
         Ok(context) => context,
         Err(error) => return store_error_response(&request_id, "build Evaluation Context", error),
@@ -252,12 +252,13 @@ async fn create_intent(
                 &intent,
                 &state.risk_rule_set,
                 &evaluation_context,
-                chain.iter().map(|stored| &stored.event),
+                &history,
             );
             match result {
                 Ok(result) => {
                     let rule_set_version = result.rule_set_version.clone();
                     let rule_set_hash = result.rule_set_hash.clone();
+                    let risk_history = result.history.clone();
                     let evidence = result
                         .findings
                         .iter()
@@ -276,6 +277,7 @@ async fn create_intent(
                         RiskEvaluatedPayload {
                             risk_rule_set_version: Some(rule_set_version),
                             risk_rule_set_hash: Some(rule_set_hash),
+                            history: Some(risk_history),
                             outcome: OptionalModuleOutcome::Succeeded { result: evidence },
                         },
                         None,
@@ -292,6 +294,7 @@ async fn create_intent(
                         RiskEvaluatedPayload {
                             risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                             risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                            history: Some(history.clone()),
                             outcome: OptionalModuleOutcome::Error {
                                 error_code: error.code().into(),
                             },
@@ -306,6 +309,7 @@ async fn create_intent(
             RiskEvaluatedPayload {
                 risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                 risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                history: None,
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_FORBID".into(),
                 },
@@ -317,6 +321,7 @@ async fn create_intent(
             RiskEvaluatedPayload {
                 risk_rule_set_version: Some(state.risk_rule_set.version().into()),
                 risk_rule_set_hash: Some(state.risk_rule_set.rule_set_hash().into()),
+                history: None,
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_ERROR".into(),
                 },
@@ -419,7 +424,7 @@ fn build_evaluation_context(
     evaluation_id: &str,
     evaluation_time: Timestamp,
     policy: Option<&atf_policy::PolicyBundle>,
-    history: &[atf_store::StoredAuditEvent],
+    history: &RepositorySnapshot,
 ) -> Result<EvaluationContext, StoreError> {
     let profile = validate_profile(intent).map_err(|error| StoreError::InvalidRepositoryInput {
         reason: format!("validated Intent lost its Profile: {error}"),
@@ -437,17 +442,6 @@ fn build_evaluation_context(
         state.risk_rule_set.version(),
         state.risk_rule_set.rule_set_hash(),
     )?;
-    let tail = history
-        .last()
-        .ok_or_else(|| StoreError::IncompleteAdmissionEvidence {
-            organization_id: intent.principal.organization_id.clone(),
-            intent_id: intent.intent_id.clone(),
-        })?;
-    let through_sequence =
-        u64::try_from(tail.sequence).map_err(|_| StoreError::InvalidRepositoryInput {
-            reason: "Audit history sequence cannot be represented by Evaluation Context".into(),
-        })?;
-
     EvaluationContext::new(EvaluationContextInput {
         evaluation_id: evaluation_id.into(),
         intent_id: intent.intent_id.clone(),
@@ -464,14 +458,7 @@ fn build_evaluation_context(
         evidence_trust_policy: EvidenceTrustPolicyReference::not_configured(
             "TRUST_POLICY_NOT_CONFIGURED",
         )?,
-        history: RepositorySnapshot::new(
-            format!(
-                "audit-chain:{}:{through_sequence}",
-                intent.principal.organization_id
-            ),
-            through_sequence,
-            tail.event_hash.clone(),
-        )?,
+        history: history.clone(),
         market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_SNAPSHOT_UNAVAILABLE")?,
         simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED")?,
     })
@@ -630,6 +617,7 @@ fn recovery_finalization(
             risk: RiskEvaluatedPayload {
                 risk_rule_set_version,
                 risk_rule_set_hash,
+                history: None,
                 outcome: OptionalModuleOutcome::NotRun {
                     reason_code: "POLICY_ERROR".into(),
                 },

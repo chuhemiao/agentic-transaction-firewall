@@ -122,6 +122,7 @@ fn risk_rule_set_version_and_hash_are_an_atomic_compatibility_extension() {
         AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
             risk_rule_set_version: None,
             risk_rule_set_hash: None,
+            history: None,
             outcome: OptionalModuleOutcome::Succeeded { result: Vec::new() },
         }),
     )
@@ -162,6 +163,7 @@ fn typed_events_apply_only_their_documented_lifecycle_effect() {
     let risk = AuditPayload::RiskEvaluated(RiskEvaluatedPayload {
         risk_rule_set_version: None,
         risk_rule_set_hash: None,
+        history: None,
         outcome: OptionalModuleOutcome::Succeeded {
             result: vec![RiskFindingEvidence {
                 code: "DUPLICATE_PURCHASE".into(),

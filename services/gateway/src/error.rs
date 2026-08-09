@@ -224,6 +224,7 @@ impl ApiError {
             ),
             StoreError::AuditPayload(_)
             | StoreError::EvaluationContextDomain(_)
+            | StoreError::HistorySnapshotDomain(_)
             | StoreError::IdentityDomain(_)
             | StoreError::PolicyDomain(_)
             | StoreError::InvalidAuditEvent { .. }

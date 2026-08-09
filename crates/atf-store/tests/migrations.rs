@@ -54,15 +54,22 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 10);
-    assert_eq!(schema.minimum_writer_version, 10);
+    assert_eq!(schema.minimum_reader_version, 11);
+    assert_eq!(schema.minimum_writer_version, 11);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 10);
+    assert_eq!(migration_count, 11);
+
+    let history_index_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'audit_events_permitted_purchase_history_idx'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(history_index_count, 1);
 
     let lifecycle_columns: i64 = sqlx::query_scalar(
         r#"
@@ -220,7 +227,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 11 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 12 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -230,14 +237,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 10,
-            database_version: 11,
-            minimum_reader_version: 10,
-            minimum_writer_version: 10,
+            binary_version: 11,
+            database_version: 12,
+            minimum_reader_version: 11,
+            minimum_writer_version: 11,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 10 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 11 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -595,7 +602,15 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
                 .expect("migration 0010 is embedded"),
         )
         .await?;
-    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 10);
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 11)
+                .expect("migration 0011 is embedded"),
+        )
+        .await?;
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 11);
     let nonce_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM identity_nonces")
         .fetch_one(&pool)
         .await?;

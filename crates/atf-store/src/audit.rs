@@ -26,19 +26,19 @@ pub struct StoredAuditEvent {
 }
 
 #[derive(Debug, FromRow)]
-struct AuditEventRow {
-    sequence: i64,
-    event_id: String,
-    event_type: String,
-    schema_version: i32,
-    occurred_at: DateTime<Utc>,
-    intent_id: Option<String>,
-    evaluation_id: Option<String>,
-    decision_id: Option<String>,
-    previous_event_hash: Option<String>,
-    event_hash: String,
-    canonical_event: Value,
-    canonical_event_bytes: Vec<u8>,
+pub(crate) struct AuditEventRow {
+    pub(crate) sequence: i64,
+    pub(crate) event_id: String,
+    pub(crate) event_type: String,
+    pub(crate) schema_version: i32,
+    pub(crate) occurred_at: DateTime<Utc>,
+    pub(crate) intent_id: Option<String>,
+    pub(crate) evaluation_id: Option<String>,
+    pub(crate) decision_id: Option<String>,
+    pub(crate) previous_event_hash: Option<String>,
+    pub(crate) event_hash: String,
+    pub(crate) canonical_event: Value,
+    pub(crate) canonical_event_bytes: Vec<u8>,
 }
 
 impl Store {
@@ -374,7 +374,7 @@ fn verify_rows(
     Ok(events)
 }
 
-fn verify_row_contents(
+pub(crate) fn verify_row_contents(
     organization_id: &str,
     row: &AuditEventRow,
 ) -> Result<AuditEvent, StoreError> {

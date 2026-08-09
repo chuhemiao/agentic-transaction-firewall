@@ -10,7 +10,6 @@ repository.workspace = true
 [dependencies]
 atf-core = { workspace = true }
 atf-intent = { workspace = true }
-atf-audit = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rust_decimal = { workspace = true }

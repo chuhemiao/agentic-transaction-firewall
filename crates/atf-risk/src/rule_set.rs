@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use atf_core::{sha256_hex, sort_json_keys, Amount};
+use atf_core::{sha256_hex, sort_json_keys, AccountingBoundary, Amount, RiskHistorySnapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::{RiskFinding, Severity};
@@ -22,16 +22,6 @@ pub enum RiskRuleSetError {
     Json(#[from] serde_json::Error),
     #[error("Risk Rule Set is invalid: {0}")]
     Invalid(String),
-}
-
-/// Lifecycle fact counted by a history-dependent rule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AccountingBoundary {
-    Requested,
-    Permitted,
-    Executed,
-    Settled,
 }
 
 /// Explicit behavior when an enabled rule's optional input is absent or
@@ -123,6 +113,7 @@ pub struct RiskEvaluation {
     pub rule_set_version: String,
     pub rule_set_hash: String,
     pub findings: Vec<RiskFinding>,
+    pub history: RiskHistorySnapshot,
 }
 
 impl RiskEvaluation {
@@ -195,15 +186,28 @@ impl RiskRuleSet {
         self.document.rules.duplicate_purchase.accounting_boundary
     }
 
+    pub fn duplicate_purchase_enabled(&self) -> bool {
+        self.document.rules.duplicate_purchase.enabled
+    }
+
+    pub fn duplicate_purchase_window_seconds(&self) -> u64 {
+        self.document.rules.duplicate_purchase.window_seconds
+    }
+
     pub(crate) fn rules(&self) -> &RuleSetRules {
         &self.document.rules
     }
 
-    pub(crate) fn evaluation(&self, findings: Vec<RiskFinding>) -> RiskEvaluation {
+    pub(crate) fn evaluation(
+        &self,
+        findings: Vec<RiskFinding>,
+        history: RiskHistorySnapshot,
+    ) -> RiskEvaluation {
         RiskEvaluation {
             rule_set_version: self.version().into(),
             rule_set_hash: self.rule_set_hash().into(),
             findings,
+            history,
         }
     }
 }

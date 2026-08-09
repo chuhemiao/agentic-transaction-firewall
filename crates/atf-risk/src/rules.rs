@@ -1,7 +1,6 @@
-use atf_audit::AuditEvent;
 #[cfg(test)]
 use atf_core::Amount;
-use atf_core::{EvaluationContext, Timestamp};
+use atf_core::{EvaluationContext, RiskHistorySnapshot, Timestamp};
 use atf_intent::{validate_profile, TransactionIntent};
 use rust_decimal::Decimal;
 
@@ -12,17 +11,17 @@ use crate::history_rules;
 use crate::rule_set::{MissingDataBehavior, RiskEvaluation, RiskRuleSet};
 use crate::severity::Severity;
 
-/// Evaluate the exact Intent, Rule Set, Evidence and Audit prefix bound by one
-/// immutable Evaluation Context. All decision-affecting inputs are validated
-/// before a rule runs; a mismatch is an error and must fail closed upstream.
-pub fn evaluate_context<'a>(
+/// Evaluate the exact Intent, Rule Set, Evidence and bounded history snapshot
+/// bound by one immutable Evaluation Context. All decision-affecting inputs
+/// are validated before a rule runs; a mismatch is an error and must fail
+/// closed upstream.
+pub fn evaluate_context(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,
     evaluation_context: &EvaluationContext,
-    events: impl IntoIterator<Item = &'a AuditEvent>,
+    history: &RiskHistorySnapshot,
 ) -> Result<RiskEvaluation, RiskEvaluationError> {
-    let events = events.into_iter().collect::<Vec<_>>();
-    validate_context_binding(intent, rule_set, evaluation_context, &events)?;
+    validate_context_binding(intent, rule_set, evaluation_context, history)?;
     let context = RiskContext::from_evaluation_context(intent, evaluation_context);
     let evaluated_at = evaluation_context.evaluation_time();
     let rules = rule_set.rules();
@@ -36,20 +35,15 @@ pub fn evaluate_context<'a>(
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
-    findings.extend(history_rules::history_findings_from_events(
-        intent,
-        rule_set,
-        events.iter().copied(),
-        evaluated_at,
-    ));
-    Ok(rule_set.evaluation(findings))
+    findings.extend(history_rules::history_findings(intent, rule_set, history));
+    Ok(rule_set.evaluation(findings, history.clone()))
 }
 
 fn validate_context_binding(
     intent: &TransactionIntent,
     rule_set: &RiskRuleSet,
     context: &EvaluationContext,
-    events: &[&AuditEvent],
+    history: &RiskHistorySnapshot,
 ) -> Result<(), RiskEvaluationError> {
     if context.intent_id() != intent.intent_id || context.intent_hash() != intent.canonical_hash() {
         return Err(RiskEvaluationError::ContextBinding(
@@ -79,36 +73,15 @@ fn validate_context_binding(
         return Err(RiskEvaluationError::RuleSetMismatch);
     }
 
-    let expected_sequence =
-        usize::try_from(context.history().through_sequence()).map_err(|_| {
-            RiskEvaluationError::HistoryBinding("snapshot sequence exceeds this platform".into())
-        })?;
-    if events.len() != expected_sequence {
+    history
+        .validate()
+        .map_err(|error| RiskEvaluationError::HistoryBinding(error.to_string()))?;
+    if history.repository() != context.history() {
         return Err(RiskEvaluationError::HistoryBinding(
-            "event count does not equal snapshot sequence".into(),
+            "repository snapshot does not match Evaluation Context".into(),
         ));
     }
-    let mut previous_hash = None;
-    for event in events {
-        if event.prev_event_hash != previous_hash {
-            return Err(RiskEvaluationError::HistoryBinding(
-                "Audit predecessor link is invalid".into(),
-            ));
-        }
-        previous_hash = Some(event.canonical_hash());
-    }
-    let expected_snapshot_id = format!(
-        "audit-chain:{}:{}",
-        intent.principal.organization_id,
-        context.history().through_sequence()
-    );
-    if context.history().snapshot_id() != expected_snapshot_id
-        || previous_hash.as_deref() != Some(context.history().snapshot_hash())
-    {
-        return Err(RiskEvaluationError::HistoryBinding(
-            "snapshot ID/hash does not match the supplied Audit prefix".into(),
-        ));
-    }
+    history_rules::validate_history_binding(intent, rule_set, context, history)?;
     Ok(())
 }
 
@@ -261,10 +234,11 @@ fn missing_finding(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atf_audit::{EventType, NewAuditEvent};
     use atf_core::{
-        EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
-        RepositorySnapshot, SimulationReference, VersionedArtifactReference,
+        AccountingBoundary, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
+        DuplicatePurchaseQuery, EvaluationContextInput, EvidenceTrustPolicyReference,
+        ExternalSnapshotReference, RepositorySnapshot, RiskHistorySnapshot, SimulationReference,
+        VersionedArtifactReference,
     };
     use atf_intent::{Action, Mandate, Principal, Resource, Transaction};
     use std::str::FromStr;
@@ -282,42 +256,30 @@ mod tests {
         rule_set: &RiskRuleSet,
         evaluated_at: Timestamp,
     ) -> RiskEvaluation {
-        evaluate_with_events_at(intent, rule_set, [], evaluated_at)
+        evaluate_with_match_at(intent, rule_set, None, evaluated_at)
     }
 
-    fn evaluate_with_events<'a>(
+    fn evaluate_with_match(
         intent: &TransactionIntent,
         rule_set: &RiskRuleSet,
-        events: impl IntoIterator<Item = &'a AuditEvent>,
+        prior: Option<DuplicatePurchaseMatch>,
     ) -> RiskEvaluation {
-        evaluate_with_events_at(intent, rule_set, events, default_evaluation_time())
+        evaluate_with_match_at(intent, rule_set, prior, default_evaluation_time())
     }
 
-    fn evaluate_with_events_at<'a>(
+    fn evaluate_with_match_at(
         intent: &TransactionIntent,
         rule_set: &RiskRuleSet,
-        events: impl IntoIterator<Item = &'a AuditEvent>,
+        prior: Option<DuplicatePurchaseMatch>,
         evaluated_at: Timestamp,
     ) -> RiskEvaluation {
-        let mut events = events.into_iter().cloned().collect::<Vec<_>>();
-        if events.is_empty() {
-            events.push(
-                NewAuditEvent::new(
-                    EventType::IdentityVerified,
-                    evaluated_at,
-                    Some(intent.intent_id.clone()),
-                    serde_json::json!({}),
-                )
-                .chain(None),
-            );
-        }
-        let mut previous_hash = None;
-        for event in &mut events {
-            event.prev_event_hash = previous_hash;
-            previous_hash = Some(event.canonical_hash());
-        }
         let profile = validate_profile(intent).unwrap();
-        let sequence = u64::try_from(events.len()).unwrap();
+        let repository = RepositorySnapshot::new(
+            format!("audit-chain:{}:10", intent.principal.organization_id),
+            10,
+            "a".repeat(64),
+        )
+        .unwrap();
         let context = EvaluationContext::new(EvaluationContextInput {
             evaluation_id: "01J0000000000000000000EVAL".into(),
             intent_id: intent.intent_id.clone(),
@@ -340,20 +302,29 @@ mod tests {
                 "TRUST_POLICY_NOT_CONFIGURED",
             )
             .unwrap(),
-            history: RepositorySnapshot::new(
-                format!(
-                    "audit-chain:{}:{sequence}",
-                    intent.principal.organization_id
-                ),
-                sequence,
-                previous_hash.unwrap(),
-            )
-            .unwrap(),
+            history: repository.clone(),
             market_data: ExternalSnapshotReference::unavailable("MARKET_DATA_UNAVAILABLE").unwrap(),
             simulation: SimulationReference::not_run("SIMULATOR_NOT_IMPLEMENTED").unwrap(),
         })
         .unwrap();
-        super::evaluate_context(intent, rule_set, &context, events.iter()).unwrap()
+        let duplicate = rule_set.duplicate_purchase_enabled().then(|| {
+            DuplicatePurchaseHistory::new(
+                DuplicatePurchaseQuery::new(
+                    &intent.principal.organization_id,
+                    &intent.principal.agent_id,
+                    &intent.resource.resource_id,
+                    &intent.intent_id,
+                    evaluated_at,
+                    rule_set.duplicate_purchase_window_seconds(),
+                    rule_set.duplicate_purchase_accounting_boundary(),
+                )
+                .unwrap(),
+                prior,
+            )
+            .unwrap()
+        });
+        let history = RiskHistorySnapshot::new(repository, duplicate).unwrap();
+        super::evaluate_context(intent, rule_set, &context, &history).unwrap()
     }
 
     fn configured_rule_set(pointer: &str, value: serde_json::Value) -> RiskRuleSet {
@@ -411,24 +382,20 @@ mod tests {
     }
 
     #[test]
-    fn verified_audit_events_can_drive_history_without_a_process_ledger() {
+    fn repository_snapshot_result_drives_history_without_a_process_ledger() {
         let mut intent = base_intent();
         intent.intent_id = "01J0000000000000000000N200".into();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
-        let prior = NewAuditEvent::new(
-            EventType::DecisionRecorded,
+        let prior = DuplicatePurchaseMatch::new(
+            "01J0000000000000000000N100",
+            "01J0000000000000000000DEC0",
+            "01J0000000000000000000EVT0",
+            8,
             Timestamp::from_str("2026-08-08T11:59:00Z").unwrap(),
-            Some("01J0000000000000000000N100".into()),
-            serde_json::json!({
-                "decision": "PERMIT",
-                "organization_id": "alpha-lab",
-                "agent_id": "research-agent-01",
-                "resource_id": "btc-orderbook-2026-07-01",
-            }),
         )
-        .chain(None);
+        .unwrap();
 
-        let findings = evaluate_with_events(&intent, &RiskRuleSet::default(), [&prior]);
+        let findings = evaluate_with_match(&intent, &RiskRuleSet::default(), Some(prior));
 
         assert!(findings
             .iter()
@@ -571,78 +538,36 @@ mod tests {
     }
 
     #[test]
-    fn every_declared_accounting_boundary_selects_its_exact_lifecycle_fact() {
+    fn every_declared_accounting_boundary_must_match_the_snapshot_query() {
         let prior_intent_id = "01J0000000000000000000H100";
         let at = Timestamp::from_str("2026-07-18T08:01:00Z").unwrap();
         let evaluated_at = Timestamp::from_str("2026-07-18T08:02:00Z").unwrap();
-        let received = NewAuditEvent::new(
-            EventType::IntentReceived,
+        let prior = DuplicatePurchaseMatch::new(
+            prior_intent_id,
+            "01J0000000000000000000DEC0",
+            "01J0000000000000000000EVT0",
+            8,
             at,
-            Some(prior_intent_id.into()),
-            serde_json::json!({
-                "organization_id": "alpha-lab",
-                "agent_id": "research-agent-01",
-                "resource_id": "btc-orderbook-2026-07-01"
-            }),
         )
-        .chain(None);
+        .unwrap();
         let boundary_cases = [
-            (
-                "REQUESTED",
-                NewAuditEvent::new(
-                    EventType::IntentReceived,
-                    at,
-                    Some(prior_intent_id.into()),
-                    received.data.clone(),
-                )
-                .chain(None),
-            ),
-            (
-                "PERMITTED",
-                NewAuditEvent::new(
-                    EventType::DecisionRecorded,
-                    at,
-                    Some(prior_intent_id.into()),
-                    serde_json::json!({"decision": "PERMIT"}),
-                )
-                .chain(None),
-            ),
-            (
-                "EXECUTED",
-                NewAuditEvent::new(
-                    EventType::ExecutionConfirmed,
-                    at,
-                    Some(prior_intent_id.into()),
-                    serde_json::json!({}),
-                )
-                .chain(None),
-            ),
-            (
-                "SETTLED",
-                NewAuditEvent::new(
-                    EventType::SettlementVerified,
-                    at,
-                    Some(prior_intent_id.into()),
-                    serde_json::json!({}),
-                )
-                .chain(None),
-            ),
+            ("REQUESTED", AccountingBoundary::Requested),
+            ("PERMITTED", AccountingBoundary::Permitted),
+            ("EXECUTED", AccountingBoundary::Executed),
+            ("SETTLED", AccountingBoundary::Settled),
         ];
         let mut intent = base_intent();
         intent.intent_id = "01J0000000000000000000H200".into();
         intent.expires_at = Timestamp::from_str("2999-01-01T00:00:00Z").unwrap();
 
-        for (boundary, boundary_event) in boundary_cases {
+        for (boundary, expected) in boundary_cases {
             let rule_set = configured_rule_set(
                 "/rules/duplicate_purchase/accounting_boundary",
                 serde_json::json!(boundary),
             );
-            let result = evaluate_with_events_at(
-                &intent,
-                &rule_set,
-                [&received, &boundary_event],
-                evaluated_at,
-            );
+            assert_eq!(rule_set.duplicate_purchase_accounting_boundary(), expected);
+            let result =
+                evaluate_with_match_at(&intent, &rule_set, Some(prior.clone()), evaluated_at);
             assert!(
                 result
                     .iter()

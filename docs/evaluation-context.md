@@ -1,6 +1,6 @@
 # Immutable Evaluation Context
 
-Status: DS-023 implemented (2026-08-08)
+Status: DS-023 implemented; DS-028 bounded Risk history integrated (2026-08-09)
 
 Authority: `docs/PRD.md` §12.5–12.6 and ADR-0002
 
@@ -44,9 +44,9 @@ at `evaluation_time`; duplicate Evidence hashes are canonicalized away.
 ## Durable transaction
 
 After authenticated admission, Gateway resolves the exact Policy artifact,
-loads and verifies the Audit history it will give Risk, captures one evaluation
-time, constructs the context, then calls one short Store transaction. That
-transaction:
+captures one evaluation time and one bounded typed Risk-history snapshot, uses
+that snapshot's repository boundary to construct the context, then calls one
+short Store transaction. That transaction:
 
 1. verifies the current evaluator lease/fencing token and immutable Intent;
 2. inserts the context's exact canonical JSON/bytes/hash;
@@ -60,7 +60,11 @@ fail closed.
 
 Policy and Risk execute only after this commit. Finalization requires the same
 Evaluation ID, evaluation time and context hash and records a foreign-key
-binding from final Evaluation output to the immutable context.
+binding from final Evaluation output to the immutable context. The Context
+binds the repository boundary; the canonical Risk Evaluation and
+`RiskEvaluated` payload additionally retain the exact DS-028 query inputs and
+at-most-one result. Risk receives that closed snapshot, never Audit events or
+an ambient Store handle.
 
 ## Loading and recovery
 
@@ -76,8 +80,10 @@ whose Policy/Risk/market-data fields explicitly record unavailability. It then
 emits `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` without executing
 current Policy/Risk. DS-026 Original Replay uses the exact persisted Context;
 DS-027 derives a non-authoritative Counterfactual Context that preserves its
-snapshot/time/Evidence/history while changing only the new Evaluation ID and
-explicit selected Policy/Risk references.
+snapshot/time/Evidence/history boundary while changing only the new Evaluation
+ID and explicit selected Policy/Risk references. DS-028 Original and
+Counterfactual Replay reconstruct the bounded query against that exact
+sequence/hash boundary, so later Audit events cannot enter replayed Risk input.
 
 ## Required verification
 

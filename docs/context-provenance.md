@@ -1,6 +1,6 @@
 # Context Provenance and Trusted Evidence
 
-Status: DS-022 through DS-024 implemented (2026-08-08)
+Status: DS-022 through DS-024 implemented; DS-028 history boundary integrated (2026-08-09)
 
 Authority: `docs/PRD.md` §4.2.7, §12.3, §12.5 and §12.6
 
@@ -65,9 +65,11 @@ claimed trust-policy reference that differs from any retained verifier hash.
 Policy and Risk rederive the Intent hash and Profile and verify the Context's
 Agent-context hash before execution. Policy also verifies environment, active
 time and exact Bundle ID/version/hash. Risk verifies the exact Rule Set
-engine/version/hash plus every predecessor link, event count and tail hash of
-the Audit prefix named by `RepositorySnapshot`. A different Intent, artifact,
-or history boundary fails closed before any rule runs.
+engine/version/hash and requires its typed `RiskHistorySnapshot` repository
+boundary to equal the `RepositorySnapshot` named by Context. The duplicate
+query must also match the Intent's organization/Agent/resource/current ID, the
+Context time, and the Rule Set window/accounting boundary. A different Intent,
+artifact, query or history boundary fails closed before any rule runs.
 
 ## Privileged-context firewall
 
@@ -106,8 +108,8 @@ The DS-022 through DS-024 boundary is covered by tests that prove:
    trusted inputs or overwrite verified evidence;
 5. stale, tampered and unsigned-required evidence cannot enter a Context, while
    wrongly scoped and ambiguous persisted values produce restrictive findings;
-6. the same Context produces byte-equivalent Policy/Risk output, wall-clock and
-   post-snapshot Audit state cannot affect it, and artifact/history mismatch
-   fails closed;
+6. the same Context plus recorded bounded history produces byte-equivalent
+   Policy/Risk output, wall-clock and post-snapshot Audit state cannot affect
+   it, and artifact/query/history mismatch fails closed;
 7. the full repository Definition of Done and real CLI/Gateway smoke paths are
    clean.

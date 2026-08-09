@@ -256,8 +256,8 @@ impl Store {
         if through_sequence == 0 || chain.len() < through_sequence {
             return Err(ReplayError::InputTampered);
         }
-        let history = &chain[..through_sequence];
-        if history.last().map(|event| event.event_hash.as_str())
+        let audit_history = &chain[..through_sequence];
+        if audit_history.last().map(|event| event.event_hash.as_str())
             != Some(context.history().snapshot_hash())
         {
             return Err(ReplayError::InputTampered);
@@ -279,6 +279,15 @@ impl Store {
         let AuditPayload::RiskEvaluated(original_risk) = original_risk else {
             return Err(ReplayError::InputTampered);
         };
+        let risk_history = self
+            .load_risk_history_at(
+                &admitted.intent,
+                &risk_rule_set,
+                context.evaluation_time(),
+                context.history(),
+            )
+            .await
+            .map_err(map_input_error)?;
 
         let evaluated_policy = policy.evaluate(&admitted.intent, context);
         let (policy_outcome, policy_error_code) =
@@ -289,10 +298,13 @@ impl Store {
                     &admitted.intent,
                     &risk_rule_set,
                     context,
-                    history.iter().map(|event| &event.event),
+                    &risk_history,
                 ) {
                     Ok(evaluation) => ReplayedRisk::Evaluated(evaluation),
-                    Err(error) => ReplayedRisk::Error(error.code().into()),
+                    Err(error) => ReplayedRisk::Error {
+                        error_code: error.code().into(),
+                        history: Some(risk_history.clone()),
+                    },
                 }
             }
             Some(outcome) if outcome.decision == PolicyDecision::Forbid => {
@@ -310,7 +322,7 @@ impl Store {
         };
         let risk_input = match &replayed_risk {
             ReplayedRisk::Evaluated(evaluation) => RiskDecisionInput::Evaluated(evaluation),
-            ReplayedRisk::Error(error_code) => RiskDecisionInput::Error { error_code },
+            ReplayedRisk::Error { error_code, .. } => RiskDecisionInput::Error { error_code },
             ReplayedRisk::NotRun(reason_code) => RiskDecisionInput::NotRun { reason_code },
         };
         let replayed = decide(DecisionInput {
@@ -456,8 +468,7 @@ impl Store {
             )
             .await
             .map_err(map_selected_risk_error)?;
-        let history =
-            replay_history_prefix(self, &request.organization_id, original_context).await?;
+        replay_history_prefix(self, &request.organization_id, original_context).await?;
         let context = original_context
             .derive_counterfactual(
                 request.counterfactual_evaluation_id.clone(),
@@ -465,6 +476,15 @@ impl Store {
                 selected_risk,
             )
             .map_err(|_| ReplayError::InputTampered)?;
+        let risk_history = self
+            .load_risk_history_at(
+                &admitted.intent,
+                &risk_rule_set,
+                context.evaluation_time(),
+                context.history(),
+            )
+            .await
+            .map_err(map_input_error)?;
 
         let (policy_outcome, policy_error_code, policy_result) =
             counterfactual_policy(policy.evaluate(&admitted.intent, &context));
@@ -474,10 +494,13 @@ impl Store {
                     &admitted.intent,
                     &risk_rule_set,
                     &context,
-                    history.iter().map(|event| &event.event),
+                    &risk_history,
                 ) {
                     Ok(evaluation) => ReplayedRisk::Evaluated(evaluation),
-                    Err(error) => ReplayedRisk::Error(error.code().into()),
+                    Err(error) => ReplayedRisk::Error {
+                        error_code: error.code().into(),
+                        history: Some(risk_history.clone()),
+                    },
                 }
             }
             Some(outcome) if outcome.decision == PolicyDecision::Forbid => {
@@ -494,7 +517,7 @@ impl Store {
         };
         let risk_input = match &replayed_risk {
             ReplayedRisk::Evaluated(evaluation) => RiskDecisionInput::Evaluated(evaluation),
-            ReplayedRisk::Error(error_code) => RiskDecisionInput::Error { error_code },
+            ReplayedRisk::Error { error_code, .. } => RiskDecisionInput::Error { error_code },
             ReplayedRisk::NotRun(reason_code) => RiskDecisionInput::NotRun { reason_code },
         };
         let decision = decide(DecisionInput {
@@ -969,7 +992,10 @@ fn reproduce_policy(
 
 enum ReplayedRisk {
     Evaluated(RiskEvaluation),
-    Error(String),
+    Error {
+        error_code: String,
+        history: Option<atf_core::RiskHistorySnapshot>,
+    },
     NotRun(&'static str),
 }
 
@@ -980,9 +1006,13 @@ fn reproduce_risk(
 ) -> Result<(), ReplayError> {
     let evidence = match replayed {
         ReplayedRisk::Evaluated(evaluation) => risk_evidence(evaluation),
-        ReplayedRisk::Error(error_code) => RiskEvaluatedPayload {
+        ReplayedRisk::Error {
+            error_code,
+            history,
+        } => RiskEvaluatedPayload {
             risk_rule_set_version: Some(rule_set.version().into()),
             risk_rule_set_hash: Some(rule_set.rule_set_hash().into()),
+            history: history.clone(),
             outcome: OptionalModuleOutcome::Error {
                 error_code: error_code.clone(),
             },
@@ -990,10 +1020,19 @@ fn reproduce_risk(
         ReplayedRisk::NotRun(reason_code) => RiskEvaluatedPayload {
             risk_rule_set_version: Some(rule_set.version().into()),
             risk_rule_set_hash: Some(rule_set.rule_set_hash().into()),
+            history: None,
             outcome: OptionalModuleOutcome::NotRun {
                 reason_code: (*reason_code).into(),
             },
         },
+    };
+    let evidence = if original.history.is_none() {
+        RiskEvaluatedPayload {
+            history: None,
+            ..evidence
+        }
+    } else {
+        evidence
     };
     if &evidence == original {
         Ok(())
@@ -1018,6 +1057,7 @@ fn risk_evidence(evaluation: &RiskEvaluation) -> RiskEvaluatedPayload {
     RiskEvaluatedPayload {
         risk_rule_set_version: Some(evaluation.rule_set_version.clone()),
         risk_rule_set_hash: Some(evaluation.rule_set_hash.clone()),
+        history: Some(evaluation.history.clone()),
         outcome: OptionalModuleOutcome::Succeeded {
             result: evaluation
                 .findings
@@ -1068,9 +1108,13 @@ fn replayed_risk_evidence(
 ) -> RiskEvaluatedPayload {
     match replayed {
         ReplayedRisk::Evaluated(evaluation) => risk_evidence(evaluation),
-        ReplayedRisk::Error(error_code) => RiskEvaluatedPayload {
+        ReplayedRisk::Error {
+            error_code,
+            history,
+        } => RiskEvaluatedPayload {
             risk_rule_set_version: Some(rule_set.version().into()),
             risk_rule_set_hash: Some(rule_set.rule_set_hash().into()),
+            history: history.clone(),
             outcome: OptionalModuleOutcome::Error {
                 error_code: error_code.clone(),
             },
@@ -1078,6 +1122,7 @@ fn replayed_risk_evidence(
         ReplayedRisk::NotRun(reason_code) => RiskEvaluatedPayload {
             risk_rule_set_version: Some(rule_set.version().into()),
             risk_rule_set_hash: Some(rule_set.rule_set_hash().into()),
+            history: None,
             outcome: OptionalModuleOutcome::NotRun {
                 reason_code: (*reason_code).into(),
             },
