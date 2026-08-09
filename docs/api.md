@@ -97,6 +97,25 @@ freshness and HTTP timeout have bounded optional environment settings; a
 private/test CA can be supplied via `ATF_OPERATOR_CA_CERT_PATH`. Startup fails
 closed unless discovery and an initial unique usable key set validate.
 
+## DS-034 HTTP safety contract
+
+Every route, including health, readiness and metrics, buffers at most the
+configured body limit, accepts only the configured aggregate Header bytes/count
+and runs inside a finite whole-request deadline. `POST /v1/intents` has a
+shorter nested evaluation deadline. A bounded process-local GCRA first limits
+the direct socket IP, then a domain-hashed principal. Agent quota is charged
+only after current durable Key/signature verification; Operator quota is
+charged after JWT/JWKS verification. Forged forwarding Headers never select a
+source and are removed before Handler logic. See [`operations.md`](operations.md)
+for exact defaults and deployment requirements.
+
+The server speaks plaintext and defaults to `127.0.0.1`. Non-loopback startup
+requires `ATF_TLS_TERMINATED_BY_TRUSTED_PROXY=true`; the deployment must still
+enforce TLS, ingress-to-Gateway protection, direct-port isolation and parser/
+handshake timeouts. This explicit assertion never grants request identity or
+authorization. All responses set `Cache-Control: no-store`,
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+
 ## DS-032 Audit query contract
 
 Both Audit routes require an Operator principal with a current durable
@@ -183,9 +202,9 @@ closed route templates, method/status classes and domain outcomes/severities;
 raw URLs, organization/request/Intent IDs, credentials, signatures, full
 payloads, error text, Policy IDs and Risk rule IDs are excluded. Replay totals
 come from durable typed Audit evidence because Replay runs in the offline CLI.
-The endpoint is an infrastructure scrape surface and must remain behind a
-trusted private network or authenticated ingress until DS-034 completes the
-shared TLS/proxy/rate-limit boundary.
+The endpoint is an infrastructure scrape surface and shares DS-034 request and
+source limits, but must remain behind a trusted private network or authenticated
+ingress.
 
 ## Error envelope
 
@@ -246,7 +265,11 @@ operators and orchestrators. They still carry `X-ATF-Request-ID`.
 | 409 | `IDEMPOTENCY_CONFLICT` | Organization/key is already bound to another Intent hash |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | The same organization/key/hash has an active evaluator or recovery lease |
 | 409 | `IDENTITY_NONCE_REPLAY` | The Agent Nonce is already bound to another request |
+| 408 | `REQUEST_TIMEOUT` | Whole application request exceeded its deadline |
 | 413 | `REQUEST_BODY_TOO_LARGE` | Active body limit rejected the request |
+| 429 | `RATE_LIMITED` | Source or verified-principal operational quota was exceeded |
+| 431 | `REQUEST_HEADERS_TOO_LARGE` | Parsed Header byte/count limit rejected the request |
+| 504 | `EVALUATION_TIMEOUT` | Intent evaluation exceeded its nested deadline |
 | 500 | `DURABLE_STATE_INTEGRITY_ERROR` | Persisted evidence failed verification |
 | 500 | `INTERNAL_ERROR` | An internal invariant failed safely |
 | 503 | `DURABLE_STATE_UNAVAILABLE` | Required durable state is unavailable/incompatible |

@@ -23,6 +23,7 @@ atf-store = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }
+http-body-util = { workspace = true }
 jsonwebtoken = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
@@ -34,5 +35,6 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 chrono = { workspace = true }
 ed25519-dalek = { workspace = true }
+http-body = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }

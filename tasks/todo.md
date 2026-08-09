@@ -147,8 +147,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   Replay/idempotency/freshness/Audit-failure metrics, JSON request spans,
   response/trace/Audit-event correlation and captured-canary redaction tests.
   Depends: DS-018, DS-025, DS-032.
-- [ ] **NEXT — DS-034:** add body/header limits, timeouts and operational rate limits. Depends: DS-018, DS-033.
-- [ ] **DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
+- [x] **DS-034:** added finite body/Header limits, whole-request/evaluator
+  deadlines, source plus verified-principal operational rate limits, stable
+  safe rejection codes/metrics and explicit loopback/TLS/proxy assumptions.
+  Depends: DS-018, DS-033.
+- [ ] **NEXT — DS-035:** standardize fail-closed dependency/readiness behavior. Depends: DS-025, DS-033, DS-034.
 - [ ] **DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
 - [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
 - [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.

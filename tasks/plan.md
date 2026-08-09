@@ -1146,6 +1146,8 @@ Kill Switch and reconciliation remain absent until those components exist.
 
 ### DS-034 — Bound every HTTP request `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add body/header limits, request/evaluator timeouts, per-principal
 rate limits and safe proxy/TLS assumptions. Keep operational rate limiting
 separate from financial velocity rules.
@@ -1159,6 +1161,20 @@ separate from financial velocity rules.
   2. Limits are configurable with secure finite defaults.
   3. Trusted-proxy/TLS deployment assumptions are explicit and tested locally.
 - **Verification:** oversized/timeout/rate tests and live socket smoke; full DoD.
+
+**Delivered boundary:** every routed request now passes finite body, aggregate
+Header/count and whole-request limits; Intent evaluation has a shorter nested
+deadline. A bounded in-process GCRA applies first to the direct socket IP and
+then to a domain-hashed Agent or Operator principal. Agent quota is charged
+only after a read-only verification of the current durable exact Key and
+signature, while atomic admission repeats verification under lock; forged
+claims therefore cannot exhaust another Agent's quota. Stable 408/413/429/431/
+504 envelopes, `Retry-After`, security response Headers and a closed rejection
+metric cover every termination. The server defaults to loopback plaintext,
+refuses non-loopback binding without an explicit trusted-proxy TLS assertion,
+strips forwarding Headers and never treats them as authority. TLS, slow Header
+parsing, shared multi-instance rate enforcement and direct-port isolation
+remain ingress/deployment responsibilities and are documented explicitly.
 
 ### DS-035 — Define fail-closed dependency behavior `[S]`
 

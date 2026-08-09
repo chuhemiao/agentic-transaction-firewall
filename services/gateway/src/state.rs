@@ -6,6 +6,7 @@ use atf_policy::{PolicyBundle, PolicyError, PolicyOutcome};
 use atf_risk::RiskRuleSet;
 use atf_store::Store;
 
+use crate::middleware::{GatewayHttpConfig, HttpRuntime};
 use crate::telemetry::GatewayTelemetry;
 use crate::{IdentityGatewayConfig, OperatorAuthenticator};
 
@@ -21,6 +22,7 @@ pub struct AppState {
     pub identity: Arc<IdentityGatewayConfig>,
     pub operator_auth: Arc<OperatorAuthenticator>,
     pub(crate) telemetry: GatewayTelemetry,
+    pub(crate) http: HttpRuntime,
 }
 
 #[derive(Clone)]
@@ -63,13 +65,15 @@ impl AppState {
         identity: IdentityGatewayConfig,
         operator_auth: OperatorAuthenticator,
     ) -> Self {
+        let telemetry = GatewayTelemetry::default();
         Self {
             policy_source: PolicySource::Static(Arc::new(policy_bundle)),
             risk_rule_set: Arc::new(risk_rule_set),
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),
-            telemetry: GatewayTelemetry::default(),
+            http: HttpRuntime::new(GatewayHttpConfig::default(), telemetry.clone()),
+            telemetry,
         }
     }
 
@@ -82,6 +86,7 @@ impl AppState {
         identity: IdentityGatewayConfig,
         operator_auth: OperatorAuthenticator,
     ) -> Self {
+        let telemetry = GatewayTelemetry::default();
         Self {
             policy_source: PolicySource::Durable {
                 organization_id: organization_id.into(),
@@ -92,8 +97,13 @@ impl AppState {
             store,
             identity: Arc::new(identity),
             operator_auth: Arc::new(operator_auth),
-            telemetry: GatewayTelemetry::default(),
+            http: HttpRuntime::new(GatewayHttpConfig::default(), telemetry.clone()),
+            telemetry,
         }
+    }
+
+    pub(crate) fn configure_http(&mut self, config: GatewayHttpConfig) {
+        self.http = HttpRuntime::new(config, self.telemetry.clone());
     }
 
     pub(crate) async fn resolve_policy(

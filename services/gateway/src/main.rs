@@ -1,6 +1,7 @@
 use atf_core::Timestamp;
 use atf_gateway::{
-    build_router, AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator,
+    build_router_with_http_config, AppState, GatewayHttpConfig, GatewayServerConfig,
+    IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator,
 };
 use atf_risk::RiskRuleSet;
 use atf_store::Store;
@@ -10,6 +11,10 @@ use std::time::Duration;
 async fn main() {
     tracing_subscriber::fmt().json().init();
 
+    let http_config = GatewayHttpConfig::from_env()
+        .expect("Gateway HTTP request limits, timeouts, or rate limits are invalid");
+    let server_config = GatewayServerConfig::from_env()
+        .expect("Gateway bind/TLS boundary configuration is invalid");
     let deployment_environment = std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
         .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification");
     let policy_organization_id = std::env::var("ATF_POLICY_ORGANIZATION_ID")
@@ -102,20 +107,24 @@ async fn main() {
         identity,
         operator_auth,
     );
-    let app = build_router(state);
+    let app = build_router_with_http_config(state, http_config);
 
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8080);
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+    let socket_address = server_config.socket_address();
+    let listener = tokio::net::TcpListener::bind(socket_address)
         .await
-        .unwrap_or_else(|err| panic!("failed to bind :{port}: {err}"));
+        .unwrap_or_else(|err| panic!("failed to bind {socket_address}: {err}"));
 
-    tracing::info!("atf-gateway listening on :{port}");
-    axum::serve(listener, app)
-        .await
-        .expect("gateway server exited unexpectedly");
+    tracing::info!(
+        bind_address = %socket_address,
+        tls_terminated_by_trusted_proxy = server_config.tls_terminated_by_trusted_proxy(),
+        "atf-gateway listening"
+    );
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("gateway server exited unexpectedly");
 }
 
 fn duration_env(name: &str, default_seconds: u64) -> Duration {

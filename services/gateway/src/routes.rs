@@ -20,6 +20,7 @@ use atf_core::{
     VersionedArtifactReference,
 };
 use atf_decision::Decision;
+use atf_identity::EnvelopeVerificationContext;
 use atf_intent::{validate_profile, TransactionIntent};
 use atf_policy::PolicyDecision;
 use atf_store::{
@@ -34,6 +35,7 @@ use std::time::Instant;
 
 use crate::auth::{has_identity_headers, parse_identity_assertion};
 use crate::error::ApiError;
+use crate::middleware::{principal_rate_limited_response, GatewayHttpConfig};
 use crate::principal::{AgentPrincipal, RequestPrincipal};
 use crate::request_id::RequestId;
 use crate::state::AppState;
@@ -52,7 +54,13 @@ enum AdmissionOutcome {
 }
 
 pub fn build_router(state: AppState) -> Router {
+    build_router_with_http_config(state, GatewayHttpConfig::default())
+}
+
+pub fn build_router_with_http_config(mut state: AppState, config: GatewayHttpConfig) -> Router {
+    state.configure_http(config);
     let telemetry = state.telemetry.clone();
+    let http = state.http.clone();
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
@@ -75,6 +83,10 @@ pub fn build_router(state: AppState) -> Router {
         .fallback(route_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            http,
+            crate::middleware::enforce,
+        ))
         .layer(middleware::from_fn_with_state(
             telemetry,
             crate::request_id::assign,
@@ -189,6 +201,16 @@ async fn create_intent(
             return ApiError::identity_rejected(reason_code).into_response(&request_id);
         }
     };
+    if let Some(exceeded) = verified_agent_rate_limit(
+        &state,
+        &intent,
+        &identity_assertion,
+        Timestamp::now_millis(),
+    )
+    .await
+    {
+        return principal_rate_limited_response(&state.http, &request_id, exceeded);
+    }
 
     let admitted = match admit_or_recover(
         &state.store,
@@ -582,6 +604,32 @@ async fn create_intent(
     );
 
     Json(finalized.decision).into_response()
+}
+
+async fn verified_agent_rate_limit(
+    state: &AppState,
+    intent: &TransactionIntent,
+    assertion: &crate::auth::IdentityAssertion,
+    verification_time: Timestamp,
+) -> Option<crate::middleware::RateLimitExceeded> {
+    let context = EnvelopeVerificationContext {
+        audience: state.identity.audience(),
+        environment: state.identity.environment(),
+        verification_time,
+    };
+    let snapshot = state
+        .store
+        .load_identity_snapshot(
+            &assertion.envelope.organization_id,
+            &assertion.envelope.agent_id,
+            &assertion.envelope.key_id,
+        )
+        .await
+        .ok()?;
+    snapshot
+        .verify_envelope(intent, &assertion.envelope, &assertion.signature, &context)
+        .ok()?;
+    state.http.check_agent(&assertion.envelope).err()
 }
 
 fn build_evaluation_context(
@@ -1202,6 +1250,16 @@ async fn authenticate_operator(
         .verify(headers)
         .await
         .map_err(|_| ApiError::authentication_required().into_response(request_id))?;
+    if let Err(exceeded) = state
+        .http
+        .check_operator(&verified.issuer_id, &verified.subject_fingerprint)
+    {
+        return Err(principal_rate_limited_response(
+            &state.http,
+            request_id,
+            exceeded,
+        ));
+    }
     let organization_id = organization_header(headers)
         .ok_or_else(|| ApiError::organization_header_invalid().into_response(request_id))?;
     let principal = state

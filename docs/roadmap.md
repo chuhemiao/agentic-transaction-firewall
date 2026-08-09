@@ -158,6 +158,10 @@ order. The executable order is:
   Replay, idempotency, freshness and Audit-failure signals; JSON request spans
   link the response Request ID to allowlisted durable Audit event IDs, and
   captured canaries prove credential/signature/payload redaction.
+- [x] DS-034 Bounded HTTP boundary. Every route has finite body/Header and
+  request limits, Intent evaluation has a nested deadline, and process-local
+  source plus verified-principal GCRA limits return stable safe errors. The
+  server defaults to loopback and makes trusted-proxy TLS assumptions explicit.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -175,8 +179,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-034` — add finite body/header limits, timeouts,
-operational rate limits, and explicit trusted-proxy/TLS assumptions.
+**Immediate next task:** `DS-035` — standardize fail-closed dependency and
+readiness behavior across database, Bundle, snapshot, Audit and lock failures.
 
 ## Later releases
 

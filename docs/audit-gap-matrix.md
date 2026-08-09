@@ -192,7 +192,8 @@ principals and non-enumerating Decision-read RBAC.
   cross-tenant, role, revocation, restart, tamper, redaction and confused-deputy
   regressions.
 - **dependencies:** identity envelope, durable Operator/Role lifecycle and
-  configured HTTPS issuer/JWKS are complete; DS-034 still owns edge hardening.
+  configured HTTPS issuer/JWKS and DS-034 application request boundaries are
+  complete; deployment TLS/direct-port isolation remain operations controls.
 - **target_release:** Durable Shadow Mode before any shared deployment.
 - **acceptance_criteria:** met for current non-health routes; new routes must
   add an explicit principal/capability contract before exposure.
@@ -489,16 +490,31 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-SEC-001 — API Security
 
 - **module:** `services/gateway`
-- **current_state:** `PARTIALLY_IMPLEMENTED`
-- **evidence:** DS-011 gives every response a fresh server-generated `X-ATF-Request-ID`; business, Router and Store failures use the exact `{code,message,request_id,details}` JSON envelope with fixed safe code/status/message mapping. Semantic details contain only server-owned code/field pairs, and Store/readiness warnings emit stable error codes instead of underlying database diagnostics. Contract tests cover UTF-8/JSON/Schema/common/Profile/header/not-found/conflict/404/405/database-unavailable paths and prove raw input/database text is absent. DS-018 adds bounded Bearer parsing, token/JWKS validation, durable RBAC, generic credential errors, non-enumerating resource reads and JWKS readiness. DS-033 propagates the server ID through JSON request spans and allowlisted Audit-event completion logs; captured credential, signature, raw-URL and financial-payload canaries prove redaction. Health/readiness retain text bodies. General explicit header/body/timeout/rate configuration remains absent.
-- **security_impact:** ambiguous/reflected/internal/credential error disclosure, anonymous Decision enumeration and incomplete request/Audit correlation are reduced; resource exhaustion remains.
-- **financial_impact:** availability loss remains possible; a client can correlate a response through its request span to the authoritative durable Audit event without exposing the transaction payload.
-- **severity:** `CRITICAL`
-- **recommended_change:** retain the DS-011/DS-018/DS-033 envelope, principal, correlation and redaction boundary while adding finite configurable limits through DS-034.
-- **required_tests:** structured error, request-ID/span/Audit correlation and captured-log redaction tests are implemented; oversized/slow/rate-limited requests and timeout tests remain.
+- **current_state:** `CLOSED_CURRENT_SCOPE`
+- **evidence:** DS-011 supplies the fixed safe error envelope and fresh request
+  ID; DS-018 adds bounded JWT/JWKS validation, durable RBAC and non-enumerating
+  reads; DS-033 adds fixed-cardinality telemetry and captured redaction
+  canaries. DS-034 now applies finite body/Header/count limits, whole-request
+  and nested evaluator deadlines, bounded source plus verified-principal GCRA,
+  fixed security response Headers and closed rejection metrics to every route.
+  Tests cover oversized, pending-body, evaluator-timeout, source spoofing,
+  forged Agent proof, valid Agent/Operator quota and non-loopback startup cases.
+- **security_impact:** current application routes are bounded, attributable,
+  scoped and safely observable. Forwarding Headers are stripped and cannot
+  alter source identity or authorization.
+- **financial_impact:** one process now contains abusive request cost before a
+  second admission/evaluation while preserving durable financial velocity as
+  a separate Risk rule.
+- **severity:** `CLOSED` (formerly `CRITICAL`)
+- **recommended_change:** retain these application limits while DS-039 adds
+  measured ingress, multi-instance and recovery operations controls.
+- **required_tests:** implemented for structured errors, correlation,
+  redaction, oversized/slow/rate-limited requests and live sockets.
 - **dependencies:** Authentication/Authorization and observability.
 - **target_release:** Durable Shadow Mode before shared deployment.
-- **acceptance_criteria:** every business request is bounded, attributable, scoped, safely logged, and returns a stable code.
+- **acceptance_criteria:** met for the current HTTP surface; ingress must still
+  enforce TLS, direct-port isolation, parser/handshake timeouts and any shared
+  multi-instance source quota.
 
 ### GAP-OBS-001 — Observability
 
@@ -565,6 +581,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-034` is next: add finite body/header limits, evaluator/request timeouts,
-operational rate limits, and explicit trusted-proxy/TLS assumptions without
-weakening the DS-033 correlation or redaction boundary.
+`DS-035` is next: standardize fail-closed database, active-Bundle, snapshot,
+Audit and lock-failure behavior without returning an unfinalized Decision.

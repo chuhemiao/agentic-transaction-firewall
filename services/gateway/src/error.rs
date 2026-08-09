@@ -55,6 +55,46 @@ impl ApiError {
         }
     }
 
+    pub(crate) fn body_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "REQUEST_BODY_TOO_LARGE",
+            "Request body exceeds the configured limit.",
+        )
+    }
+
+    pub(crate) fn headers_too_large() -> Self {
+        Self::new(
+            StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            "REQUEST_HEADERS_TOO_LARGE",
+            "Request headers exceed the configured limit.",
+        )
+    }
+
+    pub(crate) fn request_timeout() -> Self {
+        Self::new(
+            StatusCode::REQUEST_TIMEOUT,
+            "REQUEST_TIMEOUT",
+            "The request exceeded the configured time limit.",
+        )
+    }
+
+    pub(crate) fn evaluation_timeout() -> Self {
+        Self::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            "EVALUATION_TIMEOUT",
+            "The evaluation exceeded the configured time limit.",
+        )
+    }
+
+    pub(crate) fn rate_limited() -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+            "The operational request rate limit was exceeded.",
+        )
+    }
+
     pub(crate) fn from_intent(error: IntentError) -> Self {
         match error {
             IntentError::InvalidJson(_) => Self::new(

@@ -58,9 +58,12 @@ secret. The realistic attack surface today includes:
   rejects credential type confusion and prevents cross-tenant/wrong-role
   resource enumeration. A caller with the exact valid Agent proof can still
   trigger that request's post-expiry fail-closed recovery; this cannot produce
-  Permit but can terminate the Intent as ERROR. General timeout/rate limits and
-  trusted ingress deployment remain incomplete, so the Gateway is still
-  unsuitable for an untrusted shared network.
+  Permit but can terminate the Intent as ERROR. DS-034 now bounds application
+  body/Header/count, total request and evaluator cost, then rate-limits direct
+  socket sources and verified domain-hashed Agent/Operator principals. A forged
+  Agent proof cannot consume another Agent's quota. Shared deployment still
+  requires TLS ingress, direct-port isolation and ingress parser/handshake
+  limits, so the Gateway is not yet production-ready on an untrusted network.
 
 - **Observability exfiltration and cardinality exhaustion.** DS-033 maps HTTP
   requests only to closed route templates/method/status classes and maps
@@ -71,10 +74,10 @@ secret. The realistic attack surface today includes:
   Captured canaries prove these exclusions. JSON spans retain the server
   Request ID and allowlisted Audit event IDs only for incident correlation;
   PostgreSQL Audit remains authoritative. Replay counts are aggregated from
-  typed durable events without tenant labels. `/metrics` is currently an
-  unauthenticated infrastructure endpoint and must remain behind a trusted
-  private operations network or authenticated ingress until DS-034 defines
-  the shared TLS/proxy/rate-limit boundary.
+  typed durable events without tenant labels. `/metrics` remains an
+  unauthenticated infrastructure endpoint, but it now shares the same finite
+  request/source limits. It still belongs behind a trusted private operations
+  network or authenticated ingress.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -139,8 +142,9 @@ secret. The realistic attack surface today includes:
   events. Query/result evidence plus
   the Context repository hash make later or substituted history fail closed in
   evaluation and Replay. Other Store
-  integrity readers still verify complete organization chains, and configured
-  request/rate limits remain required to resist growth-based denial of service.
+  integrity readers still verify complete organization chains. DS-034 bounds
+  each application request, while retention/checkpoint work remains required
+  to reduce the underlying growth cost.
 - **Audit query isolation and traversal cost** — DS-032 authenticates before
   parsing query details, rechecks current local auditor/admin authority inside
   the Store snapshot, and avoids loading a target chain when no target role row
@@ -148,8 +152,8 @@ secret. The realistic attack surface today includes:
   binds tenant, filters and the verified prefix, preventing cross-filter reuse
   and append-driven page drift; it is not an authorization token. Every page
   still verifies the complete organization chain, so an authorized query over
-  a very large chain is an O(chain) availability surface until checkpoints,
-  DS-034 limits and retention controls exist.
+  a very large chain is an O(chain) availability surface. DS-034 caps request
+  time/rate; checkpoints and retention must still reduce the O(chain) work.
 - **Decision substitution or field tampering** — DS-025 rejects Policy/Risk
   output identities that differ from the persisted Context, seals every
   decisive field under `ATF_DECISION_V1`, and makes Store reads require the
@@ -180,8 +184,8 @@ secret. The realistic attack surface today includes:
 Accepted [`ADR-0003`](decisions/0003-operator-authentication.md) was reviewed
 against the current Gateway routes and STRIDE/confused-deputy cases. DS-018 now
 implements and tests the listed application-level fail-closed results, closing
-GAP-API-001 for the current route surface. DS-034 still owns ingress and
-resource-limit controls.
+GAP-API-001 for the current route surface. DS-034 adds the application ingress
+and resource-limit controls without trusting proxy identity Headers.
 
 | Abuse case | Required fail-closed result |
 |---|---|
@@ -201,8 +205,9 @@ resource-limit controls.
 Residual risk remains explicit: disabling an external identity does not revoke
 an already issued self-contained access token instantly. The accepted
 reference limits that window to a short token lifetime and requires immediate
-local subject disable for incidents. TLS/proxy hardening and resource limits
-remain DS-034; production high-risk or Enforce authority requires another
+local subject disable for incidents. DS-034's process-local quotas do not
+replace TLS ingress, firewall/direct-port isolation or shared edge limits;
+production high-risk or Enforce authority also requires another
 sender-constraint review.
 
 ## Secret management (PRD §18.3)

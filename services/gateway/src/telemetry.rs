@@ -34,6 +34,7 @@ struct Metrics {
     idempotency: BTreeMap<IdempotencyOutcome, u64>,
     freshness: BTreeMap<FreshnessLabel, u64>,
     audit_failures: BTreeMap<AuditOperation, u64>,
+    request_rejections: BTreeMap<RequestRejection, u64>,
 }
 
 #[derive(Default)]
@@ -327,6 +328,29 @@ impl AuditOperation {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum RequestRejection {
+    BodyTooLarge,
+    HeadersTooLarge,
+    RequestTimeout,
+    EvaluationTimeout,
+    SourceRateLimit,
+    PrincipalRateLimit,
+}
+
+impl RequestRejection {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::BodyTooLarge => "BODY_TOO_LARGE",
+            Self::HeadersTooLarge => "HEADERS_TOO_LARGE",
+            Self::RequestTimeout => "REQUEST_TIMEOUT",
+            Self::EvaluationTimeout => "EVALUATION_TIMEOUT",
+            Self::SourceRateLimit => "SOURCE_RATE_LIMIT",
+            Self::PrincipalRateLimit => "PRINCIPAL_RATE_LIMIT",
+        }
+    }
+}
+
 impl GatewayTelemetry {
     pub(crate) fn request_dimensions(
         &self,
@@ -421,6 +445,10 @@ impl GatewayTelemetry {
 
     pub(crate) fn record_audit_failure(&self, operation: AuditOperation) {
         increment(&mut self.lock().audit_failures, operation, 1);
+    }
+
+    pub(crate) fn record_request_rejection(&self, reason: RequestRejection) {
+        increment(&mut self.lock().request_rejections, reason, 1);
     }
 
     pub(crate) fn render_prometheus(&self, replays: Option<DurableReplayCounts>) -> String {
@@ -556,6 +584,16 @@ impl GatewayTelemetry {
             "operation",
             metrics
                 .audit_failures
+                .iter()
+                .map(|(label, value)| (label.as_str(), *value)),
+        );
+        render_counter(
+            &mut output,
+            "atf_gateway_request_rejections_total",
+            "HTTP requests rejected by fixed operational safety boundary.",
+            "reason",
+            metrics
+                .request_rejections
                 .iter()
                 .map(|(label, value)| (label.as_str(), *value)),
         );

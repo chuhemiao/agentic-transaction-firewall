@@ -217,6 +217,8 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hex",
+ "http-body",
+ "http-body-util",
  "jsonwebtoken",
  "reqwest",
  "serde",

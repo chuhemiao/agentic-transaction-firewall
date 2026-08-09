@@ -257,14 +257,22 @@ Agent Intent
   `/v1/audit/intents/{intent_id}` alias with current `auditor`/`org_admin`
   authority, stable append-insensitive pagination and explicit `VERIFIED`
   organization-chain status; malformed/unbounded queries, tenant/role
-  confusion and any chain corruption fail closed. Background recovery,
-  configured general request/rate limits, and independent Audit checkpoints
-  remain absent. DS-033 adds `/metrics`, fixed-label request/Decision/Policy/
+  confusion and any chain corruption fail closed. Background recovery and
+  independent Audit checkpoints remain absent. DS-033 adds `/metrics`, fixed-label request/Decision/Policy/
   Risk/idempotency/freshness/Audit-failure process metrics, durable typed Replay
   totals, and JSON request spans. The server Request ID is shared by the API
   response/span and allowlisted completion events carrying their durable Audit
   event ID; captured canaries prove credentials, signatures, raw URLs and full
-  financial payloads are not emitted.*
+  financial payloads are not emitted. DS-034 places finite body and aggregate
+  Header/count limits plus a whole-request deadline around every route and a
+  shorter evaluator deadline around Intent execution. One bounded process-local
+  GCRA keys direct socket IPs and domain-hashed principals; Agent quota is
+  charged only after a read-only current-Key/signature verification, while
+  atomic admission re-verifies under lock. The plaintext server defaults to
+  loopback, requires an explicit trusted-proxy TLS assertion for non-loopback
+  binding, strips forwarding Headers and never grants them authority. Shared
+  ingress rate state, TLS, parser/handshake timeouts and direct-port isolation
+  remain deployment responsibilities.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version

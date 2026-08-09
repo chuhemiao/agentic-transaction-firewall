@@ -14,14 +14,16 @@ financial payload:
 3. Is Policy or Risk slow, failing closed, or producing more findings?
 4. Are Evidence freshness, durable Replay evidence, or Audit reads/writes
    unhealthy?
+5. Are clients being rejected by body/Header, deadline, source-rate or
+   principal-rate controls?
 
 ## Metrics endpoint
 
-`GET /metrics` returns Prometheus text format. It currently has no application
-credential because it is an infrastructure scrape endpoint, not a business
-API. Until DS-034 supplies explicit TLS/proxy/request/rate boundaries, expose
-it only on a trusted private operations network or authenticated ingress; do
-not publish it directly to the Internet.
+`GET /metrics` returns Prometheus text format. It has no application credential
+because it is an infrastructure scrape endpoint, not a business API. It shares
+the same DS-034 body/Header, timeout and source-rate controls, but must still be
+exposed only on a trusted private operations network or authenticated ingress;
+do not publish it directly to the Internet.
 
 ```bash
 curl --fail --silent http://127.0.0.1:8080/metrics
@@ -43,6 +45,7 @@ Implemented families:
 | `atf_gateway_replays_total` | counter | `mode` | Cumulative typed Replay completion Audit events |
 | `atf_gateway_replay_metrics_available` | gauge | none | Whether the durable Replay aggregate was readable |
 | `atf_gateway_audit_failures_total` | counter | `operation` | Audit-backed write or verified-read failures |
+| `atf_gateway_request_rejections_total` | counter | `reason` | Body/Header, request/evaluator timeout, source-rate and principal-rate rejections |
 
 HTTP, Decision, evaluator, idempotency, freshness, and Audit-failure metrics
 are process-local. Sum counters across Gateway instances; do not sum histogram
@@ -56,6 +59,68 @@ Simulation latency, Adapter errors, Approval wait, Kill Switch, settlement,
 and reconciliation metrics are intentionally absent because those components
 do not exist. Their metric contracts must be added with the component that can
 produce truthful observations.
+
+## HTTP safety boundary
+
+All limits are finite, validated at startup and process-local. Zero, malformed
+or values above the compiled safety ceilings prevent startup. Defaults are:
+
+| Environment variable | Default | Meaning |
+|---|---:|---|
+| `ATF_MAX_REQUEST_BODY_BYTES` | `262144` | Maximum buffered body on every route |
+| `ATF_MAX_REQUEST_HEADER_BYTES` | `32768` | Aggregate Header names, values and separators |
+| `ATF_MAX_REQUEST_HEADERS` | `64` | Parsed Header value count |
+| `ATF_REQUEST_TIMEOUT_MILLIS` | `30000` | Whole application request, including body receive |
+| `ATF_EVALUATION_TIMEOUT_MILLIS` | `15000` | Nested `POST /v1/intents` Handler deadline; cannot exceed request timeout |
+| `ATF_SOURCE_RATE_LIMIT_PER_MINUTE` | `600` | GCRA rate per direct socket IP |
+| `ATF_SOURCE_RATE_LIMIT_BURST` | `100` | Immediate source burst |
+| `ATF_PRINCIPAL_RATE_LIMIT_PER_MINUTE` | `120` | GCRA rate per domain-hashed Agent/Operator |
+| `ATF_PRINCIPAL_RATE_LIMIT_BURST` | `30` | Immediate principal burst |
+| `ATF_RATE_LIMIT_MAX_KEYS` | `4096` | Maximum retained keys in each source/principal map |
+
+The source key is the TCP peer IP, never `Forwarded`, `X-Forwarded-For` or
+`X-Real-IP`. Those and related forwarding Headers are stripped before route
+logic. Agent quota is charged only after a read-only verification of the exact
+current durable Key and signature; admission repeats verification under lock
+to close lifecycle races. Operator quota is charged after RFC 9068/JWKS
+verification. Only domain-separated SHA-256 keys are retained, not raw
+principal identifiers. Operational quota does not change Audit history or the
+DS-031 financial `REQUESTED` velocity rule.
+
+Rejections use the normal request ID and safe envelope:
+
+| HTTP | Code | Condition |
+|---:|---|---|
+| 408 | `REQUEST_TIMEOUT` | Whole application request exceeded its deadline |
+| 413 | `REQUEST_BODY_TOO_LARGE` | Buffered body exceeded the configured maximum |
+| 429 | `RATE_LIMITED` | Source or verified principal exceeded GCRA; includes `Retry-After` |
+| 431 | `REQUEST_HEADERS_TOO_LARGE` | Parsed Header bytes/count exceeded its maximum |
+| 504 | `EVALUATION_TIMEOUT` | Intent Handler exceeded its nested deadline |
+
+Every response also sets `Cache-Control: no-store`,
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+
+### TLS and trusted proxy boundary
+
+The binary currently serves plaintext. `ATF_BIND_ADDRESS` defaults to
+`127.0.0.1`; a non-loopback address is rejected unless
+`ATF_TLS_TERMINATED_BY_TRUSTED_PROXY=true`. That flag is an explicit deployment
+assertion, not TLS implementation or proxy authentication. A non-loopback
+deployment must additionally:
+
+1. terminate TLS at a controlled ingress and encrypt/protect the ingress-to-
+   Gateway hop;
+2. firewall the Gateway port so only that ingress can connect directly;
+3. enforce handshake, incomplete-Header/parser byte limits and any global
+   multi-instance source quota at ingress;
+4. set HSTS and any public CORS policy at the HTTPS ingress; the Gateway does
+   not infer scheme or client identity from forwarding Headers.
+
+The application request deadline starts after Hyper has parsed the request
+Headers. This is why slow/incomplete Header protection remains an ingress
+responsibility, while slow/incomplete bodies are covered by the Gateway
+deadline. Behind one proxy, all connections share its source bucket by design;
+verified-principal buckets still separate authenticated callers.
 
 ## Cardinality and redaction contract
 
@@ -113,5 +178,5 @@ claiming SLO-derived thresholds:
 - compare latency histograms by fixed route/module, never by tenant or ID.
 
 DS-039 owns measured SLOs, dashboard thresholds, retention, and recovery
-procedures. DS-034/DS-035 own scrape exposure limits and standardized
-dependency-failure behavior.
+procedures. DS-034 owns the application scrape/request boundary; DS-035 owns
+standardized dependency-failure behavior.

@@ -237,7 +237,13 @@ Only the following crates are implemented so far:
   spans. A fresh server Request ID links the response and span to allowlisted
   business completion logs containing the corresponding Audit event ID;
   captured-canary tests reject credentials, signatures, raw URLs and financial
-  payloads in logs or metrics. PostgreSQL is
+  payloads in logs or metrics. DS-034 bounds every route by finite body/Header
+  limits and a whole-request deadline, gives Intent evaluation a nested
+  deadline, and applies bounded source plus verified Agent/Operator principal
+  rate limits with stable errors and fixed-label rejection metrics. The server
+  defaults to loopback plaintext, refuses non-loopback binding without an
+  explicit trusted-proxy TLS assertion, and strips forwarding Headers rather
+  than treating them as source or identity authority. PostgreSQL is
   required at startup, `/readyz` verifies live storage/schema compatibility
   and fresh usable configured JWKS, and restart/second-instance reads return
   the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
@@ -575,6 +581,12 @@ semantics (evaluate only, never execute).
     signals; JSON spans use the server Request ID and allowlisted Audit event
     correlation. Snapshot, durable Replay, Audit-corruption and captured-log
     canary tests prove the contract.
+34. ~~Bound every HTTP request.~~ Done in DS-034: finite body/Header/count,
+    whole-request and nested evaluator deadlines terminate with stable safe
+    codes; bounded source and verified-principal GCRA limits keep operational
+    traffic control separate from financial velocity. Forwarding Headers are
+    ignored/stripped, loopback is the default bind, and non-loopback startup
+    requires an explicit trusted-proxy TLS assertion.
 
 ### Remaining before Phase 2 can close out
 
@@ -641,10 +653,10 @@ semantics (evaluate only, never execute).
   DS-024..DS-027 with byte-identical Original reproduction and immutable
   non-authoritative Counterfactual lineage.
 - ~~Organization-scoped Audit Query API and safe observability.~~ Done through
-  DS-033 with bounded stable pagination, verified organization-chain status,
+  DS-034 with bounded stable pagination, verified organization-chain status,
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
-  totals, and captured redaction/correlation guarantees. API security controls,
-  external Audit checkpoints and retention remain.
+  totals, captured redaction/correlation guarantees and finite application HTTP
+  safety controls. External Audit checkpoints and retention remain.
 - The remaining history-dependent Risk rules, each using the now-required
   explicit lifecycle accounting boundary.
 - `atf evaluate` currently requires an explicit millisecond-aligned
@@ -668,7 +680,7 @@ implementation plan and executable checklist are in
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-033.
+  complete through DS-034.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -699,7 +711,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
   ATF_POLICY_ORGANIZATION_ID=alpha-lab \
   ATF_POLICY_BUNDLE_ID=atf-example-payments \
   ATF_RISK_RULE_SET_PATH=risk-rules/default.json \
-  PORT=8080 cargo run -p atf-gateway
+  ATF_BIND_ADDRESS=127.0.0.1 PORT=8080 cargo run -p atf-gateway
 
 # Provision Agent/public-key authority first; see docs/identity.md. POST then
 # requires the detached signed Header contract in docs/gateway-identity.md.
