@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "mode": "DURABLE_SHADOW_HTTP_NO_EXTERNAL_SIMULATION",
+  "measured_at": "2026-08-09T11:13:25.467Z",
+  "requests": 50,
+  "concurrency": 4,
+  "successful_requests": 50,
+  "failed_requests": 0,
+  "elapsed_milliseconds": 1765,
+  "throughput_per_second": "28.328",
+  "p50_milliseconds": 137,
+  "p95_milliseconds": 178,
+  "p99_milliseconds": 187,
+  "decision_outcomes": {
+    "REVIEW": 50
+  },
+  "decision_hash": "f23faf3d14380a0d51b08919bbe384320b608ec2be456a1b9d9707bfd7e18b7d",
+  "last_intent_id": "01KZK3MGA0MPKJSR01FZQ0TAES",
+  "prd_target_comparison": {
+    "no_external_simulation_p95_target_milliseconds": 50,
+    "p95_target_met": false,
+    "shadow_throughput_target_per_second": 100,
+    "throughput_target_met": false
+  },
+  "residual_scope": [
+    "single local Docker host; not production capacity evidence",
+    "no external Simulation, Adapter, Approval, execution, or settlement path exists",
+    "active-Agent cardinality, HA database, and shared-ingress quotas are not measured"
+  ]
+}

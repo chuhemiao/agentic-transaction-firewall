@@ -1,0 +1,18 @@
+{
+  "agent_id": "research-agent-01",
+  "organization_id": "alpha-lab",
+  "owner_user_id": "local-user",
+  "agent_type": "research",
+  "model_provider": "local-fixture",
+  "model_name": "deterministic-local",
+  "agent_version": "local-1",
+  "code_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "deployment_environment": "development",
+  "allowed_tools": ["atf-shadow-load"],
+  "allowed_adapters": ["none"],
+  "default_budget": "20.00",
+  "risk_tier": "standard",
+  "status": "ACTIVE",
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "expires_at": "2099-01-01T00:00:00.000Z"
+}

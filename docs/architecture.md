@@ -272,8 +272,9 @@ Agent Intent
   atomic admission re-verifies under lock. The plaintext server defaults to
   loopback, requires an explicit trusted-proxy TLS assertion for non-loopback
   binding, strips forwarding Headers and never grants them authority. Shared
-  ingress rate state, TLS, parser/handshake timeouts and direct-port isolation
-  remain deployment responsibilities. DS-035 classifies database, active
+  ingress rate state and production parser/handshake policy remain deployment
+  responsibilities. DS-039 supplies TLS and direct-port isolation for the
+  supported single-host local stack only. DS-035 classifies database, active
   Policy, bounded-history Snapshot, Audit and lock failures with closed metric
   labels. A three-second pool-acquisition cap keeps database loss inside the
   evaluator/request budgets. Database/lock failure rejects before Admission when durability is
@@ -289,6 +290,20 @@ Agent Intent
   `READ COMMITTED` read-skew: full-chain verification now obtains the head and
   ordered events in one statement-level MVCC snapshot, so a concurrent append
   is either wholly before or wholly after that verification snapshot.*
+- **`deploy/docker` local operations** — DS-039 provides the supported
+  single-host Durable Shadow topology. Digest-pinned PostgreSQL and
+  source-built non-root Gateway/Edge images run with read-only roots,
+  `no-new-privileges` and all capabilities dropped. Only Caddy TLS is exposed
+  on host loopback; PostgreSQL and the plaintext Gateway remain on an internal
+  network. One-shot forward migration and idempotent bootstrap provision the
+  organization, Operator/role, generated Agent key, two signed Policy
+  versions and audited Risk Rule Set. The Edge retains its private local CA
+  directory and exports only the public root certificate to Gateway/tools.
+  Scripts prove signed admission, restart/readiness, exact Original Replay,
+  PostgreSQL backup/isolated restore with equal Audit chain head, audited
+  Policy rollback/forward and bounded signed-Intent load. *Implemented for
+  local Shadow evaluation only; no shared ingress, HA/failover, production
+  secret/KMS, orchestration or real-funds path is implied.*
 - **Supply-chain baseline** — CI runs fmt, tests, cargo-deny, RustSec,
   full-history/current-tree Gitleaks, and Clippy SAST.
   DS-036 runs a named persistence suite twice against PostgreSQL 17.10 before
@@ -335,9 +350,10 @@ Agent Intent
 
 The implemented conformance surface now includes Policy cases, Identity
 vectors, durable Replay fixtures, DS-037 fixed Decision/Context hash vectors,
-binding properties and the separate nightly `fuzz/` Intent workspace. Other
+binding properties, the separate nightly `fuzz/` Intent workspace and DS-039's
+clean local operations/recovery/load command. Other
 Simulator/Approval/Adapter/Reconciliation crates and their service, SDK,
-Adapter-conformance and supported deployment directories remain README-only
+Adapter-conformance and production deployment directories remain README-only
 scaffolds outside the Cargo workspace; inspect each directory rather than
 assuming its target interface exists.
 

@@ -166,9 +166,11 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   pinned unsafe-forbidden Clippy PR gates; root/fuzz locks, Git history/current
   source and negative fixtures run under owned, expiring exceptions. Depends:
   DS-036.
-- [ ] **NEXT — DS-039:** ship local Compose, recovery runbooks and measured SLO
-  baseline. Depends: DS-033, DS-036, DS-038.
-- [ ] **CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
+- [x] **DS-039:** shipped the digest-pinned loopback-TLS local stack, clean
+  submit/restart/Replay proof, backup/isolated restore with matching Audit
+  head, Policy rollback/forward drill and checked-in local load baseline.
+  Depends: DS-033, DS-036, DS-038.
+- [ ] **NEXT — CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
   millisecond-aligned and cover the real default command path. Discovered by
   DS-030 smoke; must close before DS-040.
 - [ ] **DS-040:** re-audit and close the Durable Shadow release gate. Depends: DS-028..DS-039.

@@ -182,6 +182,14 @@ order. The executable order is:
   Negative fixtures fail each gate; exceptions are exact, code-owned,
   reachability-checked and expire within 90 days. Dependabot covers both Cargo
   workspaces and Actions.
+- [x] DS-039 Supported local operations and measured Shadow baseline. A
+  digest-pinned PostgreSQL/Gateway/Caddy Compose stack exposes only loopback
+  TLS and runs forward migrations plus idempotent provisioning. One clean
+  command proves signed submit, restart/readiness, Original Replay,
+  backup/isolated restore with identical Audit head, audited Policy
+  rollback/forward, and bounded load. The checked-in 50-request local result
+  is P95 178 ms and 28.328 evaluations/second with zero failures; it remains
+  below both PRD §26 targets and is not production-capacity evidence.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -199,8 +207,10 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-039` — ship the supported local PostgreSQL/Gateway
-Compose stack, recovery runbooks and measured Shadow SLO baseline.
+**Immediate next task:** `CLI-GAP-001` — make `atf evaluate`'s advertised
+default evaluation time millisecond-aligned and smoke-test the real default
+command. Then `DS-040` performs the complete Durable Shadow re-audit; status
+cannot advance to C4 without independent human approval.
 
 ## Later releases
 

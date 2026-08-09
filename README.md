@@ -376,6 +376,14 @@ lockfiles, Gitleaks scans complete history and the checked-out tree, and pinned
 Clippy forbids first-party unsafe code. Every Action/tool is immutable or exact
 versioned; controlled advisory/fingerprint exceptions require a code owner,
 specific reason, actual reachability proof and an expiry within 90 days.
+`DS-039` adds the supported single-host Durable Shadow operations path:
+digest-pinned PostgreSQL/Gateway/Caddy images, private database/Gateway
+networks, loopback-only TLS, generated local Agent credentials, idempotent
+migration/bootstrap, restart-safe Original Replay, exercised backup/restore
+and audited Policy rollback/forward drills. A bounded signed-Intent load client
+records the checked-in local baseline separately from PRD targets; the clean
+50-request run had zero failures, P95 178 ms and 28.328 evaluations/second, so
+the PRD §26 50 ms/100 evaluations-per-second targets remain unmet.
 
 `schemas/` has `transaction-intent.schema.json` (enforced by `atf-intent`),
 `profiles/payment-intent-v1.schema.json` (the structural companion to the
@@ -641,6 +649,13 @@ semantics (evaluate only, never execute).
     Negative fixtures prove each gate fails, weekly Dependabot covers root,
     fuzz and Actions, and exact exceptions are owned, reachability-checked and
     limited to 90 days.
+39. ~~Supported local operations, recovery and measured Shadow baseline.~~
+    Done in DS-039: the digest-pinned Compose stack exposes only loopback TLS,
+    migrates and provisions a real durable Gateway, and one clean command
+    proves submit/restart/Replay, backup/isolated restore/Audit-chain equality,
+    audited Policy rollback/forward and bounded load. The recorded local
+    baseline is P95 178 ms at 28.328 evaluations/second with zero failures;
+    it is regression evidence, not a production SLO claim.
 
 ### Remaining before Phase 2 can close out
 
@@ -713,6 +728,9 @@ semantics (evaluate only, never execute).
 - ~~Add dependency vulnerability, secret and Rust SAST PR gates.~~ Done in
   DS-038 with pinned tools/Actions, safe failing fixtures, full-history plus
   current-tree secret scans, and expiring owner-bound exact exceptions.
+- ~~Ship a supported local PostgreSQL/Gateway stack plus recovery and load
+  evidence.~~ Done in DS-039; see [`docs/quickstart.md`](docs/quickstart.md)
+  and [`conformance/load/ds039-local-baseline.json`](conformance/load/ds039-local-baseline.json).
 - ~~Organization-scoped Audit Query API and safe observability.~~ Done through
   DS-034 with bounded stable pagination, verified organization-chain status,
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
@@ -736,12 +754,13 @@ implementation plan and executable checklist are in
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
-  Gateway foundation and core libraries exist; the remaining release gate is
-  operational hardening, CI/recovery proof, and security
-  re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
-  bounded durable Risk-history reconstruction, daily cumulative spend,
+  Gateway foundation, core libraries and supported local recovery path exist;
+  the remaining release gate is the known CLI default-time fix followed by
+  DS-040 security re-audit. Strongly bound Decisions plus
+  Original/Counterfactual Replay and bounded durable Risk-history
+  reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-038.
+  complete through DS-039.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -774,6 +793,11 @@ RUSTUP_TOOLCHAIN=nightly-2026-08-01 ./scripts/test-fuzz.sh
 # Or run that gate in the isolated test-only Compose stack.
 docker compose -f deploy/docker/compose.test.yml run --rm persistence-tests
 docker compose -f deploy/docker/compose.test.yml down --volumes
+
+# Start the supported local Durable Shadow stack, then exercise the complete
+# restart/restore/rollback/load evidence path. See docs/quickstart.md.
+deploy/docker/local/start.sh
+scripts/test-local-ops.sh
 
 # Apply/verify the embedded durable-state migration
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \

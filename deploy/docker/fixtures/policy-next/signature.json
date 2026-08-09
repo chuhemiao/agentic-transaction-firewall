@@ -1,0 +1,7 @@
+{
+  "signature_version": "1",
+  "algorithm": "Ed25519",
+  "key_id": "publisher-local-2026",
+  "bundle_hash": "59f7a2ee2b3e0e79c2bb2cce772ef8e970c1db3f28e55f3801fa52a12bc641e7",
+  "signature": "84e37cc4a7d060a781bc78c798ba6dbf052dfdab750477f910d63b59af7617c2d2a060295738147a3821425d8e2580ca0d9afbbf6b1e415918f5542cdfb9d009"
+}

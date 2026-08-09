@@ -1315,6 +1315,8 @@ reachable. Weekly Dependabot covers both Cargo workspaces and Actions.
 
 ### DS-039 — Provide reproducible local operations and SLO evidence `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add a supported Compose stack for PostgreSQL and Gateway,
 migration/backup/restore/rollback runbooks, and a basic Shadow evaluation load
 test. State measured results separately from PRD targets.
@@ -1328,6 +1330,15 @@ test. State measured results separately from PRD targets.
   2. Backup/restore and rollback are exercised without losing chain validity.
   3. P95/throughput are measured and residual gaps to PRD §26 are recorded.
 - **Verification:** clean Compose E2E, restore drill and load-test report; full DoD.
+
+**Delivered:** The supported digest-pinned single-host stack exposes only a
+loopback TLS edge and keeps PostgreSQL/Gateway private. `scripts/test-local-ops.sh`
+proved migration/idempotent provisioning, signed admission, restart/readiness,
+hash-identical Original Replay, PostgreSQL custom backup/isolated restore with
+an identical 17-event Audit head, audited Policy rollback/forward, and a
+bounded 50-request load with no failures. The recorded P95 178 ms and 28.328
+evaluations/second are explicitly below the PRD §26 targets and remain local
+regression evidence only.
 
 ### DS-040 — Close the Durable Shadow release gate `[M]`
 

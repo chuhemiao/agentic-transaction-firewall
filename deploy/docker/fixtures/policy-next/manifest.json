@@ -1,0 +1,26 @@
+{
+  "manifest_version": "1",
+  "bundle_id": "atf-example-payments",
+  "policy_version": "1.1.0",
+  "scope": {
+    "organization_id": "alpha-lab",
+    "environment": "development"
+  },
+  "activates_at": "2026-01-01T00:00:00.000Z",
+  "expires_at": "2100-01-01T00:00:00.000Z",
+  "cedar_schema": {
+    "path": "cedar-schema.json",
+    "sha256": "40dafe373e90c0ab22eee5c9f0d5f9080b67f053a4e79e0beea800e2d4d5aa06"
+  },
+  "policy_files": [
+    {
+      "path": "payment-budget.cedar",
+      "sha256": "12fe7102476d3d6fecdd204d518ff561161cb61c48b3082ae28d21648eedb189"
+    },
+    {
+      "path": "require-human-authorization.cedar",
+      "sha256": "27c963905eca4524d908cf8b4fd6637ba56c3367e348982a999fdb3b1373420e"
+    }
+  ],
+  "bundle_hash": "59f7a2ee2b3e0e79c2bb2cce772ef8e970c1db3f28e55f3801fa52a12bc641e7"
+}

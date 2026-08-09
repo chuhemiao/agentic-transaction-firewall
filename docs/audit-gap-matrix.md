@@ -498,11 +498,22 @@ principals and non-enumerating Decision-read RBAC.
   and one conflicting-Nonce winner; real lock timeout/deadlock tests have an
   external five-second deadline. Its discovered `READ COMMITTED` head/event
   read-skew is closed with one atomic statement snapshot.
-- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner, stale completion is fenced and retry recovers stranded work without current-input re-evaluation; background scanning and operational restore/failover evidence remain incomplete.
+- **DS-039 verification:** a clean digest-pinned local stack migrates and
+  provisions from empty volumes, submits one signed Intent, restarts Gateway
+  and reproduces the exact Decision. A PostgreSQL 17 custom backup restored
+  into an isolated database retained the exact 17-event organization Audit
+  head and durable counts, passed migration compatibility and reproduced the
+  original Decision. Audited Policy rollback/forward also retained Replay.
+- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner, stale completion is fenced and retry recovers stranded work without current-input re-evaluation; the scripted single-host restore path is now exercised, while background scanning, HA/failover and production RPO/RTO remain incomplete.
 - **financial_impact:** final Decisions no longer disappear, duplicate concurrent evaluation is prevented, and a stranded admission reaches one explicit fail-closed terminal result when retried.
 - **severity:** `CRITICAL`
-- **recommended_change:** preserve the now-tested durable-only boundary while adding background recovery scanning and DS-039 backup/restore/failover procedures.
-- **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency/Nonce, database-unavailable and bounded lock/deadlock behavior are implemented; scanner and operational restore/failover drills remain.
+- **recommended_change:** preserve the now-tested durable-only and local
+  restore boundaries; add background recovery scanning, HA/failover and
+  target-topology RPO/RTO evidence before any production claim.
+- **required_tests:** migration, restart recovery, backup/isolated restore,
+  Policy rollback/forward, concurrent append/idempotency/Nonce,
+  database-unavailable and bounded lock/deadlock behavior are implemented;
+  scanner and multi-host failover drills remain.
 - **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, repositories, Gateway cutover, lifecycle, identity/Nonce, immutable Context and idempotency/recovery are complete.
 - **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
@@ -526,8 +537,9 @@ principals and non-enumerating Decision-read RBAC.
   second admission/evaluation while preserving durable financial velocity as
   a separate Risk rule.
 - **severity:** `CLOSED` (formerly `CRITICAL`)
-- **recommended_change:** retain these application limits while DS-039 adds
-  measured ingress, multi-instance and recovery operations controls.
+- **recommended_change:** retain these application limits and DS-039's
+  loopback-TLS/direct-port-isolated local topology; a shared deployment must
+  still add production ingress handshake/parser policy and shared quotas.
 - **required_tests:** implemented for structured errors, correlation,
   redaction, oversized/slow/rate-limited requests and live sockets.
 - **dependencies:** Authentication/Authorization and observability.
@@ -542,9 +554,12 @@ principals and non-enumerating Decision-read RBAC.
 - **current_state:** `CLOSED_CURRENT_SCOPE`
 - **evidence:** DS-033 exposes Prometheus counters/histograms for fixed request route/method/status, Decision kind, Policy outcome/matches, Risk outcome/finding severity, idempotency, Evidence freshness and Audit-backed failures. Offline Original/Counterfactual Replay counts are derived from immutable typed Audit rows with an explicit availability gauge. JSON request spans share the fresh server Request ID with the API response and allowlisted completion logs name the durable Audit event ID. Metric snapshots, real Replay persistence assertions, forced Audit corruption and captured credential/signature/payload/raw-URL canaries pass.
 - **security_impact:** fail-closed spikes, Audit failures and current evaluator anomalies are observable without sensitive or high-cardinality metric dimensions.
-- **financial_impact:** current Decision/evaluator latency, outcome, retry, finding, freshness, Replay and Audit-integrity regressions are visible; alert thresholds remain unmeasured until DS-039.
+- **financial_impact:** current Decision/evaluator latency, outcome, retry, finding, freshness, Replay and Audit-integrity regressions are visible. DS-039 records one local regression baseline (P95 178 ms, 28.328 evaluations/second, zero failures), but it is not a production SLO.
 - **severity:** `CLOSED` (formerly `MEDIUM`)
-- **recommended_change:** preserve the closed label/redaction contract; add truthful Simulation/Adapter/Approval/Kill-Switch/Reconciliation metrics only when those components exist, and establish measured thresholds in DS-039.
+- **recommended_change:** preserve the closed label/redaction contract and
+  local regression thresholds; add truthful Simulation/Adapter/Approval/
+  Kill-Switch/Reconciliation metrics only when those components exist, then
+  establish production thresholds in the target topology.
 - **required_tests:** implemented: metric increments/snapshot, bounded labels, durable Replay counts, request/trace/Audit correlation, forced Audit-failure path and captured-log redaction.
 - **dependencies:** request identity/correlation model.
 - **target_release:** Durable Shadow Mode P0.10.
@@ -563,8 +578,10 @@ principals and non-enumerating Decision-read RBAC.
   8.30.1 and rustc/Clippy 1.95.0; both lockfiles, complete history/current
   source and first-party unsafe code are blocking PR gates. Safe fixtures prove
   each gate fails. Exact exceptions require a code owner, reason, reachability
-  evidence where applicable and expiry within 90 days. Nextest, container
-  scanning, SBOM, signing and supported Compose E2E are still absent.
+  evidence where applicable and expiry within 90 days. DS-039 adds a
+  digest-pinned supported Compose E2E/recovery/load command, but it is not yet
+  a blocking CI job. Nextest, container scanning, SBOM and signing remain
+  absent.
 - **security_impact:** source/dependency/secret regressions are blocked at PR
   time; future images or unsigned artifacts can still escape later release
   pipelines until their gates exist.
@@ -572,8 +589,9 @@ principals and non-enumerating Decision-read RBAC.
 - **severity:** `HIGH`
 - **recommended_change:** retain DS-038 pins/negative fixtures and add staged
   container/SBOM/signing jobs when release artifacts exist.
-- **required_tests:** dependency/secret/SAST failure fixtures and fuzz smoke are
-  implemented; migration/Compose E2E and artifact verification remain.
+- **required_tests:** dependency/secret/SAST failure fixtures, fuzz smoke and
+  local migration/Compose E2E are implemented; CI wiring and artifact
+  verification remain.
 - **dependencies:** persistence/container packaging for later jobs.
 - **target_release:** BL-001/BL-002 and the DS-038 source/PR gate are complete;
   artifact gates expand when release packaging exists.
@@ -597,17 +615,28 @@ principals and non-enumerating Decision-read RBAC.
 
 - **module:** whole system/deploy/operations
 - **current_state:** `DOCUMENTED_ONLY`
-- **evidence:** no TLS/deployment, HA database, backups, migration/rollback, SLOs, runbooks, retention, tenant/auth boundary, or Enforce feature flag; execution is correctly absent.
+- **evidence:** DS-039 now provides digest-pinned single-host local TLS,
+  private database/Gateway networks, forward migration, backup/isolated
+  restore, Policy rollback/forward runbooks and an explicitly sub-target local
+  load baseline. Durable tenant/auth boundaries already exist and execution is
+  correctly absent. HA/failover, production ingress/KMS/backup retention,
+  target-topology SLOs/RPO/RTO, orchestration and Enforce controls do not.
 - **security_impact:** current service is unsafe for internet-exposed multi-tenant or real-funds use.
 - **financial_impact:** state loss, unauthorized access, and unrecoverable incidents are plausible if deployed beyond local evaluation.
 - **severity:** `CRITICAL`
-- **recommended_change:** keep explicit Shadow-only status; finish and re-audit Durable Shadow Mode before Mock/Enforce work, then add operational controls.
-- **required_tests:** Compose E2E, restart/failover/backup restore, load/DoS, tenant isolation, incident and rollback drills.
+- **recommended_change:** keep explicit Shadow-only status; complete DS-040
+  re-audit before Mock/Enforce work, then design the separate production
+  topology and operational controls.
+- **required_tests:** local Compose E2E, restart, backup restore, bounded load,
+  tenant isolation and Policy rollback are implemented; HA failover,
+  production incident/RPO/RTO and target-capacity drills remain.
 - **dependencies:** all critical/high gaps above.
 - **target_release:** production readiness is not claimed in the current roadmap.
 - **acceptance_criteria:** production documentation names tested guarantees, residual risks, recovery procedures, and a default-disabled execution path.
 
 ## Next vertical feature
 
-`DS-038` is next: add pinned dependency-vulnerability, secret and SAST gates
-with reviewed, owned exceptions.
+`CLI-GAP-001` is next: align `atf evaluate`'s advertised default current time
+to the millisecond Context contract and smoke-test the real default command.
+`DS-040` then performs the C4-oriented re-audit; this DS-039 update deliberately
+does not close production or release-gate severity by documentation alone.

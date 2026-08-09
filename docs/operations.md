@@ -125,10 +125,41 @@ ATF_PERSISTENCE_TEST_REPETITIONS=2 \
 docker compose -f deploy/docker/compose.test.yml down --volumes
 ```
 
-This is a test stack, not the DS-039 supported local Gateway stack. PostgreSQL
-uses temporary storage, source is mounted read-only, and Cargo registry/target
-volumes are disposable. Compose defaults to one linker and no test debug
-symbols to remain reliable on small Docker Desktop/CI memory allocations.
+This is the isolated persistence test stack, not the supported local Gateway
+topology. PostgreSQL uses temporary storage, source is mounted read-only, and
+Cargo registry/target volumes are disposable. Compose defaults to one linker
+and no test debug symbols to remain reliable on small Docker Desktop/CI memory
+allocations. Use `deploy/docker/compose.yml` for the DS-039 runtime path.
+
+## Supported local operations and recovery
+
+DS-039's single-host stack is the supported local Durable Shadow path. It
+exposes only `https://localhost:8443`; PostgreSQL and the plaintext Gateway
+have no host ports. External bases are digest pinned, containers run non-root
+with read-only roots, `no-new-privileges` and all capabilities dropped, and
+only the generated public CA certificate is shared outside the Edge.
+
+```bash
+deploy/docker/local/start.sh
+scripts/test-local-ops.sh
+```
+
+The second command is the complete evidence path: migrate/idempotent
+bootstrap, signed submit, Gateway restart/readiness, hash-identical Original
+Replay, PostgreSQL 17 custom backup, restore into `atf_restore_ds039`, exact
+Audit head/count comparison, Replay against restored state, audited Policy
+`1.1.0 -> 1.0.0 -> 1.1.0`, and bounded load. Migrations are forward-only. For
+an incompatible release, stop writers, restore a verified pre-change backup
+into a new database, run the prior digest-pinned image, verify readiness and
+Replay, and switch traffic only after those checks pass. Never apply ad-hoc
+down SQL to the authoritative database.
+
+The clean drill on 2026-08-09 restored an identical 17-event organization
+Audit head and identical durable object counts (`1:1:1:17`), then reproduced
+the original Decision. This proves the scripted local recovery path, not HA
+failover, production backup retention, RPO/RTO, multi-host recovery, or a
+background stranded-admission scanner. Exact commands and destructive reset
+warnings are in `docs/quickstart.md`.
 
 ## Replay, property and fuzz conformance
 
@@ -301,8 +332,8 @@ PostgreSQL canonical events and their verified hash chain remain authoritative.
 
 ## Initial alert guidance
 
-Before DS-039 measures a workload baseline, use symptom alerts rather than
-claiming SLO-derived thresholds:
+Use symptom alerts for serving safety; the DS-039 local measurement is not a
+production SLO:
 
 - page on sustained `5xx` request growth or readiness failure;
 - page immediately when `atf_gateway_audit_failures_total` increases;
@@ -314,6 +345,13 @@ claiming SLO-derived thresholds:
   high/critical Risk findings;
 - compare latency histograms by fixed route/module, never by tenant or ID.
 
-DS-039 owns measured SLOs, dashboard thresholds, retention, and recovery
-procedures. DS-034 owns the application scrape/request boundary; DS-035 owns
-standardized dependency-failure behavior.
+For the exact DS-039 local workload (50 measured requests, concurrency 4,
+5 warmups), the checked-in result is 50/50 successful, P50/P95/P99
+137/178/187 ms and 28.328 evaluations/second. Treat any failed sample, P95 above
+356 ms, or throughput below 14.164 evaluations/second as a local regression
+that requires investigation. These are deliberately loose two-times/half-
+baseline rehearsal thresholds; they do not satisfy or replace PRD §26's
+P95 <50 ms and >=100 evaluations/second targets, both of which are currently
+unmet. Production alert thresholds, retention, RPO/RTO and capacity require
+measurement in the eventual target topology. DS-034 owns the application
+scrape/request boundary; DS-035 owns standardized dependency-failure behavior.

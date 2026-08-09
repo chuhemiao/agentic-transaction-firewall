@@ -1,11 +1,22 @@
 # deploy/docker
 
-**Status:** DS-036 provides an isolated real-PostgreSQL persistence test stack
-in `compose.test.yml`. The supported local Gateway development/operations stack
-remains DS-039 work and is not implied by this test-only file.
+**Status:** DS-036 provides the isolated real-PostgreSQL persistence test stack
+in `compose.test.yml`. DS-039 adds the supported single-host Durable Shadow
+runtime in `compose.yml`: PostgreSQL and Gateway stay private, Caddy exposes
+only loopback TLS, and one-shot services migrate and idempotently provision
+the local organization, identities, signed Policies and Risk Rule Set.
 
-Per-service Dockerfiles; `deploy/docker-compose.yml` (once added) wires up
-local development (PRD §30.1).
+Start and exercise the supported runtime from the repository root:
+
+```bash
+deploy/docker/local/start.sh
+scripts/test-local-ops.sh
+```
+
+The complete quickstart, backup/restore, Policy rollback/forward and destructive
+reset instructions are in [`../../docs/quickstart.md`](../../docs/quickstart.md).
+This topology is Shadow-only and is not a production, HA, internet-exposed or
+real-funds deployment.
 
 Run the repeatable persistence race suite entirely in Compose from the
 repository root:

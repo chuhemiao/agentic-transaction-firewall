@@ -1,0 +1,177 @@
+name: atf-local
+
+x-atf-runtime: &atf-runtime
+  image: ${ATF_LOCAL_IMAGE:-atf-local:ds039}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/gateway.Dockerfile
+  environment: &atf-database-environment
+    DATABASE_URL: postgres://atf:${ATF_LOCAL_POSTGRES_PASSWORD:-atf-local-only}@postgres:5432/atf
+    PGPASSWORD: ${ATF_LOCAL_POSTGRES_PASSWORD:-atf-local-only}
+  networks:
+    - backend
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:mode=1777
+
+services:
+  postgres:
+    image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    user: postgres
+    environment:
+      POSTGRES_DB: atf
+      POSTGRES_PASSWORD: ${ATF_LOCAL_POSTGRES_PASSWORD:-atf-local-only}
+      POSTGRES_USER: atf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atf -d atf"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - atf-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=1777
+      - /var/run/postgresql:uid=70,gid=70,mode=0770
+    restart: unless-stopped
+
+  edge:
+    image: ${ATF_LOCAL_EDGE_IMAGE:-atf-local-edge:ds039}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/edge.Dockerfile
+    user: "1001:1001"
+    ports:
+      - "127.0.0.1:${ATF_LOCAL_HTTPS_PORT:-8443}:8443"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-check-certificate -qO- https://edge:8444/.well-known/openid-configuration >/dev/null",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./idp:/srv/idp:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - local-ca:/ca
+    networks:
+      - frontend
+      - backend
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=1777
+    restart: unless-stopped
+
+  migrate:
+    <<: *atf-runtime
+    command: ["/opt/atf/bin/atf-store-migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  bootstrap:
+    <<: *atf-runtime
+    command: ["/opt/atf/local/bootstrap.sh"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - local-state:/state
+    restart: "no"
+
+  gateway:
+    <<: *atf-runtime
+    command: ["/opt/atf/bin/atf-gateway"]
+    environment:
+      <<: *atf-database-environment
+      ATF_BIND_ADDRESS: 0.0.0.0
+      ATF_DEPLOYMENT_ENVIRONMENT: development
+      ATF_IDENTITY_AUDIENCE: atf-local-gateway
+      ATF_OPERATOR_AUDIENCE: atf-local-operators
+      ATF_OPERATOR_CA_CERT_PATH: /local-ca/root.crt
+      ATF_OPERATOR_CLOCK_SKEW_SECONDS: "30"
+      ATF_OPERATOR_DISCOVERY_URL: https://edge:8444/.well-known/openid-configuration
+      ATF_OPERATOR_HTTP_TIMEOUT_MILLIS: "3000"
+      ATF_OPERATOR_ISSUER_ID: local-idp
+      ATF_OPERATOR_ISSUER_URL: https://edge:8444
+      ATF_OPERATOR_JWKS_FRESHNESS_SECONDS: "300"
+      ATF_OPERATOR_JWKS_URL: https://edge:8444/jwks.json
+      ATF_OPERATOR_JWT_ALGORITHMS: EdDSA
+      ATF_OPERATOR_MAX_TOKEN_LIFETIME_SECONDS: "900"
+      ATF_POLICY_BUNDLE_ID: atf-example-payments
+      ATF_POLICY_ORGANIZATION_ID: alpha-lab
+      ATF_PRINCIPAL_RATE_LIMIT_BURST: "1000"
+      ATF_PRINCIPAL_RATE_LIMIT_PER_MINUTE: "60000"
+      ATF_RISK_RULE_SET_PATH: /opt/atf/risk-rules/default.json
+      ATF_SOURCE_RATE_LIMIT_BURST: "1000"
+      ATF_SOURCE_RATE_LIMIT_PER_MINUTE: "60000"
+      ATF_TLS_TERMINATED_BY_TRUSTED_PROXY: "true"
+      PORT: "8080"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      edge:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/atf/bin/atf-shadow-load",
+          "health",
+          "--base-url",
+          "https://edge:8443",
+          "--ca-cert",
+          "/local-ca/root.crt",
+        ]
+      interval: 3s
+      timeout: 10s
+      retries: 30
+      start_period: 5s
+    volumes:
+      - local-ca:/local-ca:ro
+    restart: unless-stopped
+
+  ops:
+    <<: *atf-runtime
+    profiles: ["tools"]
+    command: ["bash"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    volumes:
+      - local-ca:/local-ca:ro
+      - local-state:/state
+      - local-backups:/backups
+    restart: "no"
+
+volumes:
+  atf-data:
+  caddy-config:
+  caddy-data:
+  local-ca:
+  local-backups:
+  local-state:
+
+networks:
+  frontend:
+  backend:
+    internal: true

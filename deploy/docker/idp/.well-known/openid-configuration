@@ -1,0 +1,4 @@
+{
+  "issuer": "https://edge:8444",
+  "jwks_uri": "https://edge:8444/jwks.json"
+}

@@ -7,6 +7,17 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-039 supported local Durable Shadow operations. A digest-pinned,
+  non-root Compose stack keeps PostgreSQL/Gateway private and exposes only a
+  loopback Caddy TLS edge with a generated public CA export. One-shot migration
+  and idempotent bootstrap provision generated Agent credentials, Operator
+  authority, two signed Policy versions and the audited Risk Rule Set. The
+  clean operations gate proves signed submit, restart/readiness, hash-identical
+  Original Replay, PostgreSQL backup/isolated restore with an identical Audit
+  head, audited Policy rollback/forward and bounded load. The checked-in local
+  result is 50/50 successful, P95 178 ms and 28.328 evaluations/second; both PRD
+  latency and throughput targets remain explicitly unmet.
+
 - DS-038 blocking dependency, secret and Rust SAST gates. Pull-request CI now
   pins every Action to an immutable commit, runs `cargo-audit 0.22.2` against
   both lockfiles, scans complete Git history plus the current tree with

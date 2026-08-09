@@ -313,7 +313,7 @@ ATF 不阻止交易，也不掌握签名权限。
 4. 风险误报与漏报分析。
 5. 设计伙伴验证。
 
-当前仓库的 Shadow Gateway 已实现 Intent/Profile Validation、Agent Identity、Durable Idempotency/Recovery、Policy、部分 Risk、强绑定 Decision、Audit Query、Original/Counterfactual Replay、DS-033 安全可观测性、DS-034 应用层 HTTP 安全边界、DS-035 Fail-Closed Dependency/Readiness 契约、DS-036 可重复的真实 PostgreSQL 多实例/竞争 CI 套件、DS-037 固定 Hash Replay/Binding Property/限时 Intent Fuzz，以及 DS-038 固定版本的 Dependency/Secret/Rust SAST 阻断门禁。Simulation、Approval、Adapter/Execution、后台 Recovery Scanner、TLS/共享入口和生产运维基线仍缺失，因此不等同于本节的完整目标态 Shadow Mode。
+当前仓库的 Shadow Gateway 已实现 Intent/Profile Validation、Agent Identity、Durable Idempotency/Recovery、Policy、部分 Risk、强绑定 Decision、Audit Query、Original/Counterfactual Replay、DS-033 安全可观测性、DS-034 应用层 HTTP 安全边界、DS-035 Fail-Closed Dependency/Readiness 契约、DS-036 可重复的真实 PostgreSQL 多实例/竞争 CI 套件、DS-037 固定 Hash Replay/Binding Property/限时 Intent Fuzz、DS-038 固定版本的 Dependency/Secret/Rust SAST 阻断门禁，以及 DS-039 单机本地 TLS Compose、备份恢复、策略回滚和负载基线。Simulation、Approval、Adapter/Execution、后台 Recovery Scanner、共享生产入口、HA/故障切换与生产运维基线仍缺失，因此不等同于本节的完整目标态 Shadow Mode。
 
 ### 7.2 Review Mode
 
@@ -1751,7 +1751,7 @@ Durable Shadow Mode 目标指标如下：
 14. 数据新鲜度。
 15. Audit 写入失败。
 
-当前已覆盖 1–4、8–11、14–15，其中 8 以 Risk/Shadow Finding Severity、10 以不暴露 Policy ID 的 Match Count、11 以不暴露 Rule ID/Message 的 Risk Finding Count 表达。DS-035 另提供闭合 `DATABASE`、`ACTIVE_POLICY`、`HISTORY_SNAPSHOT`、`AUDIT`、`LOCK` 依赖失败计数。5–7、12–13 对应的 Simulator、Adapter、Approval、Kill Switch、Reconciliation 组件尚不存在，不输出伪造的零值指标。当前 `/metrics` 只能置于可信私有运维网络或带认证的 Ingress 后；DS-039 负责测量 SLO Baseline 和告警阈值。
+当前已覆盖 1–4、8–11、14–15，其中 8 以 Risk/Shadow Finding Severity、10 以不暴露 Policy ID 的 Match Count、11 以不暴露 Rule ID/Message 的 Risk Finding Count 表达。DS-035 另提供闭合 `DATABASE`、`ACTIVE_POLICY`、`HISTORY_SNAPSHOT`、`AUDIT`、`LOCK` 依赖失败计数。5–7、12–13 对应的 Simulator、Adapter、Approval、Kill Switch、Reconciliation 组件尚不存在，不输出伪造的零值指标。当前 `/metrics` 只能置于可信私有运维网络或带认证的 Ingress 后。DS-039 已记录单机本地基线和仅用于回归的阈值；生产 SLO/告警仍必须在目标拓扑重新测量。
 
 ---
 
@@ -1769,6 +1769,14 @@ Durable Shadow Mode 目标指标如下：
 6. 所有请求幂等。
 7. 服务重启后不丢失已接受 Intent。
 8. Audit 写入失败时阻止 Enforce Mode 执行。
+
+DS-039 的实测结果与上述目标分开保存于
+`conformance/load/ds039-local-baseline.json`：Docker Desktop 单机、Durable
+Shadow HTTP、无外部 Simulation、50 个测量请求、并发 4，成功 50、失败
+0，P50/P95/P99 分别为 137/178/187 ms，吞吐 28.328 evaluations/s。因此目标
+1 和目标 4 **均未达到**。该结果只用于本地回归，不覆盖 1,000 个活跃
+Agent、多实例、HA PostgreSQL、共享 Ingress、外部查询、Simulation、Adapter、
+Approval、执行或结算。
 
 ---
 
@@ -1881,20 +1889,24 @@ Release：
 
 ## 30. 部署方式
 
-本章描述目标部署拓扑。当前 `deploy/` 仍是 Scaffold，没有可用的 Docker Compose、Helm 或 Kubernetes 生产部署。
+本章描述目标部署拓扑。DS-039 已提供受支持的单机本地 Durable Shadow
+Compose，但仍没有 Helm、Kubernetes 或生产部署；本地能力不得外推为
+互联网暴露、多租户 HA 或真实资金就绪。
 
 ### 30.1 Local Development
 
 Docker Compose：
 
-1. PostgreSQL。
-2. ATF Gateway。
-3. Policy Server。
-4. Approval Server。
-5. Audit Server。
-6. Mock Adapters。
-7. Prometheus。
-8. Grafana。
+当前已实现：
+
+1. digest-pinned PostgreSQL 17.10 持久卷与一次性前向 Migration；
+2. 锁定 Workspace 构建的非 root ATF Gateway；
+3. loopback-only Caddy TLS Edge，数据库和 Gateway 不发布 Host Port；
+4. 本地 OIDC Discovery/JWKS、生成的 Agent Key、组织/Operator/Role、两个已签名 Policy 版本和 Risk Rule Set 的幂等 Bootstrap；
+5. Submit/Restart/Readiness/Original Replay、Backup/Isolated Restore/Audit Chain、Policy Rollback/Forward 与 bounded Load 脚本。
+
+运行方法和明确的非生产边界见 `docs/quickstart.md`。目标拓扑中的独立
+Policy/Approval/Audit Server、Mock Adapter、Prometheus 和 Grafana 尚未实现。
 
 ### 30.2 单机部署
 
@@ -1957,6 +1969,7 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
    RBAC 激活和原子回滚；DS-025 已将当前单 Bundle 精确绑定到 Decision v1。
    多 Bundle 解析仍是后续能力。
 10. **P0.10 Metrics & Audit Query API（当前组件范围已完成）**：DS-032 已完成组织隔离、完整链验证、限界稳定分页的 Audit Query；DS-033 已完成请求、Decision、Policy/Risk、Replay、Idempotency、Freshness、Audit Failure 的低基数 Metrics，以及 Request/Trace/Audit Event Correlation 和 Captured-log Redaction。未实现组件的指标不伪造；Checkpoint/Retention 继续作为 C4 残余审计项。
+11. **Local Operations & Recovery Evidence（单机本地范围已完成）**：DS-039 提供 digest-pinned、loopback-only TLS 的 PostgreSQL/Gateway Compose，执行前向 Migration 和幂等 Provisioning；clean E2E 已验证 Submit/Restart/Replay，Backup/隔离 Restore 后 Audit Head 与计数一致，Policy Rollback/Forward 后 Replay 不变。实测 P95 178 ms、28.328 evaluations/s 未达到 §26 目标；共享 Ingress、HA/故障切换、生产 Backup Retention、后台 Recovery Scanner 和生产容量仍是 C4 阻断/残余项。
 
 **Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。未通过 Gate 不启动真实 Adapter 或执行权限集成。
 

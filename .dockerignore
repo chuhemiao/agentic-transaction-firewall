@@ -1,0 +1,9 @@
+.git
+.github
+.atf-local
+target
+fuzz/target
+fuzz/artifacts
+tests/security/fixtures
+conformance/load/results
+*.log

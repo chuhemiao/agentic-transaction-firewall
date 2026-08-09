@@ -30,7 +30,7 @@ real network request path, but no execution path or production secret.
 | 7 | Nonce replay | Mitigated for Gateway Agent admission: DS-016 atomically stores an organization/Agent-scoped Nonce hash bound to the exact Key, Envelope, Intent and idempotency tuple. Exact retry adds nothing; fresh valid retry consumes a new Nonce; conflicting concurrent or post-restart reuse emits `ReplayDetected` and fails 409. Raw Nonces/signatures are not stored and privileged row tampering is detected on verified reads |
 | 8 | TOCTOU between decision and execution | Addressed by design via execution-hash binding (Phase 4); not applicable while there is no execution path |
 | 9 | Malicious Adapter | Addressed by design via Adapter isolation + Conformance Tests (Phase 3); no Adapter exists yet |
-| 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets and DS-038 adds exact cargo-audit/Gitleaks plus pinned Clippy SAST on every PR. Both locks, complete Git history/current source and first-party unsafe code fail closed; negative fixtures prove each path. Advisory/fingerprint exceptions are exact, code-owned, reachability-checked where applicable and expire within 90 days. Container/SBOM/artifact signing remain future release controls |
+| 10 | Supply-chain dependency attack | Partially addressed: pinned cargo-deny 0.20.2 checks all features/targets and DS-038 adds exact cargo-audit/Gitleaks plus pinned Clippy SAST on every PR. Both locks, complete Git history/current source and first-party unsafe code fail closed; negative fixtures prove each path. Advisory/fingerprint exceptions are exact, code-owned, reachability-checked where applicable and expire within 90 days. DS-039 digest-pins every supported local external base and builds locked source, but container scanning/SBOM/provenance/artifact signing remain future release controls |
 | 11 | Admin privilege abuse | DS-018 implements ADR-0003's disjoint Agent/Operator principals and PostgreSQL-authoritative explicit roles. DS-020's first Admin routes authenticate RFC 9068 JWTs and transactionally recheck `policy_author`/`org_admin` for non-enumerating Policy activation/rollback. Other Admin capabilities and high-risk multi-party controls remain absent |
 | 12 | Audit log deletion | Partially addressed: migration 0001 rejects Audit UPDATE/DELETE/TRUNCATE, DS-003 row-locks per-organization append and restart-verifies canonical bytes/hash/order/head, DS-004/DS-005 make atomic durable evidence authoritative, DS-007 binds Intent lifecycle state/version/event pointers, DS-015 applies the same rule to Agent/Key lifecycle, DS-016 binds Nonce rows to verified Audit/lifecycle evidence, and DS-018 binds Operator/Role lifecycle to typed events. DS-032 exposes only pages from a complete reverified declared-organization chain and fails closed on deletion, mutation, reorder or head mismatch. Independent checkpoints, retention, and privileged-database threat controls remain later work |
 | 13 | Price oracle manipulation | Partially mitigated: DS-022 stops reading Agent `historical_vendor_median`, accepts only fresh/hash-verified/allowlisted/exact-scope `ATF_ENRICHED` evidence, and turns stale/tampered/unsigned/ambiguous or Agent-provided inputs into explicit restrictive findings. DS-023 durably binds the exact verified Evidence and trust-policy identity before evaluation; DS-024 makes Risk consume only that closed Context. DS-029 applies the same authority to direct asset quotes: a missing, ambiguous, wrong-scope or inexact quote produces a High/Critical finding and cannot convert daily spend. Production enrichers remain future work |
@@ -61,9 +61,11 @@ secret. The realistic attack surface today includes:
   Permit but can terminate the Intent as ERROR. DS-034 now bounds application
   body/Header/count, total request and evaluator cost, then rate-limits direct
   socket sources and verified domain-hashed Agent/Operator principals. A forged
-  Agent proof cannot consume another Agent's quota. Shared deployment still
-  requires TLS ingress, direct-port isolation and ingress parser/handshake
-  limits, so the Gateway is not yet production-ready on an untrusted network.
+  Agent proof cannot consume another Agent's quota. DS-039's supported local
+  topology supplies loopback TLS and direct-port isolation, but a shared
+  deployment still requires production ingress TLS, firewalling, shared quota
+  and parser/handshake limits, so the Gateway is not production-ready on an
+  untrusted network.
 
 - **Observability exfiltration and cardinality exhaustion.** DS-033 maps HTTP
   requests only to closed route templates/method/status classes and maps
@@ -195,8 +197,11 @@ secret. The realistic attack surface today includes:
   restart verification, lock timeout and real deadlock detection in local/CI
   PostgreSQL with external deadlines. DS-037 additionally runs the fixed-hash
   Replay vector, attacker-resealed binding properties, nine durable Replay
-  scenarios and a bounded sanitizer-backed Intent fuzz job in CI. Background
-  recovery and operational cross-instance incident drills remain DS-039 work.
+  scenarios and a bounded sanitizer-backed Intent fuzz job in CI. DS-039 adds
+  a clean single-host submit/restart/Replay proof, PostgreSQL backup/isolated
+  restore with identical Audit head, and audited Policy rollback/forward.
+  Background recovery scanning, HA/failover, production RPO/RTO and
+  cross-host incident drills remain open.
 - **Supply-chain risk in source and Rust dependencies** — DS-038 supplements
   warning-free all-feature/all-target `cargo deny` with RustSec scans of both
   locks, complete-history/current-tree Gitleaks and `unsafe_code`-forbidden
@@ -239,8 +244,11 @@ sender-constraint review.
 
 ## Secret management (PRD §18.3)
 
-Not yet applicable: this repository does not integrate with any KMS, Vault,
-Fireblocks, Privy, or Safe signer, and holds no secret material. When
+This repository does not integrate with any KMS, Vault, Fireblocks, Privy, or
+Safe signer. DS-039 generates one local development Agent signing seed inside
+the `atf-local_local-state` Docker volume; it is never committed or exposed to
+the Gateway and is erased by the documented destructive reset. It is not a
+production secret-management design. When
 Adapters are added (Phase 3+), they must reference secrets by an external
 handle (`secret_binding` in the Adapter Manifest, PRD §15.4) — never hold
 plaintext key material in the ATF core process.
