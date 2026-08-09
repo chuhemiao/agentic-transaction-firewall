@@ -21,20 +21,38 @@ financial payload:
 
 ## Metrics endpoint
 
-`GET /metrics` returns Prometheus text format. It has no application credential
-because it is an infrastructure scrape endpoint, not a business API. It shares
-the same DS-034 body/Header, timeout and source-rate controls, but must still be
-exposed only on a trusted private operations network or authenticated ingress;
-do not publish it directly to the Internet. The supported local topology does
-not yet enforce a separate scrape identity. DS-040 therefore records
-`C4-GAP-001`: this deployment assumption does not satisfy the PRD's non-health
-API authentication/RBAC acceptance criterion and blocks C4. Proposed ADR-0004
-defines the candidate isolated mTLS operations surface, but operators must not
-treat a proposed document as an implemented control.
+`GET /metrics` returns Prometheus text format only on the accepted ADR-0004
+operations surface. The business Router and business TLS listener return 404
+for this path. A distinct loopback/private TLS listener verifies a client
+certificate from the dedicated Metrics-reader CA and matches the approved
+Ed25519 public key; it then overwrites a canonical assertion while proxying to
+the Gateway's protected Unix socket. The metrics-only Router constructs a typed
+`OperationsPrincipal` whose only capability is `METRICS_READ`.
+
+Authentication is local and does not query PostgreSQL or JWKS per scrape. The
+endpoint retains the DS-034 body/Header, timeout, source-rate and
+domain-separated principal-rate controls. Missing, wrong-CA, expired,
+not-yet-valid, wrong-EKU and unapproved client identities are rejected in the
+clean local E2E. The operations credential grants no tenant, Intent, Decision,
+Audit, Policy or Admin authority, and the business Router never interprets its
+assertion Headers.
 
 ```bash
-curl --fail --silent http://127.0.0.1:8080/metrics
+docker compose -f deploy/docker/compose.yml --profile tools run --rm --no-deps ops \
+  /opt/atf/bin/atf-shadow-load metrics \
+  --base-url https://edge:9443 \
+  --ca-cert /local-ca/root.crt \
+  --client-cert /metrics-client/client.crt \
+  --client-key /metrics-client/client.key
 ```
+
+The supported local stack generates this development-only client PKI inside
+restricted named volumes. Only the one-shot `metrics-init` container mounts
+the client-CA private authority; edge receives the public trust pool and
+approved public-key digest, while `ops` receives the client identity read-only.
+No private key is committed. `ATF_ROTATE_METRICS_PKI=true` is exercised by the
+E2E with an edge restart; production deployments must replace this lifecycle
+with their reviewed workload PKI and revocation process.
 
 Implemented families:
 
@@ -247,14 +265,16 @@ or values above the compiled safety ceilings prevent startup. Defaults are:
 | `ATF_PRINCIPAL_RATE_LIMIT_PER_MINUTE` | `120` | GCRA rate per domain-hashed Agent/Operator |
 | `ATF_PRINCIPAL_RATE_LIMIT_BURST` | `30` | Immediate principal burst |
 | `ATF_RATE_LIMIT_MAX_KEYS` | `4096` | Maximum retained keys in each source/principal map |
+| `ATF_METRICS_SOCKET_PATH` | required | Absolute bounded Unix socket path in a protected owner-writable/group-traverse directory |
 
 The source key is the TCP peer IP, never `Forwarded`, `X-Forwarded-For` or
 `X-Real-IP`. Those and related forwarding Headers are stripped before route
 logic. Agent quota is charged only after a read-only verification of the exact
 current durable Key and signature; admission repeats verification under lock
 to close lifecycle races. Operator quota is charged after RFC 9068/JWKS
-verification. Only domain-separated SHA-256 keys are retained, not raw
-principal identifiers. Operational quota does not change Audit history or the
+verification. Operations quota is charged after the canonical mTLS edge
+assertion forms the domain-separated SPKI fingerprint. Only domain-separated
+SHA-256 keys are retained, not raw principal identifiers. Operational quota does not change Audit history or the
 DS-031 financial `REQUESTED` velocity rule.
 
 Rejections use the normal request ID and safe envelope:
@@ -291,6 +311,14 @@ Headers. This is why slow/incomplete Header protection remains an ingress
 responsibility, while slow/incomplete bodies are covered by the Gateway
 deadline. Behind one proxy, all connections share its source bucket by design;
 verified-principal buckets still separate authenticated callers.
+
+The Metrics socket is not a TCP listener. Startup rejects relative/oversized
+paths, symlink or non-directory parents, writable group/world parents and a
+non-socket object occupying the exact path. A stale socket may be replaced;
+the new socket is mode `0660` inside a setgid `0710` directory shared only by
+the Gateway owner and edge traversal group. The supported Compose file never
+publishes Gateway TCP or the Unix socket and binds the mTLS operations edge to
+host loopback only.
 
 ## Cardinality and redaction contract
 

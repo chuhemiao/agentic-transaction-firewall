@@ -11,8 +11,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use atf_gateway::{
-    build_router_with_http_config, GatewayHttpConfig, GatewayServerConfig, HttpRequestLimits,
-    HttpTimeouts, OperationalRateLimit,
+    build_metrics_router_with_http_config, build_router_with_http_config, GatewayHttpConfig,
+    GatewayServerConfig, HttpRequestLimits, HttpTimeouts, OperationalRateLimit,
 };
 use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::ConnectInfo;
@@ -219,15 +219,15 @@ async fn repeated_agent_requests_are_limited_before_a_second_admission(
     let database = TestDatabase::create("security_principal_rate").await?;
     database.seed_organization("alpha-lab").await?;
     let store = database.connect().await?;
-    let app = build_router_with_http_config(
-        test_state(store.clone()),
-        http_config(
-            HttpRequestLimits::default(),
-            HttpTimeouts::default(),
-            generous_rate_limit()?,
-            OperationalRateLimit::new(1, 1, 64)?,
-        ),
+    let state = test_state(store.clone());
+    let config = http_config(
+        HttpRequestLimits::default(),
+        HttpTimeouts::default(),
+        generous_rate_limit()?,
+        OperationalRateLimit::new(1, 1, 64)?,
     );
+    let app = build_router_with_http_config(state.clone(), config.clone());
+    let metrics_app = build_metrics_router_with_http_config(state, config);
 
     let mut forged = post_intent_request("01J0000000000000000000R339", "12.50");
     forged
@@ -277,8 +277,8 @@ async fn repeated_agent_requests_are_limited_before_a_second_admission(
     )
     .await?;
 
-    let metrics = app
-        .oneshot(Request::builder().uri("/metrics").body(Body::empty())?)
+    let metrics = metrics_app
+        .oneshot(support::operations_metrics_request())
         .await?;
     let metrics = axum::body::to_bytes(metrics.into_body(), usize::MAX).await?;
     let metrics = std::str::from_utf8(&metrics)?;

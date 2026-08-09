@@ -177,12 +177,12 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   CRITICAL/HIGH disposition and release-candidate checklist. The technical
   verdict is blocked rather than a status-only pass. Depends: DS-028..DS-039
   and CLI-GAP-001.
-- [ ] **NEXT — C4-GAP-001:** approve and implement an authenticated metrics
-  operations boundary that preserves database-outage telemetry; prove direct
-  Gateway-port isolation and authorized scrape behavior. ADR-0004 is now the
-  `Proposed` review artifact; it does not authorize implementation.
-- [ ] **C4-SIGNOFF-001:** independent human security reviewer signs or rejects
-  the candidate after `C4-GAP-001` closes.
+- [x] **C4-GAP-001:** accepted and implemented ADR-0004's authenticated metrics
+  operations boundary with business-route removal, mTLS, typed
+  `METRICS_READ`, UDS/direct-port isolation, outage telemetry, rotation and
+  negative-certificate evidence.
+- [ ] **NEXT — C4-SIGNOFF-001:** independent human security reviewer signs or
+  rejects the remediated candidate.
 - [ ] **Checkpoint C4:** human security review approves Durable Shadow;
   execution remains unavailable.
 

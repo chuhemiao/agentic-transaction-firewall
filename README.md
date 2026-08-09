@@ -31,18 +31,18 @@ Coinbase CDP, or AWS AgentCore. It provides the shared control-plane semantics
 those systems can sit behind.
 
 Current product vision and release gates: [`docs/PRD.md`](docs/PRD.md)
-(v1.3, Authenticated Durable Shadow revision).
+(v1.4, Authenticated Operations Metrics revision).
 
 ## Status
 
 This repository is in **Phase 2: Durable Shadow Mode**. Phase 1 is complete;
-DS-040's technical re-audit is published, but Checkpoint C4 is **blocked**.
-`GET /metrics` does not meet the PRD's non-health API authentication/RBAC
-acceptance criterion, and the required independent human security approval is
-pending. ADR-0004 now proposes an isolated mTLS Operations Principal and Unix-
-socket Metrics surface, but remains unapproved and unimplemented. See the
-[`release-candidate checklist`](docs/release-candidate-checklist.md) and
-[`proposed ADR`](docs/decisions/0004-authenticated-operations-metrics.md).
+DS-040's technical re-audit and `C4-GAP-001` remediation are complete, but
+Checkpoint C4 is **blocked** pending the required independent human security
+approval. Accepted ADR-0004 now isolates `GET /metrics` behind a dedicated
+mTLS `OperationsPrincipal(METRICS_READ)`, a separate loopback operations edge
+and a protected Unix-socket-only Router; business listeners no longer expose
+the route. See the [`release-candidate checklist`](docs/release-candidate-checklist.md)
+and [`accepted ADR`](docs/decisions/0004-authenticated-operations-metrics.md).
 No RA-001, tagged release, internet-exposed deployment or real execution work
 may start while C4 is blocked (PRD §31–32).
 Only the following crates are implemented so far:
@@ -237,8 +237,10 @@ Only the following crates are implemented so far:
   `GET /v1/intents/{id}/decision`; DS-032 also exposes authenticated
   `GET /v1/audit/events` and `GET /v1/audit/intents/{intent_id}` queries,
   alongside authenticated Policy activation/rollback,
-  plus `/healthz`/`/readyz` and Prometheus `/metrics`. DS-033 records fixed-
-  label HTTP/Decision/Policy/Risk/idempotency/freshness/Audit/dependency-failure metrics,
+  plus `/healthz`/`/readyz`. Prometheus `/metrics` exists only on a separate
+  protected Unix-socket Router reached through the mTLS operations listener;
+  the business Router returns 404. DS-033 records fixed-label
+  HTTP/Decision/Policy/Risk/idempotency/freshness/Audit/dependency-failure metrics,
   reads Replay totals from durable typed Audit evidence, and emits JSON request
   spans. A fresh server Request ID links the response and span to allowlisted
   business completion logs containing the corresponding Audit event ID;
@@ -249,8 +251,11 @@ Only the following crates are implemented so far:
   rate limits with stable errors and fixed-label rejection metrics. The server
   defaults to loopback plaintext, refuses non-loopback binding without an
   explicit trusted-proxy TLS assertion, and strips forwarding Headers rather
-  than treating them as source or identity authority. PostgreSQL is
-  required at startup. DS-035 keeps `/healthz` as process liveness while
+  than treating them as source or identity authority. DS-040 adds a disjoint
+  typed `OperationsPrincipal(METRICS_READ)`, independent operations limits and
+  a required protected Metrics socket; only the dedicated mTLS edge may form
+  its bounded canonical assertion. PostgreSQL is required at startup. DS-035
+  keeps `/healthz` as process liveness while
   `/readyz` verifies live storage/schema compatibility, the configured signed
   active Policy Bundle and fresh usable JWKS. Database, Bundle, bounded-history
   Snapshot, Audit and lock failures have closed dependency metrics and stable
@@ -666,11 +671,13 @@ semantics (evaluate only, never execute).
     audited Policy rollback/forward and bounded load. The recorded local
     baseline is P95 178 ms at 28.328 evaluations/second with zero failures;
     it is regression evidence, not a production SLO claim.
-40. ~~Complete Durable Shadow re-audit and publish the release-candidate
+40. ~~Complete Durable Shadow re-audit, remediate its current-scope blocker and publish the release-candidate
     checklist.~~ Done in DS-040: PRD §32.1/§32.2, STRIDE, CRITICAL/HIGH gap
     disposition and executable gate evidence are recorded. The honest result
-    is `BLOCKED`, not a status-only C4 pass: metrics authentication/RBAC and
-    independent human sign-off remain open.
+    remains `BLOCKED`, not a status-only C4 pass. Accepted ADR-0004 closes the
+    metrics authentication/RBAC blocker with an mTLS Operations Principal,
+    protected UDS-only Router, outage scrape and negative-certificate evidence;
+    independent human sign-off remains open.
 
 ### Remaining before Phase 2 can close out
 
@@ -751,13 +758,14 @@ semantics (evaluate only, never execute).
   low-cardinality Prometheus metrics, JSON request spans, durable Replay
   totals, captured redaction/correlation guarantees and finite application HTTP
   safety controls. External Audit checkpoints and retention remain.
-- `C4-GAP-001`: approve and enforce a metrics access boundary that satisfies
-  non-health API authentication/RBAC without losing database-outage telemetry.
-  ADR-0004 proposes the exact boundary; its status is `Proposed`, so no
-  authentication behavior has changed.
+- ~~`C4-GAP-001`: approve and enforce a metrics access boundary that satisfies
+  non-health API authentication/RBAC without losing database-outage telemetry.~~
+  Done: ADR-0004 is accepted and implemented as a separate mTLS edge,
+  `OperationsPrincipal(METRICS_READ)` and protected Unix-socket Metrics Router;
+  clean E2E rejects missing/wrong/expired/future/wrong-EKU/unapproved
+  certificates and preserves authorized metrics during PostgreSQL loss.
 - `C4-SIGNOFF-001`: obtain independent human security approval after the
-  metrics boundary has executable evidence. Until both close, C4 and RA-001
-  remain blocked.
+  metrics boundary evidence. Until it closes, C4 and RA-001 remain blocked.
 - ~~Make the advertised `atf evaluate` default satisfy the immutable Context
   time contract.~~ Done in `CLI-GAP-001`: the omitted `--evaluated-at` path
   samples a millisecond-aligned current time, and a real-binary integration
@@ -774,8 +782,8 @@ implementation plan and executable checklist are in
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
 - **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
   Gateway foundation, core libraries and supported local recovery path exist;
-  DS-040's technical security re-audit is complete, while C4 remains blocked
-  by the metrics access boundary and independent human sign-off. Strongly bound
+  DS-040's technical security re-audit and metrics-boundary remediation are
+  complete, while C4 remains blocked by independent human sign-off. Strongly bound
   Decisions plus Original/Counterfactual Replay and bounded durable Risk-history
   reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
@@ -828,7 +836,9 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
 # docs/risk-rule-sets.md, and docs/replay.md.
 psql postgres://postgres:postgres@localhost:5432/atf \
   -c "INSERT INTO organizations (organization_id) VALUES ('alpha-lab') ON CONFLICT DO NOTHING"
+install -d -m 0710 "/tmp/atf-metrics-$UID"
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \
+  ATF_METRICS_SOCKET_PATH="/tmp/atf-metrics-$UID/metrics.sock" \
   ATF_IDENTITY_AUDIENCE=atf-gateway \
   ATF_DEPLOYMENT_ENVIRONMENT=development \
   ATF_POLICY_ORGANIZATION_ID=alpha-lab \

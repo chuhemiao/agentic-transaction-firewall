@@ -3,8 +3,9 @@
 This model covers the threats enumerated in `docs/PRD.md` §18.2, annotated
 against the current Phase 2 Shadow Mode implementation. The gateway has a
 real network request path, but no execution path or production secret.
-DS-040 revalidated it on 2026-08-09 against input commit `a0cc1a6`; the C4
-technical verdict remains blocked as documented in
+DS-040 revalidated it on 2026-08-09 against input commit `a0cc1a6` and the
+accepted ADR-0004 remediation closes the discovered Metrics access gap. C4
+remains blocked only for independent human sign-off as documented in
 `docs/release-candidate-checklist.md`.
 
 ## Security principles (PRD §18.1)
@@ -63,7 +64,9 @@ secret. The realistic attack surface today includes:
   trigger that request's post-expiry fail-closed recovery; this cannot produce
   Permit but can terminate the Intent as ERROR. DS-034 now bounds application
   body/Header/count, total request and evaluator cost, then rate-limits direct
-  socket sources and verified domain-hashed Agent/Operator principals. A forged
+  socket sources and verified domain-hashed Agent/Operator principals. The
+  isolated Metrics Router adds a separately domain-hashed Operations
+  principal and never accepts it on business routes. A forged
   Agent proof cannot consume another Agent's quota. DS-039's supported local
   topology supplies loopback TLS and direct-port isolation, but a shared
   deployment still requires production ingress TLS, firewalling, shared quota
@@ -79,14 +82,16 @@ secret. The realistic attack surface today includes:
   Captured canaries prove these exclusions. JSON spans retain the server
   Request ID and allowlisted Audit event IDs only for incident correlation;
   PostgreSQL Audit remains authoritative. Replay counts are aggregated from
-  typed durable events without tenant labels. `/metrics` remains an
-  unauthenticated infrastructure endpoint, but it now shares the same finite
-  request/source limits. A trusted private operations network or authenticated
-  ingress is documented but not enforced by the application or supported
-  local topology. Because PRD §22 and §32.2.2 exempt health checks only, this
-  is `C4-GAP-001` and blocks C4 until an approved, tested operations access
-  boundary exists. Proposed ADR-0004 maps the candidate mTLS/Unix-socket trust
-  boundaries and abuse cases; it is not yet an implemented mitigation.
+  typed durable events without tenant labels. Accepted ADR-0004 removes
+  `/metrics` from the business Router, exposes a metrics-only Router through a
+  protected Unix socket and requires a dedicated mTLS client chain plus exact
+  approved public key at a separate loopback operations listener. The edge
+  overwrites the only accepted assertion Headers; Gateway converts the
+  canonical DER SPKI into `OperationsPrincipal(METRICS_READ)` and strips the
+  assertion before the handler. Missing, wrong-CA, expired, future,
+  wrong-EKU and unapproved identities fail live tests; business credentials or
+  forged Headers do not form this principal. PostgreSQL/JWKS outages do not
+  disable authentication or the bounded process metrics.
 
 - **Malformed/adversarial JSON input** to `atf-intent::validate` and
   `atf-cli` — DS-008 closes core objects in both JSON Schema and direct Rust
@@ -258,13 +263,13 @@ were rechecked across the exact current Router, middleware, Store authority,
 local Compose boundary and CI configuration.
 
 The review found no execution route, float-backed financial type, first-party
-unsafe Rust, core LLM dependency or plaintext production secret. It did find
-one current-scope access-control contradiction: `/metrics` bypasses the typed
-principal invariant and exposes aggregate operational state to any caller that
-can reach the Gateway port. Its fixed labels and redaction reduce disclosure
-impact but do not provide authentication or RBAC. C4 therefore remains
-blocked; the reviewer must not reinterpret private-network documentation as
-an implemented control.
+unsafe Rust, core LLM dependency or plaintext production secret. Its one
+current-scope access-control contradiction is now remediated by accepted
+ADR-0004's disjoint mTLS/UDS boundary and closed `METRICS_READ` capability.
+The clean Compose drill proves negative certificate cases, business-surface
+non-reachability, database-outage telemetry and trust-pool rotation without an
+anonymous interval. C4 remains blocked until an independent human reviewer
+accepts this evidence and residual trusted-edge/local-PKI risk.
 
 Future Budget, Simulator, Approval, Execution, Adapter and Reconciliation
 threats remain non-applicable only because those capabilities and routes are

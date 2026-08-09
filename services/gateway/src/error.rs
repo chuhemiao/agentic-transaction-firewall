@@ -207,6 +207,14 @@ impl ApiError {
         error
     }
 
+    pub(crate) fn operations_authentication_required() -> Self {
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            "AUTHENTICATION_REQUIRED",
+            "A valid route-appropriate credential is required.",
+        )
+    }
+
     pub(crate) fn route_not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,

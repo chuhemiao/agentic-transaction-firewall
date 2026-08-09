@@ -1,7 +1,7 @@
 mod support;
 
 use atf_core::DecisionKind;
-use atf_gateway::build_router;
+use atf_gateway::{build_metrics_router, build_router};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use sqlx::{Connection, Executor, PgConnection};
@@ -18,7 +18,9 @@ async fn database_loss_keeps_liveness_up_but_rejects_readiness_and_admission(
     let database = TestDatabase::create("dependency_database").await?;
     database.seed_organization("alpha-lab").await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics = build_metrics_router(state);
     store.close().await;
 
     let health = app
@@ -42,7 +44,7 @@ async fn database_loss_keeps_liveness_up_but_rejects_readiness_and_admission(
     )
     .await?;
     assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
-    assert_metric(&app, "DATABASE", 1).await?;
+    assert_metric(&metrics, "DATABASE", 1).await?;
 
     database.destroy().await?;
     Ok(())
@@ -54,7 +56,9 @@ async fn missing_active_bundle_is_not_ready_and_finishes_as_a_durable_error(
     let database = TestDatabase::create("dependency_policy").await?;
     database.seed_organization("alpha-lab").await?;
     let store = database.connect().await?;
-    let app = build_router(test_durable_policy_state(store.clone()));
+    let state = test_durable_policy_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics = build_metrics_router(state);
 
     let ready = app
         .clone()
@@ -74,7 +78,7 @@ async fn missing_active_bundle_is_not_ready_and_finishes_as_a_durable_error(
         .await?
         .expect("active Policy loss must terminate with durable fail-closed evidence");
     assert_eq!(finalized.decision.decision, DecisionKind::Error);
-    assert_metric(&app, "ACTIVE_POLICY", 1).await?;
+    assert_metric(&metrics, "ACTIVE_POLICY", 1).await?;
 
     store.close().await;
     database.destroy().await?;
@@ -96,7 +100,9 @@ async fn corrupt_audit_chain_rejects_before_a_new_intent_is_accepted() -> Result
     database
         .corrupt_audit_event_for_test("alpha-lab", first_sequence)
         .await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics = build_metrics_router(state);
 
     error_json(
         app.clone()
@@ -107,7 +113,7 @@ async fn corrupt_audit_chain_rejects_before_a_new_intent_is_accepted() -> Result
     )
     .await?;
     assert_eq!(database.business_record_counts().await?, (0, 0, 0, 0, 0, 0));
-    assert_metric(&app, "AUDIT", 1).await?;
+    assert_metric(&metrics, "AUDIT", 1).await?;
 
     store.close().await;
     database.destroy().await?;
@@ -138,7 +144,9 @@ async fn audit_append_failure_rolls_back_the_new_decision_and_never_returns_perm
         )
         .await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics = build_metrics_router(state);
 
     error_json(
         app.clone()
@@ -154,7 +162,7 @@ async fn audit_append_failure_rolls_back_the_new_decision_and_never_returns_perm
         .is_none());
     let (_, _, contexts, evaluations, decisions, _) = database.business_record_counts().await?;
     assert_eq!((contexts, evaluations, decisions), (1, 0, 0));
-    assert_metric(&app, "DATABASE", 1).await?;
+    assert_metric(&metrics, "DATABASE", 1).await?;
 
     store.close().await;
     database.destroy().await?;
@@ -167,7 +175,9 @@ async fn durable_lock_timeout_is_bounded_and_rejects_before_acceptance(
     let database = TestDatabase::create("dependency_lock").await?;
     database.seed_organization("alpha-lab").await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics = build_metrics_router(state);
     let mut lock = PgConnection::connect(&database.url).await?;
     lock.execute("BEGIN").await?;
     lock.execute("LOCK TABLE decisions IN ACCESS EXCLUSIVE MODE")
@@ -185,7 +195,7 @@ async fn durable_lock_timeout_is_bounded_and_rejects_before_acceptance(
         .load_finalized_decision("alpha-lab", "01J0000000000000000000F354")
         .await?
         .is_none());
-    assert_metric(&app, "LOCK", 1).await?;
+    assert_metric(&metrics, "LOCK", 1).await?;
 
     lock.execute("ROLLBACK").await?;
     lock.close().await?;
@@ -207,7 +217,7 @@ async fn assert_metric(
 ) -> Result<(), Box<dyn Error>> {
     let response = app
         .clone()
-        .oneshot(Request::builder().uri("/metrics").body(Body::empty())?)
+        .oneshot(support::operations_metrics_request())
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     let body = String::from_utf8(to_bytes(response.into_body(), usize::MAX).await?.to_vec())?;

@@ -22,6 +22,7 @@ use tokio::task::JoinSet;
 const MAX_REQUESTS: u32 = 10_000;
 const MAX_CONCURRENCY: u16 = 128;
 const MAX_FILE_BYTES: u64 = 128 * 1024;
+const MAX_METRICS_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(
@@ -46,6 +47,17 @@ enum Command {
         base_url: String,
         #[arg(long)]
         ca_cert: PathBuf,
+    },
+    /// Authenticate to the isolated operations edge and verify Metrics.
+    Metrics {
+        #[arg(long)]
+        base_url: String,
+        #[arg(long)]
+        ca_cert: PathBuf,
+        #[arg(long)]
+        client_cert: PathBuf,
+        #[arg(long)]
+        client_key: PathBuf,
     },
     /// Send unique signed Intents and emit a machine-readable measurement.
     Run {
@@ -147,6 +159,52 @@ async fn execute(cli: Cli) -> Result<()> {
                 bail!("Gateway readiness returned {}", response.status());
             }
             println!("readyz: ready");
+            Ok(())
+        }
+        Command::Metrics {
+            base_url,
+            ca_cert,
+            client_cert,
+            client_key,
+        } => {
+            let base_url = validate_base_url(&base_url)?;
+            let client =
+                build_mtls_client(&ca_cert, &client_cert, &client_key, Duration::from_secs(10))?;
+            let mut response = client
+                .get(format!("{base_url}/metrics"))
+                .send()
+                .await
+                .context("requesting authenticated Gateway Metrics")?;
+            if !response.status().is_success() {
+                bail!("Gateway Metrics returned {}", response.status());
+            }
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            if content_type != "text/plain; version=0.0.4; charset=utf-8" {
+                bail!("Gateway Metrics returned an unexpected content type");
+            }
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_METRICS_BYTES as u64)
+            {
+                bail!("Gateway Metrics exceeds the bounded response size");
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .context("reading authenticated Gateway Metrics")?
+            {
+                if body.len().saturating_add(chunk.len()) > MAX_METRICS_BYTES {
+                    bail!("Gateway Metrics exceeds the bounded response size");
+                }
+                body.extend_from_slice(&chunk);
+            }
+            let availability = validate_metrics_document(&body)?;
+            println!("metrics: authenticated; replay_metrics_available={availability}");
             Ok(())
         }
         Command::Run {
@@ -255,6 +313,42 @@ fn build_client(ca_cert: &Path, timeout: Duration) -> Result<reqwest::Client> {
         .timeout(timeout)
         .build()
         .context("building bounded Shadow HTTP client")
+}
+
+fn build_mtls_client(
+    ca_cert: &Path,
+    client_cert: &Path,
+    client_key: &Path,
+    timeout: Duration,
+) -> Result<reqwest::Client> {
+    let ca_pem = read_bounded_regular_file(ca_cert, MAX_FILE_BYTES)?;
+    let certificate = reqwest::Certificate::from_pem(&ca_pem)
+        .context("local edge CA is not a PEM certificate")?;
+    let mut identity_pem = read_bounded_regular_file(client_cert, MAX_FILE_BYTES)?;
+    identity_pem.push(b'\n');
+    identity_pem.extend_from_slice(&read_bounded_regular_file(client_key, MAX_FILE_BYTES)?);
+    let identity = reqwest::Identity::from_pem(&identity_pem)
+        .context("Metrics client certificate/key are not a valid PEM identity")?;
+    reqwest::Client::builder()
+        .https_only(true)
+        .add_root_certificate(certificate)
+        .identity(identity)
+        .timeout(timeout)
+        .build()
+        .context("building bounded Metrics mTLS client")
+}
+
+fn validate_metrics_document(body: &[u8]) -> Result<u8> {
+    let body = std::str::from_utf8(body).context("Gateway Metrics must be UTF-8")?;
+    let availability = body
+        .lines()
+        .find_map(|line| line.strip_prefix("atf_gateway_replay_metrics_available "))
+        .context("Gateway Metrics omitted Replay availability")?;
+    match availability {
+        "0" => Ok(0),
+        "1" => Ok(1),
+        _ => bail!("Gateway Metrics returned an invalid Replay availability value"),
+    }
 }
 
 fn load_signing_key(path: &Path) -> Result<SigningKey> {
@@ -595,5 +689,19 @@ mod tests {
         assert!(validate_base_url("http://edge:8443/").is_err());
         assert!(validate_base_url("https://user:password@edge:8443/").is_err());
         assert!(validate_base_url("https://edge:8443/v1").is_err());
+    }
+
+    #[test]
+    fn metrics_document_requires_one_closed_availability_value() {
+        assert_eq!(
+            validate_metrics_document(b"atf_gateway_replay_metrics_available 1\n").unwrap(),
+            1
+        );
+        assert_eq!(
+            validate_metrics_document(b"atf_gateway_replay_metrics_available 0\n").unwrap(),
+            0
+        );
+        assert!(validate_metrics_document(b"unrelated 1\n").is_err());
+        assert!(validate_metrics_document(b"atf_gateway_replay_metrics_available 2\n").is_err());
     }
 }

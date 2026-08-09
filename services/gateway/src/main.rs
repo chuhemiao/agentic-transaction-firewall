@@ -1,7 +1,8 @@
 use atf_core::Timestamp;
 use atf_gateway::{
-    build_router_with_http_config, AppState, GatewayHttpConfig, GatewayServerConfig,
-    IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator,
+    build_metrics_router_with_http_config, build_router_with_http_config, AppState,
+    GatewayHttpConfig, GatewayServerConfig, IdentityGatewayConfig, MetricsServerConfig,
+    OperatorAuthConfig, OperatorAuthenticator,
 };
 use atf_risk::RiskRuleSet;
 use atf_store::Store;
@@ -15,6 +16,8 @@ async fn main() {
         .expect("Gateway HTTP request limits, timeouts, or rate limits are invalid");
     let server_config = GatewayServerConfig::from_env()
         .expect("Gateway bind/TLS boundary configuration is invalid");
+    let metrics_server_config = MetricsServerConfig::from_env()
+        .expect("Gateway Metrics Unix-socket configuration is invalid");
     let deployment_environment = std::env::var("ATF_DEPLOYMENT_ENVIRONMENT")
         .expect("ATF_DEPLOYMENT_ENVIRONMENT is required for signed Intent verification");
     let policy_organization_id = std::env::var("ATF_POLICY_ORGANIZATION_ID")
@@ -107,23 +110,36 @@ async fn main() {
         identity,
         operator_auth,
     );
-    let app = build_router_with_http_config(state, http_config);
+    let app = build_router_with_http_config(state.clone(), http_config.clone());
+    let metrics_app = build_metrics_router_with_http_config(state, http_config);
 
     let socket_address = server_config.socket_address();
     let listener = tokio::net::TcpListener::bind(socket_address)
         .await
         .unwrap_or_else(|err| panic!("failed to bind {socket_address}: {err}"));
+    let metrics_listener = metrics_server_config.bind().await.unwrap_or_else(|err| {
+        panic!(
+            "failed to bind protected Metrics socket {}: {err}",
+            metrics_server_config.socket_path().display()
+        )
+    });
 
     tracing::info!(
         bind_address = %socket_address,
         tls_terminated_by_trusted_proxy = server_config.tls_terminated_by_trusted_proxy(),
         "atf-gateway listening"
     );
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    tracing::info!(
+        socket_path = %metrics_server_config.socket_path().display(),
+        "atf-gateway authenticated Metrics socket listening"
+    );
+    tokio::try_join!(
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        ),
+        axum::serve(metrics_listener, metrics_app.into_make_service()),
     )
-    .await
     .expect("gateway server exited unexpectedly");
 }
 

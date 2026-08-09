@@ -9,14 +9,16 @@ or real-funds path. It is not an internet-exposed or production deployment.
 - Docker Engine/Desktop with Docker Compose v2
 - Python 3 for the fail-closed configuration preflight
 - at least 8 GiB available to Docker for the first Rust release build
-- ports `127.0.0.1:8443` available (override with
-  `ATF_LOCAL_HTTPS_PORT`)
+- ports `127.0.0.1:8443` and `127.0.0.1:9443` available (override with
+  `ATF_LOCAL_HTTPS_PORT` and `ATF_LOCAL_METRICS_HTTPS_PORT`)
 
 All external images and Dockerfile bases are digest pinned. PostgreSQL and the
 Gateway are reachable only on the private Compose network. Caddy terminates a
 local generated CA certificate and exposes only TLS on the host loopback
-address. Agent signing material and the local CA private key are generated
-inside named volumes; neither is committed to Git.
+address. The business and mTLS Metrics listeners use distinct loopback ports;
+Gateway TCP and the Metrics Unix socket are never host-published. Agent signing
+material, the local server CA and the development-only Metrics client PKI are
+generated inside named volumes; none is committed to Git.
 
 ## Start, submit, restart and Replay
 
@@ -31,14 +33,23 @@ deploy/docker/local/run-e2e.sh
 creates the local organization/operator/Agent and keys, installs two signed
 Policy versions plus the Risk Rule Set, and waits for `/readyz` through the TLS
 edge. `run-e2e.sh` submits a unique signed Intent, restarts the real Gateway,
-waits for readiness, and runs `atf replay original`. It succeeds only when the
-submitted, stored and replayed Decision hashes are identical.
+waits for readiness, and runs `atf replay original`. It also proves the
+approved Metrics certificate, rejection of missing/wrong/expired/future/
+wrong-EKU/unapproved identities, business-route isolation, PostgreSQL-outage
+metrics with Replay availability `0`, fail-closed admission and PKI rotation.
+It succeeds only when those controls pass and the submitted, stored and
+replayed Decision hashes are identical.
 
 The public local endpoint is `https://localhost:8443`. Use the provided tools
 instead of bypassing the private Gateway port. The generated CA can be read
 inside the `ops` service at
 `/local-ca/root.crt`; Caddy's CA private-key directory is never shared with
 the Gateway or operations containers.
+
+The authenticated local Metrics endpoint is `https://localhost:9443`, but the
+generated client key stays inside the `metrics-client` volume. Scrape it with
+the bounded `atf-shadow-load metrics` command documented in
+[`operations.md`](operations.md); direct anonymous `curl` is expected to fail.
 
 ## Recovery and rollback drills
 

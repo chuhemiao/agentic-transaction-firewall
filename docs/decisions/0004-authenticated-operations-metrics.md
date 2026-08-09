@@ -1,8 +1,8 @@
 # ADR-0004: Isolate metrics behind an authenticated operations principal
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-09
-- **Approval:** Not granted; authentication-boundary implementation is blocked
+- **Approval:** Explicitly approved by an ATF maintainer on 2026-08-09
 - **Decision owners:** ATF maintainers
 - **Supersedes:** None
 - **Related:** [PRD](../PRD.md), [Gateway API](../api.md),
@@ -40,11 +40,10 @@ The selected design must therefore prove all of the following:
 6. this narrow operations identity cannot silently become an alternative
    Operator, Agent, bootstrap, or administrative authentication flow.
 
-This ADR proposes the boundary. It does not amend the current PRD, accept a new
-principal type, or authorize implementation until an ATF maintainer explicitly
-approves it.
+This ADR defines the accepted boundary and narrowly amends PRD §22/§32.2.2 to
+admit the disjoint Metrics-only Operations service principal described below.
 
-## Proposed decision
+## Decision
 
 ### 1. Separate business and operations surfaces
 
@@ -235,24 +234,21 @@ acceptance contract.
 
 ## Consequences
 
-- C4-GAP-001 becomes an implementation task spanning Gateway Router/server
-  separation, typed principal handling, trusted-edge configuration and live
-  Compose evidence.
+- C4-GAP-001 is implemented across Gateway Router/server separation, typed
+  principal handling, trusted-edge configuration and live Compose evidence.
 - The supported topology gains a second loopback/private TLS port and a
   development-only Metrics client credential lifecycle.
 - ADR-0003 remains authoritative for every human/service Operator and every
-  organization capability. ADR-0004, if accepted, owns only aggregate
+  organization capability. ADR-0004 owns only aggregate
   `METRICS_READ` on the isolated operations surface.
 - The operations edge and Unix-socket permission boundary become security-
   critical and must be included in configuration, secret, SAST and runtime
   review.
 - This closes neither production PKI/readiness nor independent C4 approval.
 
-## Implementation gate
+## Approval and implementation record
 
-No authentication, routing, certificate, trust-pool or rate-limit code may be
-changed under this ADR while its status is `Proposed`. An ATF maintainer must
-explicitly approve:
+The ATF maintainer approval recorded above explicitly accepted:
 
 1. the new disjoint `OperationsPrincipal` and narrow PRD §22/§32.2.2 amendment;
 2. mTLS at a separate operations edge as the reference authentication and
@@ -261,6 +257,9 @@ explicitly approve:
    risk; and
 4. the database-independent certificate lifecycle and revocation residuals.
 
-After approval, record the approver/date here, change the status to `Accepted`,
-then implement `C4-GAP-001` as one reviewable vertical slice. C4 itself still
-requires the separate independent human sign-off in `C4-SIGNOFF-001`.
+The implementation removes Metrics from the business Router, adds the
+metrics-only UDS Router and typed principal, provisions the separate mTLS edge
+and development PKI, and makes every required invariant executable in Router,
+resource-boundary, configuration and clean Compose tests. `C4-GAP-001` is
+closed. C4 itself still requires the separate independent human sign-off in
+`C4-SIGNOFF-001`.

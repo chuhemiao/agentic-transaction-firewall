@@ -1,7 +1,7 @@
 name: atf-local
 
 x-atf-runtime: &atf-runtime
-  image: ${ATF_LOCAL_IMAGE:-atf-local:ds039}
+  image: ${ATF_LOCAL_IMAGE:-atf-local:ds040}
   build:
     context: ../..
     dockerfile: deploy/docker/gateway.Dockerfile
@@ -46,13 +46,16 @@ services:
     restart: unless-stopped
 
   edge:
-    image: ${ATF_LOCAL_EDGE_IMAGE:-atf-local-edge:ds039}
+    image: ${ATF_LOCAL_EDGE_IMAGE:-atf-local-edge:ds040}
     build:
       context: ../..
       dockerfile: deploy/docker/edge.Dockerfile
     user: "1001:1001"
     ports:
       - "127.0.0.1:${ATF_LOCAL_HTTPS_PORT:-8443}:8443"
+      - "127.0.0.1:${ATF_LOCAL_METRICS_HTTPS_PORT:-9443}:9443"
+    group_add:
+      - "2000"
     healthcheck:
       test:
         [
@@ -62,12 +65,17 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+    depends_on:
+      metrics-init:
+        condition: service_completed_successfully
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./idp:/srv/idp:ro
       - caddy-data:/data
       - caddy-config:/config
       - local-ca:/ca
+      - metrics-trust:/metrics-trust:ro
+      - metrics-socket:/run/atf
     networks:
       - frontend
       - backend
@@ -79,6 +87,17 @@ services:
     tmpfs:
       - /tmp:mode=1777
     restart: unless-stopped
+
+  metrics-init:
+    <<: *atf-runtime
+    command: ["/opt/atf/local/init-operations.sh"]
+    volumes:
+      - metrics-authority:/metrics-authority
+      - metrics-trust:/metrics-trust
+      - metrics-client:/metrics-client
+      - metrics-invalid:/metrics-invalid
+      - metrics-socket:/run/atf
+    restart: "no"
 
   migrate:
     <<: *atf-runtime
@@ -117,6 +136,7 @@ services:
       ATF_OPERATOR_JWKS_URL: https://edge:8444/jwks.json
       ATF_OPERATOR_JWT_ALGORITHMS: EdDSA
       ATF_OPERATOR_MAX_TOKEN_LIFETIME_SECONDS: "900"
+      ATF_METRICS_SOCKET_PATH: /run/atf/metrics.sock
       ATF_POLICY_BUNDLE_ID: atf-example-payments
       ATF_POLICY_ORGANIZATION_ID: alpha-lab
       ATF_PRINCIPAL_RATE_LIMIT_BURST: "1000"
@@ -131,6 +151,10 @@ services:
         condition: service_completed_successfully
       edge:
         condition: service_healthy
+      metrics-init:
+        condition: service_completed_successfully
+    group_add:
+      - "2000"
     healthcheck:
       test:
         [
@@ -148,6 +172,7 @@ services:
       start_period: 5s
     volumes:
       - local-ca:/local-ca:ro
+      - metrics-socket:/run/atf
     restart: unless-stopped
 
   ops:
@@ -161,6 +186,8 @@ services:
       - local-ca:/local-ca:ro
       - local-state:/state
       - local-backups:/backups
+      - metrics-client:/metrics-client:ro
+      - metrics-invalid:/metrics-invalid:ro
     restart: "no"
 
 volumes:
@@ -170,6 +197,11 @@ volumes:
   local-ca:
   local-backups:
   local-state:
+  metrics-authority:
+  metrics-client:
+  metrics-invalid:
+  metrics-socket:
+  metrics-trust:
 
 networks:
   frontend:

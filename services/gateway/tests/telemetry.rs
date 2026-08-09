@@ -3,7 +3,7 @@
 
 mod support;
 
-use atf_gateway::build_router;
+use atf_gateway::{build_metrics_router, build_router};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use std::error::Error;
@@ -22,7 +22,9 @@ async fn prometheus_snapshot_uses_only_fixed_labels_for_representative_paths(
 ) -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("telemetry_metrics").await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics_app = build_metrics_router(state);
     let intent_id = "01J0000000000000000000TM01";
 
     assert_eq!(
@@ -58,7 +60,7 @@ async fn prometheus_snapshot_uses_only_fixed_labels_for_representative_paths(
         StatusCode::NOT_FOUND
     );
 
-    let metrics = metrics_text(app.clone()).await?;
+    let metrics = metrics_text(metrics_app).await?;
     assert!(metrics.contains(
         "atf_gateway_http_requests_total{method=\"GET\",route=\"/healthz\",status_class=\"2xx\"} 1"
     ));
@@ -103,7 +105,9 @@ async fn verified_audit_read_failures_are_counted_without_tenant_labels(
 ) -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("telemetry_audit_failure").await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics_app = build_metrics_router(state);
 
     database
         .corrupt_audit_event_for_test("alpha-lab", 1)
@@ -119,7 +123,7 @@ async fn verified_audit_read_failures_are_counted_without_tenant_labels(
     )
     .await?;
 
-    let metrics = metrics_text(app).await?;
+    let metrics = metrics_text(metrics_app).await?;
     assert!(metrics.contains("atf_gateway_audit_failures_total{operation=\"READ_VERIFICATION\"} 1"));
     assert!(!metrics.contains("alpha-lab"));
 
@@ -133,7 +137,9 @@ async fn failed_audit_backed_admission_is_counted_and_metrics_remain_scrapeable(
 ) -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("telemetry_audit_write_failure").await?;
     let store = database.connect().await?;
-    let app = build_router(test_state(store.clone()));
+    let state = test_state(store.clone());
+    let app = build_router(state.clone());
+    let metrics_app = build_metrics_router(state);
     store.close().await;
 
     let response = app
@@ -147,7 +153,7 @@ async fn failed_audit_backed_admission_is_counted_and_metrics_remain_scrapeable(
     )
     .await?;
 
-    let metrics = metrics_text(app).await?;
+    let metrics = metrics_text(metrics_app).await?;
     assert!(metrics.contains("atf_gateway_audit_failures_total{operation=\"ADMISSION_WRITE\"} 1"));
     assert!(metrics.contains("atf_gateway_replay_metrics_available 0"));
 
@@ -245,9 +251,7 @@ async fn provisioned_database(label: &str) -> Result<TestDatabase, Box<dyn Error
 }
 
 async fn metrics_text(app: axum::Router) -> Result<String, Box<dyn Error>> {
-    let response = app
-        .oneshot(Request::builder().uri("/metrics").body(Body::empty())?)
-        .await?;
+    let response = app.oneshot(support::operations_metrics_request()).await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response

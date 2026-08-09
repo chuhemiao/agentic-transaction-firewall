@@ -38,6 +38,13 @@ pub const OPERATOR_ISSUER: &str = "https://issuer.example.test";
 pub const OPERATOR_AUDIENCE: &str = "https://atf.example.test";
 pub const OPERATOR_SUBJECT: &str = "operator-subject-1";
 pub const TEST_RISK_RULE_SET_VERSION: &str = "risk-rules-test-permissive-1";
+#[allow(dead_code)]
+pub const OPERATIONS_VERIFIED_HEADER: &str = "x-atf-operations-verified";
+#[allow(dead_code)]
+pub const OPERATIONS_PUBLIC_KEY_HEADER: &str = "x-atf-operations-public-key";
+#[allow(dead_code)]
+pub const TEST_OPERATIONS_ED25519_SPKI: &str =
+    "302a300506032b65700321001111111111111111111111111111111111111111111111111111111111111111";
 
 const SIGNING_KEY_SEED: [u8; 32] = [42; 32];
 
@@ -188,6 +195,16 @@ pub fn sample_intent_json(intent_id: &str, amount: &str) -> serde_json::Value {
 
 pub fn post_intent_request(intent_id: &str, amount: &str) -> Request<Body> {
     post_intent_value_request(sample_intent_json(intent_id, amount))
+}
+
+#[allow(dead_code)]
+pub fn operations_metrics_request() -> Request<Body> {
+    Request::builder()
+        .uri("/metrics")
+        .header(OPERATIONS_VERIFIED_HEADER, "MTLS_V1")
+        .header(OPERATIONS_PUBLIC_KEY_HEADER, TEST_OPERATIONS_ED25519_SPKI)
+        .body(Body::empty())
+        .expect("test Operations assertion is valid")
 }
 
 pub fn post_intent_value_request(intent: serde_json::Value) -> Request<Body> {

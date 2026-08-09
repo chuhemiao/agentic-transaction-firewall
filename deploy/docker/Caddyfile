@@ -5,7 +5,41 @@
 
 https://localhost:8443, https://edge:8443 {
 	tls internal
-	reverse_proxy gateway:8080
+	handle /metrics {
+		respond 404
+	}
+	handle {
+		reverse_proxy gateway:8080 {
+			header_up -X-ATF-Operations-Verified
+			header_up -X-ATF-Operations-Public-Key
+		}
+	}
+}
+
+https://localhost:9443, https://edge:9443 {
+	tls internal {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /metrics-trust/client-ca.crt
+		}
+	}
+
+	@approved_metrics {
+		method GET
+		path /metrics
+		expression `{http.request.tls.client.public_key_sha256} == "{$ATF_METRICS_CLIENT_PUBLIC_KEY_SHA256}"`
+	}
+	handle @approved_metrics {
+		reverse_proxy unix//run/atf/metrics.sock {
+			header_up Host atf-metrics
+			header_up X-ATF-Operations-Verified MTLS_V1
+			header_up X-ATF-Operations-Public-Key 302a300506032b6570032100{http.request.tls.client.public_key}
+		}
+	}
+	handle /metrics {
+		respond 403
+	}
+	respond 404
 }
 
 https://edge:8444 {

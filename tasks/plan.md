@@ -1373,37 +1373,37 @@ exists.
   3. Independent human security review approves C4 before RA-001 starts.
 - **Verification:** full DoD, clean CI/Compose E2E, audit checklist and human sign-off.
 
-**Status:** Technical review complete (2026-08-09); C4 blocked.
+**Status:** Technical review and C4-GAP-001 remediation complete (2026-08-09);
+C4 blocked only on independent sign-off.
 
 **Delivered:** `docs/release-candidate-checklist.md` maps all PRD §32.1/§32.2
 items to executable evidence, records STRIDE/five-axis review and classifies
 every CRITICAL/HIGH gap without reducing severity by documentation. It found
-`C4-GAP-001`: `/metrics` lacks the non-health API principal/RBAC boundary.
-Independent sign-off remains pending, so acceptance criterion 3 and C4 are not
-complete.
+`C4-GAP-001`; accepted ADR-0004 now closes it with an isolated mTLS Operations
+Principal and UDS-only Metrics Router. Independent sign-off remains pending,
+so acceptance criterion 3 and C4 are not complete.
 
 ### C4-GAP-001 — Resolve the metrics operations access boundary `[M]`
 
-**Status:** Design proposed in ADR-0004 (2026-08-09); explicit maintainer
-approval and all implementation remain pending.
+**Status:** Complete (2026-08-09); ADR-0004 accepted and executable evidence
+passes.
 
 **Description:** Select and implement an authenticated operations boundary for
 `GET /metrics` that satisfies PRD §22/§32.2.2 while retaining useful telemetry
 when PostgreSQL is unavailable. Do not silently redefine the endpoint as a
 health check or make a private-network assumption count as application RBAC.
 
-- **Dependencies:** DS-033..DS-040; explicit maintainer approval because this
-  changes an authentication boundary. ADR-0004 is the review artifact and does
-  not authorize code changes while `Proposed`.
-- **Likely files after approval:** `services/gateway/src/routes.rs`, Gateway
+- **Dependencies:** DS-033..DS-040 and explicit maintainer approval; satisfied.
+- **Implemented files:** `services/gateway/src/routes.rs`, Gateway
   server/config modules and tests, `deploy/docker/compose.yml`, the trusted
   edge configuration, local operations scripts, PRD/API/operations docs.
 - **Acceptance criteria:** unauthenticated callers cannot scrape; the selected
   operations identity cannot call business routes; direct Gateway access is
   unavailable in the supported topology; an authorized scrape still returns
   process metrics with Replay availability `0` during database loss.
-- **Verification:** unit/Router tests, live TLS topology tests, database-outage
-  scrape, redaction/cardinality canaries and full DoD.
+- **Verification:** unit/Router tests, live TLS negative-certificate/topology
+  tests, database-outage scrape, trust rotation, redaction/cardinality canaries
+  and full DoD.
 
 ### C4-SIGNOFF-001 — Independent Durable Shadow security approval `[S]`
 

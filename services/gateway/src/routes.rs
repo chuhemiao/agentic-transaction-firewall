@@ -37,7 +37,7 @@ use std::time::Instant;
 use crate::auth::{has_identity_headers, parse_identity_assertion};
 use crate::error::ApiError;
 use crate::middleware::{principal_rate_limited_response, GatewayHttpConfig};
-use crate::principal::{AgentPrincipal, RequestPrincipal};
+use crate::principal::{AgentPrincipal, OperationsPrincipal, RequestPrincipal};
 use crate::request_id::RequestId;
 use crate::state::AppState;
 use crate::telemetry::{
@@ -66,7 +66,6 @@ pub fn build_router_with_http_config(mut state: AppState, config: GatewayHttpCon
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .route("/metrics", get(metrics))
         .route("/v1/intents", post(create_intent))
         .route("/v1/intents/{intent_id}/decision", get(get_decision))
         .route("/v1/audit/events", get(query_audit_events))
@@ -95,11 +94,45 @@ pub fn build_router_with_http_config(mut state: AppState, config: GatewayHttpCon
         ))
 }
 
+pub fn build_metrics_router(state: AppState) -> Router {
+    build_metrics_router_with_http_config(state, GatewayHttpConfig::default())
+}
+
+pub fn build_metrics_router_with_http_config(
+    mut state: AppState,
+    config: GatewayHttpConfig,
+) -> Router {
+    state.configure_http(config);
+    let telemetry = state.telemetry.clone();
+    let http = state.http.clone();
+    Router::new()
+        .route("/metrics", get(metrics))
+        .route_layer(middleware::from_fn_with_state(
+            http.clone(),
+            crate::operations::authenticate,
+        ))
+        .fallback(route_not_found)
+        .method_not_allowed_fallback(method_not_allowed)
+        .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            http,
+            crate::middleware::enforce,
+        ))
+        .layer(middleware::from_fn_with_state(
+            telemetry,
+            crate::request_id::assign,
+        ))
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
 
-async fn metrics(State(state): State<AppState>) -> Response {
+async fn metrics(
+    State(state): State<AppState>,
+    Extension(principal): Extension<OperationsPrincipal>,
+) -> Response {
+    debug_assert!(principal.can_read_metrics());
     let replay_counts = match state.store.durable_replay_counts().await {
         Ok(counts) => Some(counts),
         Err(_) => {

@@ -103,6 +103,46 @@ async fn healthz_and_readyz_report_ok() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
+async fn business_router_never_exposes_metrics() -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("business_metrics_absent").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state(store.clone()));
+
+    let anonymous = Request::builder().uri("/metrics").body(Body::empty())?;
+    error_json(
+        app.clone().oneshot(anonymous).await?,
+        StatusCode::NOT_FOUND,
+        "ROUTE_NOT_FOUND",
+    )
+    .await?;
+
+    let operator = Request::builder()
+        .uri("/metrics")
+        .header("authorization", operator_authorization())
+        .body(Body::empty())?;
+    error_json(
+        app.clone().oneshot(operator).await?,
+        StatusCode::NOT_FOUND,
+        "ROUTE_NOT_FOUND",
+    )
+    .await?;
+
+    let mut agent = post_intent_request("01J0000000000000000000M040", "12.50");
+    *agent.method_mut() = axum::http::Method::GET;
+    *agent.uri_mut() = "/metrics".parse()?;
+    error_json(
+        app.oneshot(agent).await?,
+        StatusCode::NOT_FOUND,
+        "ROUTE_NOT_FOUND",
+    )
+    .await?;
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn every_response_uses_a_server_generated_request_id() -> Result<(), Box<dyn Error>> {
     let database = provisioned_database("request_id").await?;
     let store = database.connect().await?;

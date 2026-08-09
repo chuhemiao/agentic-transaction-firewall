@@ -6,23 +6,31 @@ or execution authority.
 
 ## Current routes
 
-| Method | Path | Response |
-|---|---|---|
-| `GET` | `/healthz` | Liveness text (`ok`) |
-| `GET` | `/readyz` | PostgreSQL/schema, configured signed active Policy and Operator-JWKS readiness text (`ready` or `not ready`) |
-| `GET` | `/metrics` | Low-cardinality Prometheus text metrics |
-| `POST` | `/v1/intents` | A durably recorded Decision |
-| `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
-| `GET` | `/v1/audit/events` | A bounded verified organization Audit page |
-| `GET` | `/v1/audit/intents/{intent_id}` | The same query with an Intent filter fixed by the path |
-| `POST` | `/v1/policy-bundles/{bundle_id}/activate` | Activate one installed signed version |
-| `POST` | `/v1/policy-bundles/{bundle_id}/rollback` | Select the immediately prior signed version |
+| Surface | Method | Path | Response |
+|---|---|---|---|
+| Business | `GET` | `/healthz` | Liveness text (`ok`) |
+| Business | `GET` | `/readyz` | PostgreSQL/schema, configured signed active Policy and Operator-JWKS readiness text (`ready` or `not ready`) |
+| Operations mTLS/UDS only | `GET` | `/metrics` | Low-cardinality Prometheus text metrics |
+| Business | `POST` | `/v1/intents` | A durably recorded Decision |
+| Business | `GET` | `/v1/intents/{intent_id}/decision` | A verified durable Decision |
+| Business | `GET` | `/v1/audit/events` | A bounded verified organization Audit page |
+| Business | `GET` | `/v1/audit/intents/{intent_id}` | The same query with an Intent filter fixed by the path |
+| Business | `POST` | `/v1/policy-bundles/{bundle_id}/activate` | Activate one installed signed version |
+| Business | `POST` | `/v1/policy-bundles/{bundle_id}/rollback` | Select the immediately prior signed version |
+
+The business Router does not register `/metrics`; it returns the normal safe
+`404 ROUTE_NOT_FOUND` contract even when Agent, Operator or operations
+assertion Headers are present.
 
 The Decision and Audit read routes require exactly one RFC 9068
 `Authorization: Bearer` access token validated by the Gateway and a current
 PostgreSQL `auditor` or `org_admin` binding for the selected organization.
 Agent Envelopes and Operator tokens are disjoint principal types and fail when
-used on the wrong route. `X-ATF-Organization-ID` remains a canonical tenant
+used on the wrong route. Accepted ADR-0004 adds a third disjoint
+`OperationsPrincipal` with exactly `METRICS_READ`; it can be constructed only
+on the protected Unix-socket Router after the dedicated mTLS edge verifies the
+approved service identity. It has no tenant or business authority.
+`X-ATF-Organization-ID` remains a canonical tenant
 selector; it and JWT organization/role/email claims never become authority.
 Decision absence, cross-organization selection and insufficient read role all
 return the same `404 DECISION_NOT_FOUND` response. Audit cross-organization
@@ -105,7 +113,8 @@ and runs inside a finite whole-request deadline. `POST /v1/intents` has a
 shorter nested evaluation deadline. A bounded process-local GCRA first limits
 the direct socket IP, then a domain-hashed principal. Agent quota is charged
 only after current durable Key/signature verification; Operator quota is
-charged after JWT/JWKS verification. Forged forwarding Headers never select a
+charged after JWT/JWKS verification; Operations quota uses only the
+domain-separated approved SPKI fingerprint. Forged forwarding Headers never select a
 source and are removed before Handler logic. See [`operations.md`](operations.md)
 for exact defaults and deployment requirements.
 
@@ -197,19 +206,20 @@ for the allowlist, redaction tests and correlation procedure.
 
 ## DS-033/DS-035 Metrics contract
 
-`GET /metrics` returns `text/plain; version=0.0.4; charset=utf-8`. Labels are
+The isolated operations `GET /metrics` returns
+`text/plain; version=0.0.4; charset=utf-8`. Labels are
 closed route templates, method/status classes and domain outcomes/severities;
 raw URLs, organization/request/Intent IDs, credentials, signatures, full
 payloads, error text, Policy IDs and Risk rule IDs are excluded. Replay totals
 come from durable typed Audit evidence because Replay runs in the offline CLI.
-The endpoint is an infrastructure scrape surface, shares DS-034 body/Header,
-request-timeout and source-rate limits, and must remain behind a trusted
-private network or authenticated ingress. That boundary is not application-
-enforced today: DS-040 records it as `C4-GAP-001` because PRD §22/§32.2.2
-exempts only health checks from the principal/RBAC requirement. C4 remains
-blocked pending an approved, tested operations access boundary. Proposed
-ADR-0004 specifies a separate mTLS Operations Principal and Metrics surface;
-it has not changed this API yet. DS-035 adds
+The endpoint shares DS-034 body/Header, request-timeout, source-rate and
+principal-rate limits. Accepted ADR-0004 makes the boundary structural: a
+separate operations TLS listener verifies a dedicated client CA and approved
+public key, overwrites the canonical UDS assertion, and the metrics-only Router
+constructs `OperationsPrincipal(METRICS_READ)`. Missing, duplicate, malformed
+or oversized assertions fail; the business Router never consumes them. The
+reference listener is loopback-only and neither Gateway TCP nor the Unix
+socket is host-published. DS-035 adds
 `atf_gateway_dependency_failures_total{dependency}` with the closed values
 `DATABASE`, `ACTIVE_POLICY`, `HISTORY_SNAPSHOT`, `AUDIT`, and `LOCK`. It never
 uses tenant IDs, artifact IDs, SQLSTATE, error text or other unbounded labels.

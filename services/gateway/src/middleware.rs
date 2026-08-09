@@ -287,6 +287,17 @@ impl HttpRuntime {
         );
         self.0.principal_limiter.check(key)
     }
+
+    pub(crate) fn check_operations(
+        &self,
+        credential_fingerprint: &str,
+    ) -> Result<(), RateLimitExceeded> {
+        let key = hashed_key(
+            b"ATF_OPERATIONAL_RATE_PRINCIPAL_V1\0OPERATIONS\0",
+            &[credential_fingerprint],
+        );
+        self.0.principal_limiter.check(key)
+    }
 }
 
 pub(crate) async fn enforce(

@@ -6,9 +6,9 @@
 产品类型：开源基础设施
 核心语言：Rust
 开源许可：Apache License 2.0
-文档版本：PRD v1.3（Authenticated Durable Shadow 修订版）
+文档版本：PRD v1.4（Authenticated Operations Metrics 修订版）
 更新日期：2026-08-09
-项目阶段：Phase 2 — DS-040 已复审，Checkpoint C4 阻断
+项目阶段：Phase 2 — DS-040 技术复审与整改完成，Checkpoint C4 待独立人工签核
 目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
 
 ---
@@ -24,7 +24,7 @@
 3. 本 PRD 的目标要求。
 4. 其他设计草案或历史说明。
 
-截至 PRD v1.3：
+截至 PRD v1.4：
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
 2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle；DS-028..DS-031 的重复购买、每日累计支出、首次目标地址与 REQUESTED 请求频率规则读取 Organization/Agent/Profile/Action、Evaluation Time 与 Repository Sequence 明确限界的持久化快照，而不再把完整 Audit Event 列表交给 Risk。
@@ -42,12 +42,14 @@
 11. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
 12. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 13. DS-040 已发布 `docs/release-candidate-checklist.md`，并把 §32.1/§32.2
-    映射到测试和运行命令。技术结论仍为 `BLOCKED`：`GET /metrics` 没有形成
-    Agent/Operator Principal，违反本 PRD §22 与 §32.2.2 仅豁免健康检查的要求；
-    独立人工安全审核也尚未签字。该结论不得通过把 Metrics 重命名为“基础设施接口”
-    或仅声明私有网络假设来绕过。`docs/decisions/0004-authenticated-operations-metrics.md`
-    已提出独立 mTLS Operations Principal/Surface 作为候选修复，但状态仍为
-    `Proposed`；在维护者明确批准前，它不修改本 PRD 的当前 Principal 契约。
+    映射到测试和运行命令。复审发现的 `C4-GAP-001` 已按 Accepted ADR-0004
+    整改：业务 Router/Listener 不再暴露 `/metrics`；独立回环 mTLS Operations
+    Listener 以专用客户端 CA、批准的 SPKI 和受保护 Unix Socket 形成仅具
+    `METRICS_READ` 的 typed `OperationsPrincipal`，不依赖 PostgreSQL/JWKS，且
+    不能调用任何业务路由。缺失、错误 CA、过期、未来生效、错误 EKU 与未批准
+    身份均被真实 TLS 演练拒绝；PostgreSQL 故障时授权抓取仍返回 process metrics
+    与 `replay_metrics_available=0`。Checkpoint C4 仍为 `BLOCKED`，唯一当前阻断项
+    是 `C4-SIGNOFF-001` 独立人工安全审核尚未签字。
 
 当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
 
@@ -1323,6 +1325,10 @@ Fingerprint 映射到唯一内部 Operator，并重新加载当前 Organization/
 
 Agent Principal 与 Operator Principal 为互斥类型：Agent Envelope 只能提交绑定的
 Intent，Operator Token 只能进入明确的 Admin/Read Role Matrix，两者不得互相回退。
+Accepted ADR-0004 另定义与二者均互斥的 `OperationsPrincipal`：它只可在独立
+Unix-socket Metrics Router 上由可信 mTLS edge 的规范断言构造，唯一 Capability 为
+`METRICS_READ`，不携带 Organization，也不能进入 Intent、Decision、Audit、Policy、
+Bootstrap 或 Admin 路由。业务 Router 不识别 Operations 断言。
 Organization Header/Path/Body 只是 Selector，必须同时匹配 Principal 的持久化 Role
 Binding 与资源所属 Organization。跨组织、资源不存在、无读取角色的 Decision 查询
 返回相同的非枚举 404。操作者停用或 Role 移除在下一次请求立即生效；外部 IdP 撤销
@@ -1468,9 +1474,9 @@ Rust 主要组件：
 
 ### 19.4 当前实现边界
 
-PRD v1.3 不再把目标目录结构等同于完成状态。当前模块分类如下：
+PRD v1.4 不再把目标目录结构等同于完成状态。当前模块分类如下：
 
-1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语、DS-022 Provenance Evidence、DS-023 Immutable Evaluation Context、DS-028..DS-031 四类闭合 Risk History Snapshot、DS-032 Verified Audit Query、DS-033 Metrics/Tracing/Redaction、Policy Conformance Harness、DS-014..DS-016 的 Agent Identity Admission 子集、DS-018 的 Operator Decision-read RBAC、DS-019/DS-020 的签名 Policy Bundle 身份与持久化激活/回滚，以及 DS-021 的 Versioned Risk Rule Set；Gateway 在 Policy/Risk 前使用当前持久化精确 Key 验证 Envelope 并原子消费 hashed Nonce，每次评估重新加载签名 Active Policy Pointer，并在独立短事务持久化同一次 Evaluation Time、Policy/Risk Identity、Evidence/Trust、Agent Context Hash、Audit History Prefix 与显式不可用输入；Risk 不再把 Agent Vendor Median 当作可信输入，Decision GET、Audit GET 与 Policy Admin Route 均验证配置的 JWT/JWKS 后重新加载持久化 Operator/Role。
+1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语、DS-022 Provenance Evidence、DS-023 Immutable Evaluation Context、DS-028..DS-031 四类闭合 Risk History Snapshot、DS-032 Verified Audit Query、DS-033 Metrics/Tracing/Redaction、ADR-0004 的独立 mTLS Operations Principal 与 UDS Metrics Router、Policy Conformance Harness、DS-014..DS-016 的 Agent Identity Admission 子集、DS-018 的 Operator Decision-read RBAC、DS-019/DS-020 的签名 Policy Bundle 身份与持久化激活/回滚，以及 DS-021 的 Versioned Risk Rule Set；Gateway 在 Policy/Risk 前使用当前持久化精确 Key 验证 Envelope 并原子消费 hashed Nonce，每次评估重新加载签名 Active Policy Pointer，并在独立短事务持久化同一次 Evaluation Time、Policy/Risk Identity、Evidence/Trust、Agent Context Hash、Audit History Prefix 与显式不可用输入；Risk 不再把 Agent Vendor Median 当作可信输入，Decision GET、Audit GET 与 Policy Admin Route 均验证配置的 JWT/JWKS 后重新加载持久化 Operator/Role。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway；各自的已实现/缺失边界见 `docs/architecture.md`。
 3. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration 0001..0014、Audit Append/Restart Verification 与 DS-032 Verified Query、Admission/Context/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放、原子 Idempotency Reservation/Result、Evaluator Lease/Renew/Reclaim、Generation Fencing、Agent/Key Lifecycle、Operator/Role Lifecycle、签名 Policy/Risk Archive、不可变 Evaluation Context、四类限界 Risk History Query 与 Original/Counterfactual Replay 已接入 Gateway/CLI；Agent/Key 与 Operator/Role 生命周期、Policy/Risk 安装仍由离线 CLI 预配，但 Gateway 已在每次对应请求中重验。后台 Recovery Scanner、Audit Checkpoint/Retention 尚未实现。
 4. `IMPLEMENTED_AND_WIRED`：ADR-0003 的 Operator JWT/JWKS、持久化 Organization Role、typed Principal、即时本地撤销与非枚举 Decision-read 边界已由 DS-018 实现；DS-020 增加 `policy_author`/`org_admin` 激活与回滚路由，并在 Store 事务内二次授权；DS-032 以同一原则保护两个 Audit GET，并在 Store 快照中重验 `auditor`/`org_admin`。共享网络 TLS/Proxy/Rate Limit 部署基线仍归 DS-034，其他 Admin 路由仍需单独能力矩阵。
@@ -1621,7 +1627,7 @@ MVP 必须实现：
 4. GET /v1/audit/intents/{intent_id}
 5. POST /v1/policy-bundles/{bundle_id}/activate
 6. POST /v1/policy-bundles/{bundle_id}/rollback
-7. GET /metrics（当前无 Principal，`C4-GAP-001` 阻断项）
+7. GET /metrics（仅独立 mTLS Operations Surface；业务 Listener 返回 404）
 8. GET /healthz
 9. GET /readyz
 
@@ -1632,8 +1638,8 @@ Token 与规范 `X-ATF-Organization-ID` Selector；Gateway 自行验证 Token �
 Subject Fingerprint 加载当前内部 Operator，并要求所选 Organization 的 `auditor` 或
 `org_admin` Role。Token 中的 Organization/Role/Email Claim 和 Selector 本身不授权。
 
-除 `/healthz`、`/readyz` 外，每个请求必须恰好形成 Agent Principal 或 Operator
-Principal：POST 只接受 Agent Envelope，Decision/Audit GET 与 Policy Mutation 只接受 Operator Token，类型错配
+除 `/healthz`、`/readyz` 外，每个请求必须在其物理隔离的 Surface 上恰好形成
+Agent Principal、Operator Principal 或 Metrics-only Operations Principal：POST 只接受 Agent Envelope，Decision/Audit GET 与 Policy Mutation 只接受 Operator Token，`GET /metrics` 只接受独立 mTLS edge 在受保护 Unix Socket 上形成的 `OperationsPrincipal(METRICS_READ)`，类型错配
 返回统一安全 401。缺失、无效、未映射或已停用 Credential 不暴露细节；资源不存在、
 跨租户或无读取角色统一返回对应路由的非枚举 404。原始 Token、Subject、IdP
 Diagnostic、外部 PII 与 Role Membership 不得进入 Error、Log、Metric、Trace 或 Audit
@@ -1664,7 +1670,7 @@ Durable Shadow Mode 必须补充：
 1. POST /v1/shadow/evaluate
 2. POST /v1/replays
 3. GET /v1/replays/{evaluation_id}
-4. GET /metrics
+4. GET /metrics（已由独立 mTLS Operations Surface 实现；不属于业务 Router）
 
 后续 Review/Enforce Mode 目标接口：
 
@@ -1759,7 +1765,7 @@ Durable Shadow Mode 目标指标如下：
 14. 数据新鲜度。
 15. Audit 写入失败。
 
-当前已覆盖 1–4、8–11、14–15，其中 8 以 Risk/Shadow Finding Severity、10 以不暴露 Policy ID 的 Match Count、11 以不暴露 Rule ID/Message 的 Risk Finding Count 表达。DS-035 另提供闭合 `DATABASE`、`ACTIVE_POLICY`、`HISTORY_SNAPSHOT`、`AUDIT`、`LOCK` 依赖失败计数。5–7、12–13 对应的 Simulator、Adapter、Approval、Kill Switch、Reconciliation 组件尚不存在，不输出伪造的零值指标。当前 `/metrics` 只能置于可信私有运维网络或带认证的 Ingress 后。DS-039 已记录单机本地基线和仅用于回归的阈值；生产 SLO/告警仍必须在目标拓扑重新测量。
+当前已覆盖 1–4、8–11、14–15，其中 8 以 Risk/Shadow Finding Severity、10 以不暴露 Policy ID 的 Match Count、11 以不暴露 Rule ID/Message 的 Risk Finding Count 表达。DS-035 另提供闭合 `DATABASE`、`ACTIVE_POLICY`、`HISTORY_SNAPSHOT`、`AUDIT`、`LOCK` 依赖失败计数。5–7、12–13 对应的 Simulator、Adapter、Approval、Kill Switch、Reconciliation 组件尚不存在，不输出伪造的零值指标。当前 `/metrics` 只存在于 Accepted ADR-0004 的独立 mTLS Operations Surface，经受保护 UDS 形成 `OperationsPrincipal(METRICS_READ)`；业务 Listener 返回 404。DS-039 已记录单机本地基线和仅用于回归的阈值；生产 SLO/告警仍必须在目标拓扑重新测量。
 
 ---
 
@@ -1976,10 +1982,10 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
    Hash、Scope 与 Cedar Schema；DS-020 落地签名证明、不可变持久化、
    RBAC 激活和原子回滚；DS-025 已将当前单 Bundle 精确绑定到 Decision v1。
    多 Bundle 解析仍是后续能力。
-10. **P0.10 Metrics & Audit Query API（当前组件范围已完成）**：DS-032 已完成组织隔离、完整链验证、限界稳定分页的 Audit Query；DS-033 已完成请求、Decision、Policy/Risk、Replay、Idempotency、Freshness、Audit Failure 的低基数 Metrics，以及 Request/Trace/Audit Event Correlation 和 Captured-log Redaction。未实现组件的指标不伪造；Checkpoint/Retention 继续作为 C4 残余审计项。
+10. **P0.10 Metrics & Audit Query API（当前组件范围已完成）**：DS-032 已完成组织隔离、完整链验证、限界稳定分页的 Audit Query；DS-033 已完成请求、Decision、Policy/Risk、Replay、Idempotency、Freshness、Audit Failure 的低基数 Metrics，以及 Request/Trace/Audit Event Correlation 和 Captured-log Redaction。Accepted ADR-0004 进一步以独立 mTLS Operations Surface、typed `METRICS_READ` Principal 与受保护 UDS 关闭匿名抓取，同时保留数据库故障期可观测性。未实现组件的指标不伪造；Checkpoint/Retention 继续作为生产残余审计项。
 11. **Local Operations & Recovery Evidence（单机本地范围已完成）**：DS-039 提供 digest-pinned、loopback-only TLS 的 PostgreSQL/Gateway Compose，执行前向 Migration 和幂等 Provisioning；clean E2E 已验证 Submit/Restart/Replay，Backup/隔离 Restore 后 Audit Head 与计数一致，Policy Rollback/Forward 后 Replay 不变。实测 P95 178 ms、28.328 evaluations/s 未达到 §26 目标；共享 Ingress、HA/故障切换、生产 Backup Retention、后台 Recovery Scanner 和生产容量仍是 C4 阻断/残余项。
 
-**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。DS-040 技术复审已完成，但 §32.2.2 的 Metrics 访问边界和独立人工签字仍未通过，因此 Checkpoint C4 未批准。未通过 Gate 不启动 RA-001、真实 Adapter 或执行权限集成。
+**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。DS-040 技术复审及 §32.2.2 Metrics 访问边界整改已完成；独立人工签字仍未通过，因此 Checkpoint C4 未批准。未通过 Gate 不启动 RA-001、真实 Adapter 或执行权限集成。
 
 ### Phase 3：Reference Simulation 与 Adapter
 

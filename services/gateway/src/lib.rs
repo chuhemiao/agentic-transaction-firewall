@@ -9,7 +9,9 @@
 
 mod auth;
 mod error;
+mod metrics_server;
 mod middleware;
+mod operations;
 mod operator_auth;
 mod principal;
 mod request_id;
@@ -18,10 +20,14 @@ mod state;
 mod telemetry;
 
 pub use auth::{IdentityGatewayConfig, IdentityGatewayConfigError};
+pub use metrics_server::{MetricsServerConfig, MetricsServerConfigError};
 pub use middleware::{
     GatewayHttpConfig, GatewayHttpConfigError, GatewayServerConfig, HttpRequestLimits,
     HttpTimeouts, OperationalRateLimit,
 };
 pub use operator_auth::{OperatorAuthConfig, OperatorAuthConfigError, OperatorAuthenticator};
-pub use routes::{build_router, build_router_with_http_config};
+pub use routes::{
+    build_metrics_router, build_metrics_router_with_http_config, build_router,
+    build_router_with_http_config,
+};
 pub use state::AppState;

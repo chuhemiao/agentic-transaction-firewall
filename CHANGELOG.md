@@ -7,6 +7,17 @@ This project has not yet made a tagged release.
 
 ### Fixed
 
+- `C4-GAP-001`: accepted ADR-0004 removes `/metrics` from the business Router
+  and adds a metrics-only Unix-socket Router with typed
+  `OperationsPrincipal(METRICS_READ)`. The supported local edge exposes a
+  distinct loopback mTLS listener backed by a runtime-generated dedicated
+  client CA and approved Ed25519 public key; Gateway TCP/socket remain
+  unpublished. Router, resource-boundary and clean Compose tests reject
+  malformed/forged assertions plus missing, wrong-CA, expired, future,
+  wrong-EKU and unapproved certificates, preserve authorized process metrics
+  during PostgreSQL loss, and exercise restart/trust rotation without an
+  anonymous interval. C4 remains pending independent human sign-off.
+
 - `CLI-GAP-001`: `atf evaluate` now defaults to a millisecond-aligned current
   evaluation time, matching the immutable Evaluation Context contract. A
   fail-first integration test executes the real binary without
@@ -17,11 +28,11 @@ This project has not yet made a tagged release.
 - DS-040 Durable Shadow release-candidate review. The new checklist maps every
   PRD §32.1/§32.2 item to code, tests and runtime commands, records a STRIDE and
   five-axis assessment, and classifies every CRITICAL/HIGH gap without reducing
-  severity by documentation. The technical verdict is intentionally
-  `BLOCKED`: `/metrics` lacks the PRD-required non-health API principal/RBAC
-  boundary, and independent human security approval remains pending. README,
-  PRD, Architecture, Threat Model, Roadmap, Gap Matrix and task plans now agree
-  that C4 and RA-001 cannot advance.
+  severity by documentation. The initial verdict correctly blocked on the
+  missing Metrics principal and independent human approval; the
+  `C4-GAP-001` fix above closes the technical contradiction. README, PRD,
+  Architecture, Threat Model, Roadmap, Gap Matrix and task plans now agree
+  that C4 and RA-001 still await independent human sign-off.
 
 - DS-039 supported local Durable Shadow operations. A digest-pinned,
   non-root Compose stack keeps PostgreSQL/Gateway private and exposes only a

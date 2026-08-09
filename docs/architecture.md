@@ -23,13 +23,13 @@ Agent Intent
   -> Immutable Audit                (atf-audit)
 ```
 
-## What exists today (Phase 2 re-audited, C4 blocked)
+## What exists today (Phase 2 remediated, C4 sign-off pending)
 
 DS-040 revalidated the implemented module, route, storage, CI and supported
 local deployment boundaries on 2026-08-09. The evidence mapping is in
-`docs/release-candidate-checklist.md`. The system remains Phase 2 because the
-unauthenticated `/metrics` route contradicts the PRD non-health API principal
-requirement and independent human C4 approval is pending.
+`docs/release-candidate-checklist.md`. Accepted ADR-0004 closes the discovered
+Metrics principal contradiction; the system remains Phase 2 because independent
+human C4 approval is pending.
 
 - **`atf-core`** — shared domain primitives: fixed-point `Amount`, `Timestamp`
   (RFC 3339), shared Decision kind, 22 stable Intent lifecycle states, and an
@@ -271,10 +271,15 @@ requirement and independent human C4 approval is pending.
   totals, and JSON request spans. The server Request ID is shared by the API
   response/span and allowlisted completion events carrying their durable Audit
   event ID; captured canaries prove credentials, signatures, raw URLs and full
-  financial payloads are not emitted. `/metrics` intentionally remains usable
-  during database loss, but it currently has no application principal/RBAC;
-  the documented private-network/ingress assumption is `C4-GAP-001`, not an
-  implemented access control. DS-034 places finite body and aggregate
+  financial payloads are not emitted. Accepted ADR-0004 removes `/metrics`
+  from the business Router and serves it from an exact Unix-domain socket path
+  through a separate metrics-only Router. The trusted operations edge verifies
+  a dedicated mTLS client chain and approved Ed25519 public key, overwrites the
+  canonical assertion Headers, and Gateway constructs a typed
+  `OperationsPrincipal` with only `METRICS_READ`; Agent, Operator and
+  Operations principals cannot substitute for one another. PostgreSQL/JWKS is
+  not consulted per scrape, so process metrics and Replay availability `0`
+  remain observable during database loss. DS-034 places finite body and aggregate
   Header/count limits plus a whole-request deadline around every route and a
   shorter evaluator deadline around Intent execution. One bounded process-local
   GCRA keys direct socket IPs and domain-hashed principals; Agent quota is
@@ -284,7 +289,9 @@ requirement and independent human C4 approval is pending.
   binding, strips forwarding Headers and never grants them authority. Shared
   ingress rate state and production parser/handshake policy remain deployment
   responsibilities. DS-039 supplies TLS and direct-port isolation for the
-  supported single-host local stack only. DS-035 classifies database, active
+  supported single-host local stack; ADR-0004 adds a second loopback-only mTLS
+  operations port while leaving Gateway TCP and its Unix socket unpublished.
+  DS-035 classifies database, active
   Policy, bounded-history Snapshot, Audit and lock failures with closed metric
   labels. A three-second pool-acquisition cap keeps database loss inside the
   evaluator/request budgets. Database/lock failure rejects before Admission when durability is
@@ -610,12 +617,11 @@ submits a transaction.
 These are called out explicitly so nobody mistakes today's skeleton for a
 complete Decision Engine:
 
-- C4 cannot close until the operations metrics access boundary is explicitly
-  approved and tested without silently removing database-outage telemetry,
-  and an independent human security reviewer signs the candidate. See
-  `docs/release-candidate-checklist.md`. Proposed ADR-0004 specifies a separate
-  mTLS Operations Principal, operations listener and Unix-socket-only Metrics
-  Router; none of that design is implemented or accepted yet.
+- Accepted ADR-0004's separate mTLS Operations Principal, operations listener
+  and Unix-socket-only Metrics Router close `C4-GAP-001` with executable
+  outage and negative-certificate evidence. C4 still cannot close until an
+  independent human security reviewer signs the candidate; see
+  `docs/release-candidate-checklist.md`.
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).

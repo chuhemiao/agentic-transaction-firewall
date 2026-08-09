@@ -209,20 +209,18 @@ order. The executable order is:
 - [x] DS-040 technical re-audit and release-candidate checklist. All PRD
   §32.1/§32.2 items and CRITICAL/HIGH gaps have evidence dispositions; the
   result is blocked rather than promoted to C4.
-- [ ] C4-GAP-001 metrics access boundary. The fixed-label output is safe, but
-  `/metrics` is not a health check and currently lacks the PRD-required
-  principal/RBAC boundary. ADR-0004 proposes an isolated mTLS operations
-  surface and awaits explicit maintainer approval before implementation.
+- [x] C4-GAP-001 metrics access boundary. Accepted ADR-0004 removes `/metrics`
+  from the business surface and implements a dedicated mTLS operations edge,
+  protected UDS-only Router and typed `OperationsPrincipal(METRICS_READ)`;
+  clean E2E covers negative certificates, outage scraping and rotation.
 - [ ] C4-SIGNOFF-001 independent human security approval.
 
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next decision:** resolve `C4-GAP-001`, the metrics access boundary
-recorded by the completed DS-040 technical re-audit, by approving or rejecting
-proposed ADR-0004. C4 then requires implementation evidence and
-`C4-SIGNOFF-001`, an independent human security approval. RA-001 remains
-blocked until both are complete.
+**Immediate next decision:** complete `C4-SIGNOFF-001`, an independent human
+security review of the accepted ADR-0004 implementation and DS-040 evidence.
+RA-001 remains blocked until that sign-off is recorded.
 
 ## Later releases
 

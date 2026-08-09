@@ -23,14 +23,20 @@ FROM postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984da
 ENV PATH="/opt/atf/bin:${PATH}"
 WORKDIR /opt/atf
 
-RUN mkdir -p /opt/atf/bin /opt/atf/fixtures /opt/atf/policies /opt/atf/risk-rules /state /backups \
-    && chown -R postgres:postgres /state /backups
+RUN mkdir -p /opt/atf/bin /opt/atf/fixtures /opt/atf/policies /opt/atf/risk-rules \
+        /state /backups /metrics-authority /metrics-trust /metrics-client /metrics-invalid \
+        /run/atf \
+    && chown -R postgres:postgres /state /backups /metrics-authority /metrics-trust \
+        /metrics-client /metrics-invalid \
+    && chown postgres:2000 /run/atf \
+    && chmod 02710 /run/atf
 
 COPY --from=builder /opt/atf-build/ /opt/atf/bin/
 COPY deploy/docker/fixtures/ /opt/atf/fixtures/
 COPY policies/examples/ /opt/atf/policies/current/
 COPY risk-rules/default.json /opt/atf/risk-rules/default.json
 COPY deploy/docker/local/bootstrap.sh /opt/atf/local/bootstrap.sh
+COPY deploy/docker/local/init-operations.sh /opt/atf/local/init-operations.sh
 
 USER postgres
 ENTRYPOINT []

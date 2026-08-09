@@ -1,7 +1,7 @@
 # Durable Shadow Release Candidate Checklist
 
 - Review date: 2026-08-09
-- Audit input commit: `a0cc1a6`
+- Audit input commit: `a0cc1a6`; ADR-0004 remediation: current DS-040 closure change
 - Scope: source and the supported single-host local Durable Shadow topology
 - Execution authority: absent
 - Production readiness: not claimed
@@ -12,27 +12,24 @@ this candidate.
 
 ## Verdict
 
-**C4 TECHNICAL VERDICT: BLOCKED.** DS-040 has enough executable evidence to
-publish this review, but it does not authorize C4, RA-001, a tagged release,
-an internet-exposed deployment, or any real-funds path.
+**C4 TECHNICAL CONTROLS: PASS; CHECKPOINT: BLOCKED.** DS-040 and the accepted
+ADR-0004 remediation now satisfy the current-scope executable criteria. This
+does not authorize C4, RA-001, a tagged release, an internet-exposed
+deployment, or any real-funds path until the independent sign-off below.
 
 Blocking conditions:
 
-1. `C4-GAP-001`: `GET /metrics` is served without an application principal.
-   This contradicts PRD §22 and §32.2.2, which exempt health checks only and
-   require every other API to have authentication, organization isolation and
-   minimum RBAC. Private-network or ingress authentication is documented but
-   is not enforced by the application contract or the local topology.
-2. `C4-SIGNOFF-001`: the independent human security reviewer required by
+1. `C4-SIGNOFF-001`: the independent human security reviewer required by
    DS-040 and Checkpoint C4 has not approved this candidate.
 
-Changing the metrics authentication boundary requires an explicit design
-decision. The current handler deliberately remains available when PostgreSQL
-is down, so adding database-backed Operator RBAC ad hoc would remove outage
-telemetry. [ADR-0004](decisions/0004-authenticated-operations-metrics.md) now
-proposes a separate mTLS-authenticated Operations Principal, TLS listener and
-Unix-socket-only Metrics Router. Its status is `Proposed`: it is review input,
-not approval, implementation evidence or closure of this blocker.
+`C4-GAP-001` is closed. [ADR-0004](decisions/0004-authenticated-operations-metrics.md)
+is accepted and implemented as a separate mTLS-authenticated Operations
+Principal, TLS listener and Unix-socket-only Metrics Router. The typed
+principal has only `METRICS_READ`, is independent of PostgreSQL/JWKS per
+scrape, and is structurally absent from business routes. Live evidence rejects
+missing, wrong-CA, expired, future, wrong-EKU and unapproved identities,
+preserves authorized Metrics during database loss and rotates the local trust
+pool without an anonymous interval.
 
 ## PRD §32.1 functional evidence
 
@@ -54,11 +51,11 @@ not approval, implementation evidence or closure of this blocker.
 | ID | Result | Executable evidence or blocker |
 |---|---|---|
 | 32.2.1 | PASS | Fresh Gitleaks history/current-tree scan passed; first-party Rust has no `f32`/`f64` or `unsafe`; `Amount` serialization/property tests require lossless JSON strings; the core has no LLM dependency. |
-| 32.2.2 | **BLOCKED** | Body/Header limits, timeouts, source/principal rates, stable errors and business-route Agent/Operator RBAC are tested in `security_limits.rs`, route tests and `audit_query.rs`. `/metrics` has those generic limits but no principal, organization isolation or RBAC: `C4-GAP-001`. |
+| 32.2.2 | PASS | Body/Header limits, timeouts, source/principal rates, stable errors and business-route Agent/Operator RBAC are tested in `security_limits.rs`, route tests and `audit_query.rs`. `operations_metrics.rs` proves the isolated closed assertion, typed `METRICS_READ` principal, route/method matrix and bounds; the clean Compose drill proves the mTLS/UDS boundary and business/direct-port isolation. |
 | 32.2.3 | PASS | Policy Bundle, Risk Rule Set, Evaluation Context and Evidence canonical hash/version/tamper/freshness tests pass; dependency-failure tests prove unavailable or corrupt state cannot return a new Permit. |
 | 32.2.4 | PASS | `scripts/test-persistence.sh` ran twice against PostgreSQL 17.10; restart, two-instance, lock timeout, real deadlock, Audit append and Decision/Nonce convergence passed. |
 | 32.2.5 | PASS | fmt, Clippy/SAST, workspace tests, deny, dependency/Secret/SAST, persistence, Replay/conformance, pinned 15-second Fuzz and clean Compose operations passed. |
-| 32.2.6 | PASS_WITH_BLOCK | The CRITICAL/HIGH disposition below is evidence-linked. Remaining current-scope contradiction keeps the release blocked; future-phase and production gaps are not relabeled closed. |
+| 32.2.6 | PASS_WITH_SIGNOFF | The CRITICAL/HIGH disposition below is evidence-linked. No technical current-scope contradiction remains; independent human sign-off is still mandatory and future-phase/production gaps are not relabeled closed. |
 
 ## CRITICAL/HIGH gap disposition
 
@@ -82,12 +79,12 @@ not approval, implementation evidence or closure of this blocker.
 
 | Threat | Result and residual |
 |---|---|
-| Spoofing | Agent envelopes bind exact tenant/key/nonce/audience/environment; Operator RFC 9068 JWTs map to current durable roles. Metrics has no caller identity (`C4-GAP-001`). |
+| Spoofing | Agent envelopes bind exact tenant/key/nonce/audience/environment; Operator RFC 9068 JWTs map to current durable roles. Metrics requires the dedicated mTLS chain and approved SPKI before the UDS Router forms `OperationsPrincipal(METRICS_READ)`. |
 | Tampering | Canonical hashes, signed Policy, immutable Context/Decision rows and the append-only Audit chain reject changed bytes, row rebinding and reordered evidence. |
 | Repudiation | Typed durable events bind admission, identity, module results, Decision and administrative mutations. Independent off-database checkpoints are still absent. |
-| Information disclosure | Stable errors, non-enumerating reads, fixed telemetry labels and captured canaries pass. Aggregate metrics expose no tenant IDs or payloads but still require an enforced access boundary. |
+| Information disclosure | Stable errors, non-enumerating reads, fixed telemetry labels and captured canaries pass. Aggregate metrics expose no tenant IDs/payloads and are available only through the authenticated operations listener. |
 | Denial of service | Finite body/Header/time/rate bounds, bounded history queries and dependency timeouts exist. Rates are process-local and full-chain Audit verification remains O(chain). |
-| Elevation of privilege | Agent and Operator principals are disjoint; selectors/token claims grant no role; current Store roles are reloaded. No Approval/execution privilege exists. Metrics bypasses the normal principal invariant. |
+| Elevation of privilege | Agent, Operator and Operations principals are disjoint; selectors/token claims/assertion Headers grant no cross-surface role. The Operations capability is structurally limited to `METRICS_READ`; no Approval/execution privilege exists. |
 
 ## Verification record
 
@@ -103,24 +100,24 @@ closed instead of silently skipping two real CLI/database tests.
 | `cargo deny check -D warnings` | PASS |
 | `ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh` | PASS |
 | `./scripts/test-conformance.sh` | PASS |
-| `./scripts/test-security.sh` with a fresh shallow RustSec database | PASS: 1190 advisories loaded; root/fuzz locks, 58-commit/current-tree Gitleaks and negative fixtures passed |
+| `./scripts/test-security.sh` with a fresh RustSec database | PASS: 1197 advisories loaded; root/fuzz locks, 60-commit/current-tree Gitleaks and negative fixtures passed |
 | `./scripts/test-rust-sast.sh` | PASS: full workspace clean and unsafe fixture rejected |
 | `./scripts/test-fuzz.sh` | PASS: pinned `nightly-2026-08-01` / `cargo-fuzz 0.13.2`; 731,672 executions, 5,208 new units, zero crash, 623 MiB peak RSS |
-| clean `./scripts/test-local-ops.sh` | PASS: empty-volume provision; signed submit/restart/Replay; backup/isolated restore with equal sequence 17 / hash `95ab559f162f31d9515708b813fa3d300f1f95e0d1d8b07041c10ecf5344199a` and `1:1:1:17` counts; signed Policy rollback/forward; 50/50 load with P95 104 ms and 58.548 evaluations/s |
+| clean `./scripts/test-local-ops.sh` | PASS: empty-volume provision; mTLS/UDS Metrics isolation, six invalid-identity cases, database-outage scrape and PKI rotation; signed submit/restart/Replay; backup/isolated restore with equal sequence 17 / hash `23e0e4d812bfc876bb44993a194cb24f17b74070ec6d9c4b6e005d0169af61d0` and `1:1:1:17` counts; signed Policy rollback/forward; 50/50 load with P95 111 ms and 52.742 evaluations/s |
 
 ## Five-axis release assessment
 
 - Functional completeness: PASS for the single advertised Durable Shadow
   Payment evaluation path; no other Profile or execution capability is
   implied.
-- Security: BLOCKED by `C4-GAP-001`; production edge, KMS and artifact controls
-  remain explicitly outside this candidate.
+- Security: PASS for the current Durable Shadow technical scope after
+  `C4-GAP-001`; production edge, KMS and artifact controls remain explicitly
+  outside this candidate.
 - Reliability: PASS for tested single-database restart, second-instance,
   contention and local backup/restore; HA and production RPO/RTO are absent.
-- Observability: PASS for safe current-component telemetry; access control for
-  the scrape endpoint is unresolved.
-- Release readiness: BLOCKED until the metrics boundary is resolved with
-  executable evidence and an independent human reviewer signs.
+- Observability: PASS for safe current-component telemetry and its authenticated,
+  database-independent scrape path.
+- Release readiness: BLOCKED until an independent human reviewer signs.
 
 PRD §32.4 documentation residual: current Intent, Identity, Policy, Audit,
 API, operations and quickstart documents exist, but a standalone Replay
@@ -130,11 +127,11 @@ implementation documentation gate.
 
 ## Rollback and sign-off
 
-The candidate changes no database contract or runtime behavior. Reverting the
-DS-040 documentation commit restores the previous status documents; it must not
-be used to infer that a blocker disappeared. Runtime rollback/restore and signed
-Policy rollback procedures remain in `docs/quickstart.md` and
-`docs/operations.md`.
+The remediation changes the Gateway routing/server boundary and the supported
+local edge/PKI topology but no database schema. Roll back as one vertical slice;
+never restore the anonymous business `/metrics` route as a compatibility
+fallback. Runtime restore, certificate rotation and signed Policy rollback
+procedures remain in `docs/quickstart.md` and `docs/operations.md`.
 
 - Technical review author: Codex, evidence collector; **not independent**
 - Independent human security reviewer: **PENDING**
