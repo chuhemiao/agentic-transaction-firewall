@@ -103,8 +103,8 @@ principals and non-enumerating Decision-read RBAC.
 | `atf-intent` | `PARTIALLY_IMPLEMENTED` | Closed Schema/type parsing, canonical hash, common financial/time/ULID/text semantics, the versioned Agent-Commerce Payment Profile, and its separate DS-030 EIP-155 history normalizer are wired with stable ordered errors; the normalizer never mutates signed Intent bytes, and every other action pair fails closed until its Profile exists. |
 | `atf-identity` | `IMPLEMENTED_AND_WIRED` | DS-014 canonical `ATF_INTENT_V1` bytes, bounded scope/time validation, exact Key ID strict Ed25519 verification, stable errors and a published vector exist. DS-015 adds validated key windows and PostgreSQL-backed Agent/Key authority. DS-016 requires it before Policy/Risk and atomically consumes hashed Nonces. |
 | `atf-policy` | `PARTIALLY_IMPLEMENTED` | Cedar evaluation, closed scoped manifests, Bundle/file hashes, Cedar Schema validation, strict publisher signature, immutable archive and audited activation/rollback are wired. Multi-Bundle composition/conflict analysis and publisher-key revocation remain missing. |
-| `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules plus duplicate-purchase, asset-aware daily-spend and normalized first-destination history rules are wired under an immutable Context and versioned Rule Set; DS-028..DS-030 supply typed bounded PostgreSQL snapshots rather than Audit events. Frequency and most PRD rules remain missing. |
-| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-030 add typed bounded duplicate/daily-spend/first-destination Risk-history evidence; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
+| `atf-risk` | `PARTIALLY_IMPLEMENTED` | Five stateless rules plus duplicate-purchase, asset-aware daily-spend, normalized first-destination and accepted-request-frequency history rules are wired under an immutable Context and versioned Rule Set; DS-028..DS-031 supply typed bounded PostgreSQL snapshots rather than Audit events. Most other PRD rules remain missing. |
+| `atf-audit` | `PARTIALLY_IMPLEMENTED` | The domain library provides the event envelope, in-memory verifier, 40 canonical typed/versioned payloads, scope validation, event effects, and a strict Schema verified against real output. DS-028..DS-031 add typed bounded duplicate/daily-spend/first-destination/request-frequency Risk-history evidence, and current `IntentReceived` binds Profile/action; Gateway and offline lifecycle commands persist/verify current evidence through `atf-store`. Queries and checkpoints remain. |
 | `atf-decision` | `PARTIALLY_IMPLEMENTED` | Policy/Risk merge and the closed strongly bound Decision v1 envelope are wired; the Simulator branch remains absent. |
 | `atf-store` | `PARTIALLY_IMPLEMENTED` | Embedded migrations/schema checks, constrained tenant tables, append-only Audit, authenticated admission/finalization, Agent/Key and Operator/Role lifecycle, signed Policy/Risk archives, immutable Context/Decision/Replay records, evaluator fencing, exact retry, bounded Risk-history queries and live readiness exist. Background recovery scanning remains absent. |
 | `atf-cli` | `PARTIALLY_IMPLEMENTED` | `validate-intent`, `evaluate`, `policy test`, offline `identity` provision/register/status/revoke, and offline `operator` subject/status/role commands exist; most PRD §21 commands are missing. |
@@ -248,7 +248,7 @@ principals and non-enumerating Decision-read RBAC.
 - **module:** `atf-risk`
 - **current_state:** `PARTIALLY_IMPLEMENTED`
 - **evidence:** five stateless rules plus duplicate-purchase, asset-aware
-  daily cumulative-spend and normalized first-destination rules execute
+  daily cumulative-spend, normalized first-destination and accepted-request-frequency rules execute
   under a closed DS-021 artifact whose version/hash binds enabled state,
   severity, thresholds, deny lists, explicit missing-data behavior and all
   lifecycle accounting-boundary choices. Gateway evidence records that exact
@@ -262,7 +262,11 @@ principals and non-enumerating Decision-read RBAC.
   valid EIP-55 inputs deduplicate, while DENY, cross-tenant and unavailable
   normalization cannot establish familiarity. Restart, two-instance,
   tenant, future-event, amount-boundary, concurrent-completion and Replay tests
-  cover these history families. Most PRD §12 rules, dynamic active Rule Set
+  cover these history families. DS-031 adds an inclusive, repository-bounded
+  `IntentReceived` aggregate over exact organization/Agent/Profile/action
+  scope; unresolved legacy bindings are restrictive, a concurrent limit-one
+  test permits at most one request, and completed retries do not inflate the
+  count. Most PRD §12 rules, dynamic active Rule Set
   selection and production trusted inputs do not exist.
 - **security_impact:** completed same-Agent daily split orders are now visible
   to the next snapshot, but concurrently in-flight spending has no atomic
@@ -557,5 +561,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-031` is next: add business request/order frequency Risk using an explicit
-`REQUESTED` boundary and the DS-028 bounded durable history snapshot contract.
+`DS-032` is next: add bounded organization-scoped Audit queries with current
+auditor authorization, non-enumerating tenant isolation and chain status.

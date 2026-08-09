@@ -8,8 +8,8 @@ use atf_core::{
     sha256_hex, DailySpendHistory, DailySpendQuery, DestinationNormalization,
     DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
     EvidenceTrustPolicyReference, ExternalSnapshotReference, FirstDestinationHistory,
-    FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    FirstDestinationQuery, RepositorySnapshot, RequestFrequencyHistory, RequestFrequencyQuery,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use atf_identity::{AgentRecord, AgentStatus, IdentityKeyRecord};
 use clap::{Parser, Subcommand};
@@ -1116,13 +1116,49 @@ fn local_evaluation_context(
         Some(history) => Some(history?),
         None => None,
     };
+    let request_frequency = risk_rule_set.request_frequency_enabled().then(|| {
+        RequestFrequencyHistory::new(
+            RequestFrequencyQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.intent_id,
+                profile.id(),
+                profile.version(),
+                &intent.action.category,
+                &intent.action.operation,
+                risk_rule_set
+                    .request_frequency_subject()
+                    .expect("validated enabled request-frequency rule has a subject"),
+                risk_rule_set
+                    .request_frequency_action_scope()
+                    .expect("validated enabled request-frequency rule has an action scope"),
+                evaluated_at,
+                risk_rule_set
+                    .request_frequency_window_seconds()
+                    .expect("validated enabled request-frequency rule has a window"),
+                risk_rule_set
+                    .request_frequency_max_requests()
+                    .expect("validated enabled request-frequency rule has a threshold"),
+                risk_rule_set
+                    .request_frequency_accounting_boundary()
+                    .expect("validated enabled request-frequency rule has a boundary"),
+            )?,
+            1,
+            0,
+        )
+    });
+    let request_frequency = match request_frequency {
+        Some(history) => Some(history?),
+        None => None,
+    };
     Ok((
         context,
-        RiskHistorySnapshot::with_first_destination(
+        RiskHistorySnapshot::with_request_frequency(
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
             first_destination,
+            request_frequency,
         )?,
     ))
 }

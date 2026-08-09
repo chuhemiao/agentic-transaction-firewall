@@ -94,6 +94,41 @@ pub(crate) fn validate_history_binding(
             }
             Ok(())
         }
+    }?;
+
+    let frequency_rule = rule_set.rules().request_frequency.as_ref();
+    match (
+        frequency_rule.is_some_and(|rule| rule.enabled),
+        history.request_frequency(),
+    ) {
+        (false, None) => Ok(()),
+        (false, Some(_)) => Err(binding(
+            "disabled request-frequency rule received query data",
+        )),
+        (true, None) => Err(binding("enabled request-frequency rule lacks query data")),
+        (true, Some(snapshot)) => {
+            let rule = frequency_rule.expect("enabled request-frequency rule is present");
+            let query = snapshot.query();
+            if query.organization_id() != intent.principal.organization_id
+                || query.agent_id() != intent.principal.agent_id
+                || query.current_intent_id() != intent.intent_id
+                || query.profile_id() != context.profile_id()
+                || query.profile_version() != context.profile_version()
+                || query.action_category() != intent.action.category
+                || query.action_operation() != intent.action.operation
+                || query.subject() != rule.subject
+                || query.action_scope() != rule.action_scope
+                || query.evaluation_time() != context.evaluation_time()
+                || query.window_seconds() != rule.window_seconds
+                || query.max_requests() != rule.max_requests
+                || query.accounting_boundary() != rule.accounting_boundary
+            {
+                return Err(binding(
+                    "request-frequency query does not match Intent, Context, or Rule Set",
+                ));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -106,6 +141,7 @@ pub(crate) fn history_findings(
     let mut findings = Vec::new();
     findings.extend(duplicate_finding(intent, rule_set, history));
     findings.extend(first_destination_finding(rule_set, history));
+    findings.extend(request_frequency_findings(rule_set, history));
 
     let Some(rule) = rule_set
         .rules()
@@ -183,6 +219,56 @@ pub(crate) fn history_findings(
                 rule.valuation_asset,
                 rule.max_amount,
                 rule.window_seconds,
+            ),
+        });
+    }
+    findings
+}
+
+fn request_frequency_findings(
+    rule_set: &RiskRuleSet,
+    history: &RiskHistorySnapshot,
+) -> Vec<RiskFinding> {
+    let Some(rule) = rule_set
+        .rules()
+        .request_frequency
+        .as_ref()
+        .filter(|rule| rule.enabled)
+    else {
+        return Vec::new();
+    };
+    let snapshot = history
+        .request_frequency()
+        .expect("history binding requires enabled request-frequency query data");
+    let mut findings = Vec::new();
+    if snapshot.unresolved_scope_request_count() > 0 {
+        push_missing(
+            &mut findings,
+            rule.missing_data,
+            rule.severity,
+            "REQUEST_FREQUENCY_SCOPE_UNRESOLVED",
+            format!(
+                "{} REQUESTED event(s) lack a trustworthy Profile/action binding and cannot be scoped",
+                snapshot.unresolved_scope_request_count()
+            ),
+        );
+    }
+    if snapshot.request_count() > rule.max_requests {
+        findings.push(RiskFinding {
+            code: "REQUEST_FREQUENCY_EXCEEDED".into(),
+            severity: rule.severity,
+            message: format!(
+                "{:?} `{}` has {} {:?} request(s) for Profile {}@{} action {}:{} within {} seconds, over the configured limit of {}",
+                rule.subject,
+                snapshot.query().agent_id(),
+                snapshot.request_count(),
+                rule.accounting_boundary,
+                snapshot.query().profile_id(),
+                snapshot.query().profile_version(),
+                snapshot.query().action_category(),
+                snapshot.query().action_operation(),
+                rule.window_seconds,
+                rule.max_requests,
             ),
         });
     }

@@ -23,7 +23,9 @@ The document binds `rule_set_version`, `engine_version`, every rule's enabled
 state and severity, all thresholds and deny lists, missing-data behavior, the
 duplicate-purchase window, the daily-spend limit/valuation asset/window/
 accounting boundary, and the first-destination normalizer/boundary. Reordering JSON object
-keys does not change the hash; any decision-affecting field change does.
+keys does not change the hash. DS-031 additionally binds request-frequency
+subject, action scope, threshold, window, REQUESTED boundary and missing-data
+behavior. Any decision-affecting field change changes the hash.
 
 Every `RiskEvaluation` owns the exact `rule_set_version`, `rule_set_hash`,
 typed `RiskHistorySnapshot` and findings. Gateway `RiskEvaluated` evidence records the same pair for both
@@ -84,6 +86,20 @@ unavailable normalization emits `FIRST_DESTINATION_NORMALIZATION_FAILED`
 instead of silently preserving Permit. With the current High severity, a first
 destination yields Review; Critical configuration yields Deny.
 
+DS-031 adds `request_frequency` as a backward-compatible optional family. The
+reference v1.3.0 artifact permits at most 10 accepted requests in 60 seconds
+for the exact Organization + Agent + Payment Profile version + action pair.
+The closed subject is `AGENT`, the closed action scope is `PROFILE`, and the
+accounting boundary is `REQUESTED`: Store counts immutable `IntentReceived`
+events, not HTTP attempts or completed Decisions. The interval is
+`[evaluation_time - window, evaluation_time]`, bounded by the Context's Audit
+sequence/hash. A count above the maximum emits `REQUEST_FREQUENCY_EXCEEDED`.
+Pre-DS-031 events without Profile/action binding are counted separately and
+emit `REQUEST_FREQUENCY_SCOPE_UNRESOLVED`; they never disappear as apparent
+safe history. Admission writes the binding atomically, exact completed retries
+append no second event, and concurrent accepted requests are serialized by the
+organization Audit head before their snapshots are captured.
+
 ## Runtime selection and limits
 
 Gateway requires `ATF_RISK_RULE_SET_PATH` and fails startup if the artifact is
@@ -114,3 +130,6 @@ aggregate at the original sequence/hash boundary.
 DS-030 extends it again with the exact first-destination query/result. Store
 re-verifies the selected typed event and Decision/Intent binding and re-runs
 the normalizer, so indexed text alone cannot establish familiarity.
+DS-031 adds the accepted-request aggregate. Migration 0014 indexes the exact
+organization/Agent/Profile/action/time scope; Store records both matching and
+unresolved counts, and Replay reconstructs them at the original boundary.

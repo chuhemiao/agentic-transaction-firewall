@@ -54,15 +54,15 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
 
     let schema = atf_store::migrate_pool(&pool).await?;
     assert_eq!(schema.schema_version, atf_store::CURRENT_SCHEMA_VERSION);
-    assert_eq!(schema.minimum_reader_version, 13);
-    assert_eq!(schema.minimum_writer_version, 13);
+    assert_eq!(schema.minimum_reader_version, 14);
+    assert_eq!(schema.minimum_writer_version, 14);
 
     let second_run = atf_store::migrate_pool(&pool).await?;
     assert_eq!(second_run, schema);
     let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(migration_count, 13);
+    assert_eq!(migration_count, 14);
 
     let history_index_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'audit_events_permitted_purchase_history_idx'",
@@ -82,6 +82,12 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     .fetch_one(&pool)
     .await?;
     assert_eq!(first_destination_index_count, 1);
+    let request_frequency_index_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'audit_events_requested_frequency_idx'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(request_frequency_index_count, 1);
 
     let lifecycle_columns: i64 = sqlx::query_scalar(
         r#"
@@ -239,7 +245,7 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     store.close().await;
 
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 14 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 15 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -249,14 +255,14 @@ async fn clean_database_migration_enforces_tenant_and_append_only_invariants(
     assert!(matches!(
         incompatible,
         atf_store::StoreError::IncompatibleSchema {
-            binary_version: 13,
-            database_version: 14,
-            minimum_reader_version: 13,
-            minimum_writer_version: 13,
+            binary_version: 14,
+            database_version: 15,
+            minimum_reader_version: 14,
+            minimum_writer_version: 14,
         }
     ));
     sqlx::query(
-        "UPDATE atf_schema_metadata SET schema_version = 13 WHERE component = 'durable_state'",
+        "UPDATE atf_schema_metadata SET schema_version = 14 WHERE component = 'durable_state'",
     )
     .execute(&pool)
     .await?;
@@ -638,7 +644,15 @@ async fn lifecycle_migration_backfills_legacy_rows_without_rewriting_canonical_b
                 .expect("migration 0013 is embedded"),
         )
         .await?;
-    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 13);
+    connection
+        .apply(
+            migrator
+                .iter()
+                .find(|migration| migration.version == 14)
+                .expect("migration 0014 is embedded"),
+        )
+        .await?;
+    assert_eq!(atf_store::verify_schema(&pool).await?.schema_version, 14);
     let nonce_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM identity_nonces")
         .fetch_one(&pool)
         .await?;

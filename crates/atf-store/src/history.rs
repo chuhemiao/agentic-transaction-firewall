@@ -3,7 +3,8 @@ use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
     DecisionKind, DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
     DuplicatePurchaseQuery, FirstDestinationHistory, FirstDestinationMatch, FirstDestinationQuery,
-    RepositorySnapshot, RiskHistorySnapshot, Timestamp, MAX_DAILY_SPEND_ASSET_GROUPS,
+    RepositorySnapshot, RequestFrequencyHistory, RequestFrequencyQuery, RiskHistorySnapshot,
+    Timestamp, MAX_DAILY_SPEND_ASSET_GROUPS,
 };
 use atf_intent::{
     normalize_destination, normalize_destination_value, validate_profile, TransactionIntent,
@@ -113,15 +114,142 @@ impl Store {
         } else {
             None
         };
-        let snapshot = RiskHistorySnapshot::with_first_destination(
+        let request_frequency = if rule_set.request_frequency_enabled() {
+            Some(
+                query_request_frequency(
+                    &mut transaction,
+                    intent,
+                    rule_set,
+                    evaluation_time,
+                    &repository,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let snapshot = RiskHistorySnapshot::with_request_frequency(
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
             first_destination,
+            request_frequency,
         )?;
         transaction.commit().await?;
         Ok(snapshot)
     }
+}
+
+async fn query_request_frequency(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent: &TransactionIntent,
+    rule_set: &RiskRuleSet,
+    evaluation_time: Timestamp,
+    repository: &RepositorySnapshot,
+) -> Result<RequestFrequencyHistory, StoreError> {
+    let subject =
+        rule_set
+            .request_frequency_subject()
+            .ok_or_else(|| StoreError::InvalidRepositoryInput {
+                reason: "enabled request-frequency rule lacks a subject".into(),
+            })?;
+    let action_scope = rule_set.request_frequency_action_scope().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled request-frequency rule lacks an action scope".into(),
+        }
+    })?;
+    let max_requests = rule_set.request_frequency_max_requests().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled request-frequency rule lacks a threshold".into(),
+        }
+    })?;
+    let window_seconds = rule_set.request_frequency_window_seconds().ok_or_else(|| {
+        StoreError::InvalidRepositoryInput {
+            reason: "enabled request-frequency rule lacks a history window".into(),
+        }
+    })?;
+    let boundary = rule_set
+        .request_frequency_accounting_boundary()
+        .ok_or_else(|| StoreError::InvalidRepositoryInput {
+            reason: "enabled request-frequency rule lacks an accounting boundary".into(),
+        })?;
+    if boundary != AccountingBoundary::Requested {
+        return Err(StoreError::InvalidRepositoryInput {
+            reason: "durable request-frequency queries require REQUESTED accounting".into(),
+        });
+    }
+    let profile = validate_profile(intent).map_err(|error| StoreError::InvalidRepositoryInput {
+        reason: format!("request-frequency Intent Profile is invalid: {error}"),
+    })?;
+    let query = RequestFrequencyQuery::new(
+        &intent.principal.organization_id,
+        &intent.principal.agent_id,
+        &intent.intent_id,
+        profile.id(),
+        profile.version(),
+        &intent.action.category,
+        &intent.action.operation,
+        subject,
+        action_scope,
+        evaluation_time,
+        window_seconds,
+        max_requests,
+        boundary,
+    )?;
+    let (request_count, unresolved_scope_request_count): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE canonical_event #>> '{data,binding,profile,id}' = $6
+                  AND canonical_event #>> '{data,binding,profile,version}' = $7
+                  AND canonical_event #>> '{data,binding,action_category}' = $8
+                  AND canonical_event #>> '{data,binding,action_operation}' = $9
+            )::bigint AS request_count,
+            COUNT(*) FILTER (
+                WHERE canonical_event -> 'data' -> 'binding' IS NULL
+            )::bigint AS unresolved_scope_request_count
+        FROM audit_events
+        WHERE organization_id = $1
+          AND event_type = 'IntentReceived'
+          AND sequence <= $2
+          AND occurred_at >= $3
+          AND occurred_at <= $4
+          AND canonical_event -> 'data' ->> 'organization_id' = $1
+          AND canonical_event -> 'data' ->> 'agent_id' = $5
+        "#,
+    )
+    .bind(&intent.principal.organization_id)
+    .bind(i64::try_from(repository.through_sequence()).map_err(|_| {
+        corrupt(
+            &intent.principal.organization_id,
+            "Audit sequence exceeds i64",
+        )
+    })?)
+    .bind(query.window_start().as_datetime())
+    .bind(query.evaluation_time().as_datetime())
+    .bind(query.agent_id())
+    .bind(query.profile_id())
+    .bind(query.profile_version())
+    .bind(query.action_category())
+    .bind(query.action_operation())
+    .fetch_one(&mut **transaction)
+    .await?;
+    RequestFrequencyHistory::new(
+        query,
+        u64::try_from(request_count).map_err(|_| {
+            corrupt(
+                &intent.principal.organization_id,
+                "request-frequency aggregate returned an invalid request count",
+            )
+        })?,
+        u64::try_from(unresolved_scope_request_count).map_err(|_| {
+            corrupt(
+                &intent.principal.organization_id,
+                "request-frequency aggregate returned an invalid unresolved-scope count",
+            )
+        })?,
+    )
+    .map_err(StoreError::from)
 }
 
 async fn query_first_destination(

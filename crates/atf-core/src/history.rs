@@ -6,6 +6,7 @@ use crate::{Amount, RepositorySnapshot, Timestamp};
 const MAX_IDENTIFIER_BYTES: usize = 256;
 const MAX_HISTORY_WINDOW_SECONDS: u64 = 31 * 24 * 60 * 60;
 pub const MAX_DAILY_SPEND_ASSET_GROUPS: usize = 256;
+pub const MAX_REQUEST_FREQUENCY_REQUESTS: u64 = 1_000_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HistorySnapshotError {
@@ -136,6 +137,54 @@ pub struct FirstDestinationHistory {
     result: Option<FirstDestinationMatch>,
 }
 
+/// Closed principal dimension supported by the REQUESTED-boundary velocity
+/// rule. Future subject dimensions require a new versioned contract instead of
+/// broadening this query implicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RequestFrequencySubject {
+    Agent,
+}
+
+/// Closed action dimension supported by the REQUESTED-boundary velocity rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RequestFrequencyActionScope {
+    Profile,
+}
+
+/// Exact tenant, subject, Profile/action, time, threshold, and lifecycle inputs
+/// of one accepted-request frequency query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestFrequencyQuery {
+    organization_id: String,
+    agent_id: String,
+    current_intent_id: String,
+    profile_id: String,
+    profile_version: String,
+    action_category: String,
+    action_operation: String,
+    subject: RequestFrequencySubject,
+    action_scope: RequestFrequencyActionScope,
+    evaluation_time: Timestamp,
+    window_start: Timestamp,
+    window_seconds: u64,
+    max_requests: u64,
+    accounting_boundary: AccountingBoundary,
+}
+
+/// Aggregate of immutable REQUESTED events at the repository boundary. Events
+/// lacking a trustworthy Profile/action binding are kept explicit so Risk can
+/// fail closed rather than silently undercounting them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestFrequencyHistory {
+    query: RequestFrequencyQuery,
+    request_count: u64,
+    unresolved_scope_request_count: u64,
+}
+
 /// Repository boundary plus the exact bounded query inputs and result consumed
 /// by history-dependent Risk rules. Optional query families allow later rules
 /// to extend this closed snapshot without inventing an ambient database read.
@@ -149,6 +198,8 @@ pub struct RiskHistorySnapshot {
     daily_cumulative_spend: Option<DailySpendHistory>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     first_destination: Option<Box<FirstDestinationHistory>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    request_frequency: Option<Box<RequestFrequencyHistory>>,
 }
 
 impl DuplicatePurchaseQuery {
@@ -692,12 +743,180 @@ impl FirstDestinationHistory {
     }
 }
 
+impl RequestFrequencyQuery {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        organization_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        current_intent_id: impl Into<String>,
+        profile_id: impl Into<String>,
+        profile_version: impl Into<String>,
+        action_category: impl Into<String>,
+        action_operation: impl Into<String>,
+        subject: RequestFrequencySubject,
+        action_scope: RequestFrequencyActionScope,
+        evaluation_time: Timestamp,
+        window_seconds: u64,
+        max_requests: u64,
+        accounting_boundary: AccountingBoundary,
+    ) -> Result<Self, HistorySnapshotError> {
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&window_seconds) {
+            return invalid(format!(
+                "request-frequency window_seconds must be within 1..={MAX_HISTORY_WINDOW_SECONDS}"
+            ));
+        }
+        let seconds = i64::try_from(window_seconds)
+            .map_err(|_| HistorySnapshotError::Invalid("history window overflows i64".into()))?;
+        let query = Self {
+            organization_id: organization_id.into(),
+            agent_id: agent_id.into(),
+            current_intent_id: current_intent_id.into(),
+            profile_id: profile_id.into(),
+            profile_version: profile_version.into(),
+            action_category: action_category.into(),
+            action_operation: action_operation.into(),
+            subject,
+            action_scope,
+            evaluation_time,
+            window_start: Timestamp::from_datetime(
+                evaluation_time.as_datetime() - Duration::seconds(seconds),
+            ),
+            window_seconds,
+            max_requests,
+            accounting_boundary,
+        };
+        query.validate()?;
+        Ok(query)
+    }
+
+    pub fn organization_id(&self) -> &str {
+        &self.organization_id
+    }
+
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn current_intent_id(&self) -> &str {
+        &self.current_intent_id
+    }
+
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
+    pub fn profile_version(&self) -> &str {
+        &self.profile_version
+    }
+
+    pub fn action_category(&self) -> &str {
+        &self.action_category
+    }
+
+    pub fn action_operation(&self) -> &str {
+        &self.action_operation
+    }
+
+    pub fn subject(&self) -> RequestFrequencySubject {
+        self.subject
+    }
+
+    pub fn action_scope(&self) -> RequestFrequencyActionScope {
+        self.action_scope
+    }
+
+    pub fn evaluation_time(&self) -> Timestamp {
+        self.evaluation_time
+    }
+
+    pub fn window_start(&self) -> Timestamp {
+        self.window_start
+    }
+
+    pub fn window_seconds(&self) -> u64 {
+        self.window_seconds
+    }
+
+    pub fn max_requests(&self) -> u64 {
+        self.max_requests
+    }
+
+    pub fn accounting_boundary(&self) -> AccountingBoundary {
+        self.accounting_boundary
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        for (field, value) in [
+            ("organization_id", self.organization_id.as_str()),
+            ("agent_id", self.agent_id.as_str()),
+            ("current_intent_id", self.current_intent_id.as_str()),
+            ("profile_id", self.profile_id.as_str()),
+            ("profile_version", self.profile_version.as_str()),
+            ("action_category", self.action_category.as_str()),
+            ("action_operation", self.action_operation.as_str()),
+        ] {
+            validate_identifier(field, value)?;
+        }
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&self.window_seconds) {
+            return invalid("request-frequency window_seconds is outside the supported range");
+        }
+        if !(1..=MAX_REQUEST_FREQUENCY_REQUESTS).contains(&self.max_requests) {
+            return invalid("request-frequency max_requests is outside the supported range");
+        }
+        if self.accounting_boundary != AccountingBoundary::Requested {
+            return invalid("request-frequency requires REQUESTED accounting");
+        }
+        let seconds = i64::try_from(self.window_seconds)
+            .map_err(|_| HistorySnapshotError::Invalid("history window overflows i64".into()))?;
+        let expected = Timestamp::from_datetime(
+            self.evaluation_time.as_datetime() - Duration::seconds(seconds),
+        );
+        if self.window_start != expected {
+            return invalid("request-frequency window_start disagrees with evaluation_time");
+        }
+        Ok(())
+    }
+}
+
+impl RequestFrequencyHistory {
+    pub fn new(
+        query: RequestFrequencyQuery,
+        request_count: u64,
+        unresolved_scope_request_count: u64,
+    ) -> Result<Self, HistorySnapshotError> {
+        let history = Self {
+            query,
+            request_count,
+            unresolved_scope_request_count,
+        };
+        history.validate()?;
+        Ok(history)
+    }
+
+    pub fn query(&self) -> &RequestFrequencyQuery {
+        &self.query
+    }
+
+    pub fn request_count(&self) -> u64 {
+        self.request_count
+    }
+
+    pub fn unresolved_scope_request_count(&self) -> u64 {
+        self.unresolved_scope_request_count
+    }
+
+    fn validate(&self) -> Result<(), HistorySnapshotError> {
+        self.query.validate()?;
+        Ok(())
+    }
+}
+
 impl RiskHistorySnapshot {
     pub fn new(
         repository: RepositorySnapshot,
         duplicate_purchase: Option<DuplicatePurchaseHistory>,
     ) -> Result<Self, HistorySnapshotError> {
-        Self::with_first_destination(repository, duplicate_purchase, None, None)
+        Self::with_request_frequency(repository, duplicate_purchase, None, None, None)
     }
 
     pub fn with_daily_spend(
@@ -705,7 +924,13 @@ impl RiskHistorySnapshot {
         duplicate_purchase: Option<DuplicatePurchaseHistory>,
         daily_cumulative_spend: Option<DailySpendHistory>,
     ) -> Result<Self, HistorySnapshotError> {
-        Self::with_first_destination(repository, duplicate_purchase, daily_cumulative_spend, None)
+        Self::with_request_frequency(
+            repository,
+            duplicate_purchase,
+            daily_cumulative_spend,
+            None,
+            None,
+        )
     }
 
     pub fn with_first_destination(
@@ -714,11 +939,28 @@ impl RiskHistorySnapshot {
         daily_cumulative_spend: Option<DailySpendHistory>,
         first_destination: Option<FirstDestinationHistory>,
     ) -> Result<Self, HistorySnapshotError> {
+        Self::with_request_frequency(
+            repository,
+            duplicate_purchase,
+            daily_cumulative_spend,
+            first_destination,
+            None,
+        )
+    }
+
+    pub fn with_request_frequency(
+        repository: RepositorySnapshot,
+        duplicate_purchase: Option<DuplicatePurchaseHistory>,
+        daily_cumulative_spend: Option<DailySpendHistory>,
+        first_destination: Option<FirstDestinationHistory>,
+        request_frequency: Option<RequestFrequencyHistory>,
+    ) -> Result<Self, HistorySnapshotError> {
         let snapshot = Self {
             repository,
             duplicate_purchase,
             daily_cumulative_spend,
             first_destination: first_destination.map(Box::new),
+            request_frequency: request_frequency.map(Box::new),
         };
         snapshot.validate()?;
         Ok(snapshot)
@@ -738,6 +980,10 @@ impl RiskHistorySnapshot {
 
     pub fn first_destination(&self) -> Option<&FirstDestinationHistory> {
         self.first_destination.as_deref()
+    }
+
+    pub fn request_frequency(&self) -> Option<&RequestFrequencyHistory> {
+        self.request_frequency.as_deref()
     }
 
     pub fn validate(&self) -> Result<(), HistorySnapshotError> {
@@ -786,6 +1032,9 @@ impl RiskHistorySnapshot {
                     return invalid("first-destination result is after the query evaluation time");
                 }
             }
+        }
+        if let Some(history) = &self.request_frequency {
+            history.validate()?;
         }
         Ok(())
     }

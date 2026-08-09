@@ -46,8 +46,8 @@ Only the following crates are implemented so far:
   Evidence envelopes, the DS-023/DS-024 immutable `EvaluationContext`
   evaluator boundary, DS-025 shared Decision-binding types, DS-027's
   non-authoritative same-snapshot Counterfactual Context derivation, and
-  DS-028..DS-030's closed duplicate-purchase, daily-spend and first-destination
-  snapshot/query contracts. Evidence uses
+  DS-028..DS-031's closed duplicate-purchase, daily-spend, first-destination
+  and accepted-request-frequency snapshot/query contracts. Evidence uses
   closed typed source/kind enums, bounded
   numeric-free values, canonical hashes, explicit freshness, source/kind
   allowlists and optional strict Ed25519 verification. Evaluation Context binds
@@ -95,7 +95,7 @@ Only the following crates are implemented so far:
   version/hash with findings. The current rules cover request expiry,
   single-transaction cap, fee ratio, vendor price deviation, high-risk
   network/protocol, duplicate purchase, daily cumulative spend and first-time
-  destination. DS-028
+  destination and REQUESTED-boundary request frequency. DS-028
   evaluates duplicate purchase from a
   typed, organization-scoped PostgreSQL snapshot whose bounded query records
   the exact Agent, resource, current Intent, evaluation window, repository
@@ -117,6 +117,12 @@ Only the following crates are implemented so far:
   `DecisionRecorded(PERMIT)` at the Context repository boundary establishes
   familiarity; a first, invalid-checksum, unsupported-namespace or otherwise
   unavailable destination emits a restrictive finding.
+  DS-031 adds an exact organization/Agent/Profile/action velocity query over
+  immutable `IntentReceived` evidence. The current request is visible after
+  admission, concurrent accepted requests cannot all pass a shared threshold,
+  completed idempotent retries add no event, and legacy events without a
+  trustworthy scope binding produce a restrictive finding instead of being
+  silently omitted.
   DS-026 migration 0009 additionally archives the exact canonical Rule Set
   per organization/environment with typed installer Audit evidence, so
   restart Replay never substitutes a process default.
@@ -199,6 +205,10 @@ Only the following crates are implemented so far:
   DS-030. Store re-verifies the selected typed Decision and its signed Intent
   binding, re-runs the exact normalizer, and records the optional prior permit
   under the same repeatable-read repository boundary.
+  Migration 0014 adds the organization/Agent/Profile/action/time index used by
+  DS-031. Current admission writes the exact Profile/action binding into the
+  append-only `IntentReceived` payload; Store records matching and unresolved
+  REQUESTED counts at the same repository sequence/hash.
 - `cli/atf-cli` — `atf validate-intent`, `atf evaluate`, `atf policy test`,
   `atf policy install/activate/rollback`,
   `atf risk install`, `atf replay original/counterfactual`,
@@ -207,8 +217,8 @@ Only the following crates are implemented so far:
   `DATABASE_URL`; Operator provisioning reads the raw external subject only
   from stdin and persists only its domain-separated fingerprint.
 - `services/gateway` (`atf-gateway`) — an HTTP service wiring Policy, Risk
-  (including duplicate-purchase, daily cumulative-spend and first-destination
-  checks), Decision, and
+  (including duplicate-purchase, daily cumulative-spend, first-destination and
+  accepted-request-frequency checks), Decision, and
   Audit into one request path: `POST /v1/intents` and
   `GET /v1/intents/{id}/decision`, authenticated Policy activation/rollback,
   plus `/healthz`/`/readyz`. PostgreSQL is
@@ -234,7 +244,7 @@ Only the following crates are implemented so far:
   rollback applies to the next request without restarting the Gateway.
   Startup also requires its configured closed Risk Rule Set to resolve to the
   exact audited durable archive; each Risk result and durable `RiskEvaluated`
-  evidence carries its exact version/hash. DS-028..DS-030 capture one bounded durable
+  evidence carries its exact version/hash. DS-028..DS-031 capture one bounded durable
   history snapshot before Context persistence; Risk and Replay consume only
   its typed queries/results, which are retained in Evaluation and Audit evidence.
   Business-route, Router and durable-store failures now share the stable
@@ -368,8 +378,10 @@ semantics (evaluate only, never execute).
    quotes are covered end to end. DS-030 also records the exact Profile,
    normalizer, normalized destination and organization-wide prior-permit result;
    prior DENY and cross-tenant history do not establish familiarity, while
-   unsupported or unsafe normalization is restrictive. Order frequency is still
-   not implemented. DS-021 makes every history rule's boundary
+   unsupported or unsafe normalization is restrictive. DS-031 adds the
+   distinct business velocity rule over accepted `IntentReceived` events,
+   with exact tenant/Agent/Profile/action scope, inclusive time boundaries,
+   concurrency coverage and idempotent-retry non-inflation. DS-021 makes every history rule's boundary
    explicit and requires every future history rule to declare `REQUESTED`,
    `PERMITTED`, `EXECUTED`, or `SETTLED`.
 5. ~~`atf-identity` — Agent registration + Ed25519 identity-signature
@@ -529,6 +541,11 @@ semantics (evaluate only, never execute).
     valid EIP-55 input without changing signed Intent bytes; migration 0013
     supports an organization/Profile/destination/time query over prior permits,
     and exact typed snapshot evidence fails closed for invalid/unsupported input.
+31. ~~Accepted request/order frequency risk.~~ Done in DS-031: Rule Set v1.3.0
+    fixes `AGENT` + `PROFILE`, threshold, window, `REQUESTED` boundary and
+    missing-data behavior; migration 0014 indexes immutable admission evidence,
+    and Store/Gateway tests prove inclusive windows, concurrent threshold
+    enforcement and idempotent retry non-inflation.
 
 ### Remaining before Phase 2 can close out
 
@@ -616,8 +633,9 @@ implementation plan and executable checklist are in
   Gateway foundation and core libraries exist; the remaining release gate is
   stateful Risk, Audit query/metrics, operational hardening, and security
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
-  bounded durable Risk-history reconstruction, daily cumulative spend and
-  normalized first-destination checks are complete through DS-030.
+  bounded durable Risk-history reconstruction, daily cumulative spend,
+  normalized first-destination and accepted-request-frequency checks are
+  complete through DS-031.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`

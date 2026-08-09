@@ -1,7 +1,7 @@
 # Deterministic Replay
 
 DS-026 implements **Original Replay**, DS-027 implements isolated
-**Counterfactual Replay**, and DS-028..DS-030 make both reconstruct enabled
+**Counterfactual Replay**, and DS-028..DS-031 make both reconstruct enabled
 bounded Risk-history queries at the original repository boundary. Neither operation can
 create, replace, or update an authoritative Evaluation or Decision.
 

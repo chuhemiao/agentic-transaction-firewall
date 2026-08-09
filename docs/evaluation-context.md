@@ -1,6 +1,6 @@
 # Immutable Evaluation Context
 
-Status: DS-023 implemented; DS-028..DS-030 bounded Risk history integrated (2026-08-09)
+Status: DS-023 implemented; DS-028..DS-031 bounded Risk history integrated (2026-08-09)
 
 Authority: `docs/PRD.md` §12.5–12.6 and ADR-0002
 
@@ -63,7 +63,8 @@ Evaluation ID, evaluation time and context hash and records a foreign-key
 binding from final Evaluation output to the immutable context. The Context
 binds the repository boundary; the canonical Risk Evaluation and
 `RiskEvaluated` payload additionally retains exact typed query inputs/results
-for duplicate purchase, daily spend and first destination. Risk receives that
+for duplicate purchase, daily spend, first destination and accepted request
+frequency. Risk receives that
 closed snapshot, never Audit events or an ambient Store handle.
 
 ## Loading and recovery
@@ -81,7 +82,7 @@ emits `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)` without executing
 current Policy/Risk. DS-026 Original Replay uses the exact persisted Context;
 DS-027 derives a non-authoritative Counterfactual Context that preserves its
 snapshot/time/Evidence/history boundary while changing only the new Evaluation
-ID and explicit selected Policy/Risk references. DS-028..DS-030 Original and
+ID and explicit selected Policy/Risk references. DS-028..DS-031 Original and
 Counterfactual Replay reconstruct each enabled bounded query against that exact
 sequence/hash boundary, so later Audit events cannot enter replayed Risk input.
 

@@ -6,10 +6,11 @@ use atf_audit::{
     EventType, IdentityKeyRegisteredPayload, IdentityKeyRevokedPayload, IdentityRejectedPayload,
     IdentityVerificationSkippedPayload, IdentityVerifiedPayload, IntentReceivedPayload,
     KillSwitchPayload, NewAuditEvent, OptionalModuleOutcome, OriginalReplayCompletedPayload,
-    PolicyEvaluatedPayload, PolicyOutcome, ReplayDetectedPayload, RequiredModuleOutcome,
-    RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity, SimulationCompletedPayload,
+    PolicyEvaluatedPayload, PolicyOutcome, ReplayDetectedPayload, RequestScopeBinding,
+    RequiredModuleOutcome, RiskEvaluatedPayload, RiskFindingEvidence, RiskSeverity,
+    SimulationCompletedPayload,
 };
-use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, Timestamp};
+use atf_core::{Amount, DecisionKind, IntentLifecycleState as State, ProfileBinding, Timestamp};
 
 fn hash(byte: char) -> String {
     std::iter::repeat_n(byte, 64).collect()
@@ -23,7 +24,42 @@ fn received_payload() -> AuditPayload {
         intent_hash: hash('a'),
         amount: Amount::from_str("12.50").unwrap(),
         resource_id: "dataset-1".into(),
+        binding: Some(RequestScopeBinding {
+            profile: ProfileBinding {
+                id: "atf.agent-commerce.payment".into(),
+                version: "1.0".into(),
+            },
+            action_category: "payment".into(),
+            action_operation: "purchase_api_resource".into(),
+        }),
     })
+}
+
+#[test]
+fn intent_received_request_scope_binding_is_typed_and_legacy_optional() {
+    let event = NewAuditEvent::from_payload(
+        Timestamp::from_str("2026-08-08T12:00:00Z").unwrap(),
+        Some("intent-1".into()),
+        received_payload(),
+    )
+    .unwrap();
+    assert_eq!(
+        event.data["binding"]["profile"]["id"],
+        "atf.agent-commerce.payment"
+    );
+    assert_eq!(event.data["binding"]["action_category"], "payment");
+    assert_eq!(
+        event.data["binding"]["action_operation"],
+        "purchase_api_resource"
+    );
+
+    let mut legacy = event.chain(None);
+    legacy.data.as_object_mut().unwrap().remove("binding");
+    let decoded = legacy.typed_payload().unwrap();
+    let AuditPayload::IntentReceived(decoded) = decoded else {
+        unreachable!()
+    };
+    assert!(decoded.binding.is_none());
 }
 
 fn decision_payload(decision: DecisionKind) -> AuditPayload {

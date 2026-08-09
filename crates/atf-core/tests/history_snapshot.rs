@@ -4,7 +4,8 @@ use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
     DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
     DuplicatePurchaseQuery, FirstDestinationHistory, FirstDestinationMatch, FirstDestinationQuery,
-    RepositorySnapshot, RiskHistorySnapshot, Timestamp,
+    RepositorySnapshot, RequestFrequencyActionScope, RequestFrequencyHistory,
+    RequestFrequencyQuery, RequestFrequencySubject, RiskHistorySnapshot, Timestamp,
 };
 
 fn at(value: &str) -> Timestamp {
@@ -234,6 +235,88 @@ fn first_destination_query(normalization: DestinationNormalization) -> FirstDest
         AccountingBoundary::Permitted,
     )
     .unwrap()
+}
+
+fn request_frequency_query() -> RequestFrequencyQuery {
+    RequestFrequencyQuery::new(
+        "alpha-lab",
+        "agent-a",
+        "01J0000000000000000000NOW0",
+        "atf.agent-commerce.payment",
+        "1.0",
+        "payment",
+        "purchase_api_resource",
+        RequestFrequencySubject::Agent,
+        RequestFrequencyActionScope::Profile,
+        at("2026-08-09T12:00:00Z"),
+        60,
+        10,
+        AccountingBoundary::Requested,
+    )
+    .unwrap()
+}
+
+#[test]
+fn request_frequency_snapshot_records_exact_subject_action_threshold_and_requested_count() {
+    let frequency = RequestFrequencyHistory::new(request_frequency_query(), 11, 0).unwrap();
+    let snapshot = RiskHistorySnapshot::with_request_frequency(
+        repository(),
+        None,
+        None,
+        None,
+        Some(frequency),
+    )
+    .unwrap();
+
+    let query = snapshot.request_frequency().unwrap().query();
+    assert_eq!(query.organization_id(), "alpha-lab");
+    assert_eq!(query.agent_id(), "agent-a");
+    assert_eq!(query.profile_id(), "atf.agent-commerce.payment");
+    assert_eq!(query.profile_version(), "1.0");
+    assert_eq!(query.action_category(), "payment");
+    assert_eq!(query.action_operation(), "purchase_api_resource");
+    assert_eq!(query.subject(), RequestFrequencySubject::Agent);
+    assert_eq!(query.action_scope(), RequestFrequencyActionScope::Profile);
+    assert_eq!(query.max_requests(), 10);
+    assert_eq!(query.accounting_boundary(), AccountingBoundary::Requested);
+    assert_eq!(snapshot.request_frequency().unwrap().request_count(), 11);
+
+    let encoded = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(encoded["request_frequency"]["query"]["subject"], "AGENT");
+    assert_eq!(
+        encoded["request_frequency"]["query"]["action_scope"],
+        "PROFILE"
+    );
+    assert_eq!(
+        encoded["request_frequency"]["query"]["accounting_boundary"],
+        "REQUESTED"
+    );
+    assert_eq!(encoded["request_frequency"]["request_count"], 11);
+    assert_eq!(
+        serde_json::from_value::<RiskHistorySnapshot>(encoded).unwrap(),
+        snapshot
+    );
+}
+
+#[test]
+fn request_frequency_snapshot_allows_an_empty_window_but_requires_a_bounded_threshold() {
+    assert!(RequestFrequencyHistory::new(request_frequency_query(), 0, 0).is_ok());
+    assert!(RequestFrequencyQuery::new(
+        "alpha-lab",
+        "agent-a",
+        "01J0000000000000000000NOW0",
+        "atf.agent-commerce.payment",
+        "1.0",
+        "payment",
+        "purchase_api_resource",
+        RequestFrequencySubject::Agent,
+        RequestFrequencyActionScope::Profile,
+        at("2026-08-09T12:00:00Z"),
+        60,
+        0,
+        AccountingBoundary::Requested,
+    )
+    .is_err());
 }
 
 #[test]

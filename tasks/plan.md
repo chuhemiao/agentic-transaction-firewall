@@ -1060,6 +1060,8 @@ profile-normalized destination identifier and organization-scoped history.
 
 ### DS-031 — Add order/request frequency risk `[S]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add a `REQUESTED`-boundary velocity rule, distinct from HTTP
 rate limiting, using accepted lifecycle events within Evaluation Context time.
 
@@ -1072,6 +1074,16 @@ rate limiting, using accepted lifecycle events within Evaluation Context time.
   2. Concurrent accepted requests cannot bypass the threshold.
   3. Idempotent retries do not inflate the business velocity count.
 - **Verification:** boundary/concurrency/idempotent-retry tests; full DoD.
+
+- **Delivered boundary:** Rule Set v1.3.0 adds the closed `AGENT` subject,
+  `PROFILE` action scope, maximum, window, High/Critical missing-data behavior
+  and `REQUESTED` accounting. New admission appends exact Profile/action
+  binding in immutable `IntentReceived`; migration 0014 indexes the
+  organization/Agent/Profile/action/time/sequence query. Store records exact
+  matching and unresolved-legacy counts at the Context repository boundary.
+  Inclusive millisecond-window, concurrent accepted-request and completed
+  idempotent-retry Gateway/PostgreSQL tests prove the threshold cannot be
+  bypassed or inflated.
 
 ### DS-032 — Add organization-scoped Audit queries `[M]`
 

@@ -7,6 +7,15 @@ This project has not yet made a tagged release.
 
 ### Added
 
+- DS-031 accepted request/order frequency Risk. Rule Set v1.3.0 binds the
+  closed `AGENT` subject, `PROFILE` action scope, threshold, window,
+  `REQUESTED` accounting and restrictive missing-data behavior. Authenticated
+  admission now appends exact Profile/action binding in immutable
+  `IntentReceived`; migration 0014 indexes the bounded aggregate, and
+  Evaluation/Audit evidence records matching plus unresolved legacy counts.
+  Real PostgreSQL tests cover inclusive millisecond boundaries, concurrent
+  accepted requests and completed idempotent retries.
+
 - DS-030 normalized first-time destination Risk. A versioned Payment EIP-155
   normalizer derives one lowercase history key from legacy lowercase or valid
   EIP-55 checksum-case input without rewriting the signed Intent. Migration

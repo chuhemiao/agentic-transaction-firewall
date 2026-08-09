@@ -281,6 +281,14 @@ fn verify_payload_binding(
                 && value.intent_hash == intent.canonical_hash()
                 && value.amount == intent.transaction.amount
                 && value.resource_id == intent.resource.resource_id
+                && value.binding.as_ref().is_none_or(|binding| {
+                    binding.action_category == intent.action.category
+                        && binding.action_operation == intent.action.operation
+                        && atf_intent::validate_profile(intent).is_ok_and(|profile| {
+                            binding.profile.id == profile.id()
+                                && binding.profile.version == profile.version()
+                        })
+                })
         }
         AuditPayload::IdentityVerified(value) => {
             value.organization_id == organization_id && value.agent_id == intent.principal.agent_id

@@ -37,7 +37,9 @@ pub use history::{
     AccountingBoundary, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
     DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
     DuplicatePurchaseQuery, FirstDestinationHistory, FirstDestinationMatch, FirstDestinationQuery,
-    HistorySnapshotError, RiskHistorySnapshot, MAX_DAILY_SPEND_ASSET_GROUPS,
+    HistorySnapshotError, RequestFrequencyActionScope, RequestFrequencyHistory,
+    RequestFrequencyQuery, RequestFrequencySubject, RiskHistorySnapshot,
+    MAX_DAILY_SPEND_ASSET_GROUPS, MAX_REQUEST_FREQUENCY_REQUESTS,
 };
 pub use id::new_ulid;
 pub use lifecycle::{

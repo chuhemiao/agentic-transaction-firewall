@@ -4,8 +4,8 @@ use atf_core::{
     AccountingBoundary, DailySpendHistory, DailySpendQuery, DestinationNormalization,
     DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
     EvidenceTrustPolicyReference, ExternalSnapshotReference, FirstDestinationHistory,
-    FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
-    VersionedArtifactReference,
+    FirstDestinationQuery, RepositorySnapshot, RequestFrequencyHistory, RequestFrequencyQuery,
+    RiskHistorySnapshot, SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use atf_intent::{normalize_destination, validate_profile, TransactionIntent};
 use atf_risk::{evaluate_context, RiskEvaluationError, RiskRuleSet};
@@ -106,11 +106,33 @@ fn fixture() -> (
         None,
     )
     .unwrap();
-    let history = RiskHistorySnapshot::with_first_destination(
+    let request_frequency = RequestFrequencyHistory::new(
+        RequestFrequencyQuery::new(
+            &intent.principal.organization_id,
+            &intent.principal.agent_id,
+            &intent.intent_id,
+            profile.id(),
+            profile.version(),
+            &intent.action.category,
+            &intent.action.operation,
+            rule_set.request_frequency_subject().unwrap(),
+            rule_set.request_frequency_action_scope().unwrap(),
+            context.evaluation_time(),
+            rule_set.request_frequency_window_seconds().unwrap(),
+            rule_set.request_frequency_max_requests().unwrap(),
+            rule_set.request_frequency_accounting_boundary().unwrap(),
+        )
+        .unwrap(),
+        1,
+        0,
+    )
+    .unwrap();
+    let history = RiskHistorySnapshot::with_request_frequency(
         repository,
         Some(duplicate_purchase),
         Some(daily_spend),
         Some(first_destination),
+        Some(request_frequency),
     )
     .unwrap();
     (intent, rule_set, context, history)

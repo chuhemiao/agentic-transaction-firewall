@@ -2,10 +2,11 @@ use atf_audit::{
     AgentRegisteredPayload, AgentStatusChangedPayload, AuditPayload, EventType,
     IdentityKeyRegisteredPayload, IdentityKeyRevokedPayload, IdentityRejectedPayload,
     IdentityVerifiedPayload, IntentReceivedPayload, NewAuditEvent, ReplayDetectedPayload,
+    RequestScopeBinding,
 };
-use atf_core::{IntentLifecycleState, Timestamp};
+use atf_core::{IntentLifecycleState, ProfileBinding, Timestamp};
 use atf_identity::{EnvelopeVerificationContext, IdentityError};
-use atf_intent::TransactionIntent;
+use atf_intent::{validate_profile, TransactionIntent};
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -277,6 +278,10 @@ async fn insert_authenticated_intent(
     verified_event_id: String,
 ) -> Result<(AdmittedIntent, StoredAuditEvent), StoreError> {
     let organization_id = intent.principal.organization_id.clone();
+    let profile =
+        validate_profile(&intent).map_err(|error| StoreError::InvalidRepositoryInput {
+            reason: format!("admitted Intent Profile is invalid: {error}"),
+        })?;
     let received_payload = AuditPayload::IntentReceived(IntentReceivedPayload {
         organization_id: organization_id.clone(),
         agent_id: intent.principal.agent_id.clone(),
@@ -284,6 +289,14 @@ async fn insert_authenticated_intent(
         intent_hash: intent_hash.clone(),
         amount: intent.transaction.amount,
         resource_id: intent.resource.resource_id.clone(),
+        binding: Some(RequestScopeBinding {
+            profile: ProfileBinding {
+                id: profile.id().into(),
+                version: profile.version().into(),
+            },
+            action_category: intent.action.category.clone(),
+            action_operation: intent.action.operation.clone(),
+        }),
     });
     let received_event = NewAuditEvent::from_payload(
         received_at,

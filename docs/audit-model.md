@@ -231,10 +231,13 @@ decision evidence but does not advance the Intent lifecycle version. Exact
 retries return the original context/event; conflicting contexts and stale
 generations fail closed.
 
-The Context stores the repository sequence/hash boundary. DS-028..DS-030
-additionally store exact typed duplicate-purchase, daily-spend and
-first-destination query inputs/results inside canonical `RiskEvaluated`
-evidence; Risk itself receives no raw Audit events.
+The Context stores the repository sequence/hash boundary. DS-028..DS-031
+additionally store exact typed duplicate-purchase, daily-spend,
+first-destination and request-frequency query inputs/results inside canonical
+`RiskEvaluated` evidence; Risk itself receives no raw Audit events. Current
+`IntentReceived` evidence also binds the admitted Profile/action scope;
+pre-DS-031 events without that optional compatibility field remain decodable
+but are explicit unresolved frequency evidence.
 
 ### Evaluation finalization transaction
 

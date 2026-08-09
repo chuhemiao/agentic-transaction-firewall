@@ -370,7 +370,18 @@
         "idempotency_key": { "$ref": "#/$defs/nonEmpty" },
         "intent_hash": { "$ref": "#/$defs/sha256" },
         "amount": { "$ref": "#/$defs/amount" },
-        "resource_id": { "$ref": "#/$defs/nonEmpty" }
+        "resource_id": { "$ref": "#/$defs/nonEmpty" },
+        "binding": { "$ref": "#/$defs/requestScopeBinding" }
+      }
+    },
+    "requestScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "action_category", "action_operation"],
+      "properties": {
+        "profile": { "$ref": "#/$defs/decisionProfile" },
+        "action_category": { "$ref": "#/$defs/nonEmpty" },
+        "action_operation": { "$ref": "#/$defs/nonEmpty" }
       }
     },
     "identityVerified": {
@@ -485,7 +496,8 @@
         "repository": { "$ref": "#/$defs/repositorySnapshot" },
         "duplicate_purchase": { "$ref": "#/$defs/duplicatePurchaseHistory" },
         "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendHistory" },
-        "first_destination": { "$ref": "#/$defs/firstDestinationHistory" }
+        "first_destination": { "$ref": "#/$defs/firstDestinationHistory" },
+        "request_frequency": { "$ref": "#/$defs/requestFrequencyHistory" }
       }
     },
     "repositorySnapshot": {
@@ -640,6 +652,37 @@
         "boundary_event_id": { "$ref": "#/$defs/nonEmpty" },
         "boundary_sequence": { "type": "integer", "minimum": 1 },
         "occurred_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "requestFrequencyHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "request_count", "unresolved_scope_request_count"],
+      "properties": {
+        "query": { "$ref": "#/$defs/requestFrequencyQuery" },
+        "request_count": { "type": "integer", "minimum": 0 },
+        "unresolved_scope_request_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "requestFrequencyQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organization_id", "agent_id", "current_intent_id", "profile_id", "profile_version", "action_category", "action_operation", "subject", "action_scope", "evaluation_time", "window_start", "window_seconds", "max_requests", "accounting_boundary"],
+      "properties": {
+        "organization_id": { "$ref": "#/$defs/nonEmpty" },
+        "agent_id": { "$ref": "#/$defs/nonEmpty" },
+        "current_intent_id": { "$ref": "#/$defs/nonEmpty" },
+        "profile_id": { "$ref": "#/$defs/nonEmpty" },
+        "profile_version": { "$ref": "#/$defs/nonEmpty" },
+        "action_category": { "$ref": "#/$defs/nonEmpty" },
+        "action_operation": { "$ref": "#/$defs/nonEmpty" },
+        "subject": { "const": "AGENT" },
+        "action_scope": { "const": "PROFILE" },
+        "evaluation_time": { "type": "string", "format": "date-time" },
+        "window_start": { "type": "string", "format": "date-time" },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "max_requests": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "accounting_boundary": { "const": "REQUESTED" }
       }
     },
     "simulationCompleted": {

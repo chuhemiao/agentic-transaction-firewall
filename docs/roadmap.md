@@ -144,6 +144,11 @@ order. The executable order is:
   key without changing signed Intent bytes; Store returns at most one verified
   prior permit at the Context boundary, and DENY/cross-tenant/unsafe
   normalization cannot establish familiarity or silently preserve Permit.
+- [x] DS-031 Accepted request/order frequency. Rule Set v1.3.0 fixes the
+  `AGENT`/`PROFILE` scope, maximum, window and `REQUESTED` boundary; migration
+  0014 indexes immutable Profile/action-bound admission evidence, and real
+  PostgreSQL tests cover inclusive boundaries, concurrent threshold
+  enforcement and completed-retry non-inflation.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -158,8 +163,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-031` — add business request/order frequency Risk
-over an explicit `REQUESTED` bounded durable snapshot boundary.
+**Immediate next task:** `DS-032` — add bounded organization-scoped Audit
+queries and an auditor-authorized, non-enumerating API.
 
 ## Later releases
 

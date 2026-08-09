@@ -1,6 +1,6 @@
 {
   "rule_set_format_version": "1",
-  "rule_set_version": "risk-rules-1.2.0",
+  "rule_set_version": "risk-rules-1.3.0",
   "engine_version": "atf-risk-engine-v1",
   "rules": {
     "request_expired": {
@@ -51,6 +51,16 @@
       "normalizer_id": "atf.agent-commerce.payment.destination.eip155",
       "normalizer_version": "1",
       "accounting_boundary": "PERMITTED",
+      "missing_data": "FINDING"
+    },
+    "request_frequency": {
+      "enabled": true,
+      "severity": "high",
+      "subject": "AGENT",
+      "action_scope": "PROFILE",
+      "max_requests": 10,
+      "window_seconds": 60,
+      "accounting_boundary": "REQUESTED",
       "missing_data": "FINDING"
     }
   }

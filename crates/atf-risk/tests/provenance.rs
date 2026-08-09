@@ -5,8 +5,9 @@ use atf_core::{
     DuplicatePurchaseHistory, DuplicatePurchaseQuery, EvaluationContext, EvaluationContextInput,
     EvidenceEnvelope, EvidenceKind, EvidenceSource, EvidenceTrustPolicy,
     EvidenceTrustPolicyReference, ExternalSnapshotReference, FirstDestinationHistory,
-    FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot, SimulationReference, Timestamp,
-    TrustedEvidenceSource, VerifiedEvidence, VersionedArtifactReference,
+    FirstDestinationQuery, RepositorySnapshot, RequestFrequencyHistory, RequestFrequencyQuery,
+    RiskHistorySnapshot, SimulationReference, Timestamp, TrustedEvidenceSource, VerifiedEvidence,
+    VersionedArtifactReference,
 };
 use atf_intent::{normalize_destination, validate_profile, TransactionIntent};
 use atf_risk::{evaluate_context, RiskEvaluationError, RiskRuleSet};
@@ -164,8 +165,37 @@ fn history(
         )
         .unwrap()
     });
-    RiskHistorySnapshot::with_first_destination(context.history().clone(), duplicate, daily, first)
+    let frequency = rule_set.request_frequency_enabled().then(|| {
+        RequestFrequencyHistory::new(
+            RequestFrequencyQuery::new(
+                &intent.principal.organization_id,
+                &intent.principal.agent_id,
+                &intent.intent_id,
+                context.profile_id(),
+                context.profile_version(),
+                &intent.action.category,
+                &intent.action.operation,
+                rule_set.request_frequency_subject().unwrap(),
+                rule_set.request_frequency_action_scope().unwrap(),
+                context.evaluation_time(),
+                rule_set.request_frequency_window_seconds().unwrap(),
+                rule_set.request_frequency_max_requests().unwrap(),
+                rule_set.request_frequency_accounting_boundary().unwrap(),
+            )
+            .unwrap(),
+            1,
+            0,
+        )
         .unwrap()
+    });
+    RiskHistorySnapshot::with_request_frequency(
+        context.history().clone(),
+        duplicate,
+        daily,
+        first,
+        frequency,
+    )
+    .unwrap()
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use atf_core::{RequestFrequencyActionScope, RequestFrequencySubject};
 use atf_risk::{AccountingBoundary, RiskRuleSet};
 
 fn default_path() -> PathBuf {
@@ -22,12 +23,12 @@ fn default_rule_set_has_a_stable_canonical_identity() {
     let from_json =
         RiskRuleSet::from_json(include_str!("../../../risk-rules/default.json")).unwrap();
 
-    assert_eq!(from_file.version(), "risk-rules-1.2.0");
+    assert_eq!(from_file.version(), "risk-rules-1.3.0");
     assert_eq!(from_file.engine_version(), "atf-risk-engine-v1");
     assert_eq!(from_file.rule_set_hash(), from_json.rule_set_hash());
     assert_eq!(
         from_file.rule_set_hash(),
-        "435d227b4c2d4d3a9d69600b7d48539d0758315e8abe2e823b5fd8fbaabc6ddc"
+        "4e536d1609e6902e2a890bca49669ce56e7f5d5c3c4c9c747a1c7e2ee416bea5"
     );
     assert_eq!(from_file.canonical_bytes(), from_json.canonical_bytes());
     assert_eq!(from_file.rule_set_hash().len(), 64);
@@ -59,6 +60,38 @@ fn default_rule_set_has_a_stable_canonical_identity() {
         Some("atf.agent-commerce.payment.destination.eip155")
     );
     assert_eq!(from_file.first_destination_normalizer_version(), Some("1"));
+    assert!(from_file.request_frequency_enabled());
+    assert_eq!(
+        from_file.request_frequency_subject(),
+        Some(RequestFrequencySubject::Agent)
+    );
+    assert_eq!(
+        from_file.request_frequency_action_scope(),
+        Some(RequestFrequencyActionScope::Profile)
+    );
+    assert_eq!(from_file.request_frequency_max_requests(), Some(10));
+    assert_eq!(from_file.request_frequency_window_seconds(), Some(60));
+    assert_eq!(
+        from_file.request_frequency_accounting_boundary(),
+        Some(AccountingBoundary::Requested)
+    );
+}
+
+#[test]
+fn ds030_rule_set_without_request_frequency_preserves_its_canonical_identity() {
+    let mut ds030 = default_value();
+    ds030["rule_set_version"] = serde_json::json!("risk-rules-1.2.0");
+    ds030["rules"]
+        .as_object_mut()
+        .unwrap()
+        .remove("request_frequency");
+
+    let parsed = RiskRuleSet::from_json(&ds030.to_string()).unwrap();
+    assert!(!parsed.request_frequency_enabled());
+    assert_eq!(
+        parsed.rule_set_hash(),
+        "435d227b4c2d4d3a9d69600b7d48539d0758315e8abe2e823b5fd8fbaabc6ddc"
+    );
 }
 
 #[test]
@@ -73,6 +106,10 @@ fn legacy_rule_set_without_daily_spend_preserves_its_canonical_identity() {
         .as_object_mut()
         .unwrap()
         .remove("first_time_destination");
+    legacy["rules"]
+        .as_object_mut()
+        .unwrap()
+        .remove("request_frequency");
 
     let parsed = RiskRuleSet::from_json(&legacy.to_string()).unwrap();
     let schema: serde_json::Value =
@@ -96,6 +133,10 @@ fn ds029_rule_set_without_first_destination_preserves_its_canonical_identity() {
         .as_object_mut()
         .unwrap()
         .remove("first_time_destination");
+    ds029["rules"]
+        .as_object_mut()
+        .unwrap()
+        .remove("request_frequency");
 
     let parsed = RiskRuleSet::from_json(&ds029.to_string()).unwrap();
     assert!(!parsed.first_destination_enabled());
@@ -212,6 +253,14 @@ fn every_decision_affecting_configuration_change_changes_the_hash() {
             "/rules/first_time_destination/severity",
             serde_json::json!("critical"),
         ),
+        (
+            "/rules/request_frequency/max_requests",
+            serde_json::json!(11),
+        ),
+        (
+            "/rules/request_frequency/window_seconds",
+            serde_json::json!(61),
+        ),
     ];
 
     for (pointer, replacement) in mutations {
@@ -296,6 +345,35 @@ fn enabled_first_destination_rule_is_versioned_permitted_and_fail_closed() {
         assert!(
             !validator.is_valid(&candidate),
             "Schema must reject invalid first-destination field {field}"
+        );
+    }
+}
+
+#[test]
+fn enabled_request_frequency_rule_has_closed_requested_profile_scope() {
+    let invalid_mutations = [
+        ("severity", serde_json::json!("medium")),
+        ("subject", serde_json::json!("USER")),
+        ("action_scope", serde_json::json!("GLOBAL")),
+        ("max_requests", serde_json::json!(0)),
+        ("window_seconds", serde_json::json!(0)),
+        ("accounting_boundary", serde_json::json!("PERMITTED")),
+        ("missing_data", serde_json::json!("NOT_APPLICABLE")),
+    ];
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../schemas/risk-rule-set.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+
+    for (field, replacement) in invalid_mutations {
+        let mut candidate = default_value();
+        candidate["rules"]["request_frequency"][field] = replacement;
+        assert!(
+            RiskRuleSet::from_json(&candidate.to_string()).is_err(),
+            "invalid request-frequency field {field} must fail closed"
+        );
+        assert!(
+            !validator.is_valid(&candidate),
+            "Schema must reject invalid request-frequency field {field}"
         );
     }
 }

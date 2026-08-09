@@ -35,10 +35,10 @@ Agent Intent
   context-snapshot and overall hashes. It binds the Intent/Profile, one time,
   Policy/Risk artifacts, sorted fresh verified Evidence and trust identity,
   an exact Audit-history prefix, external snapshot availability and explicit
-  Simulation `NOT_RUN`. DS-028..DS-030 add the closed `RiskHistorySnapshot`
-  contract: repository boundary plus exact typed duplicate, daily-spend and
-  first-destination query inputs/results, with backward-compatible optional
-  families. *Implemented.*
+  Simulation `NOT_RUN`. DS-028..DS-031 add the closed `RiskHistorySnapshot`
+  contract: repository boundary plus exact typed duplicate, daily-spend,
+  first-destination and accepted-request-frequency query inputs/results, with
+  backward-compatible optional families. *Implemented.*
 - **`atf-intent`** — `TransactionIntent` type, closed JSON Schema plus
   matching `deny_unknown_fields` Rust parsing, explicit supported
   `spec_version` set (`1.0`), object-only hash-bound `context`/`metadata`
@@ -104,13 +104,19 @@ Agent Intent
   exact-Profile, exact-normalizer `PERMITTED` history. The evaluator recomputes
   the normalized key and rejects substituted queries; no prior permit, invalid
   checksum and unsupported namespaces produce explicit restrictive findings.
+  DS-031 adds a High/Critical accepted-request-frequency rule over the
+  `REQUESTED` boundary. Its closed `AGENT` subject and `PROFILE` action scope
+  bind organization, Agent, Profile version, action pair, threshold, inclusive
+  window and repository boundary; unresolved legacy scope is restrictive and
+  the threshold fires only when the accepted count exceeds the configured
+  maximum.
   DS-022/DS-024 keep the internal typed Risk input restricted to Evidence
   already verified and persisted by `EvaluationContext`; raw Intent context is
   checked only as one hash and privileged keys are never inspected. Vendor
   median requires exact organization/resource/asset-bound ATF Evidence, and an
   enabled vendor rule cannot configure missing trusted data as not applicable.
-  *Implemented (partial — production enrichment and frequency rules remain
-  later work).*
+  *Implemented (partial — production enrichment and additional financial Risk
+  rules remain later work).*
 - **`atf-audit`** — `AuditEvent`/`EventType`, 40 canonical version-1 typed
   payload variants, explicit required/optional module outcomes, intent-scope
   checks, and event-to-lifecycle effects, plus an in-memory append-only
@@ -189,6 +195,13 @@ Agent Intent
   verifies the selected typed Decision event and canonical row, checks its
   Intent/Profile/destination bindings, re-runs the versioned normalizer and
   returns at most one prior permit under the same repeatable-read boundary.
+  Migration 0014 adds the partial `IntentReceived` frequency index by
+  organization, Agent, Profile, action, time and sequence. New admissions
+  append the Profile/action binding atomically with the immutable Intent;
+  Store counts matching REQUESTED events plus unresolved legacy bindings under
+  the Context's repeatable-read boundary. Completed idempotent retries append
+  no new event, and per-organization Audit-head locking prevents concurrent
+  admissions from all observing themselves below one shared threshold.
   *Implemented and wired into the Gateway
   for authenticated admission/finalization/lifecycle/history/readiness and
   Decision-read authorization.*
@@ -516,11 +529,12 @@ complete Decision Engine:
   implemented. Every other action category present in the common Schema is
   explicitly rejected until its own versioned Profile is implemented.
 - Risk rules that need history/state (PRD §12.2) — duplicate purchase,
-  asset-aware daily cumulative spend and first-time destination are done
+  asset-aware daily cumulative spend, first-time destination and accepted
+  request frequency are done
   (`atf_risk::evaluate_context`,
   wired to the Context-bound bounded PostgreSQL history snapshot in
-  `services/gateway`); order frequency is not. `DecisionRecorded` now provides a reliable PERMIT
-  signal and normalized fields. DS-021 makes a lifecycle accounting boundary
+  `services/gateway`). `DecisionRecorded` provides reliable PERMIT history and
+  `IntentReceived` provides accepted REQUESTED history. DS-021 makes a lifecycle accounting boundary
   structurally mandatory and evaluates all rules at one explicit caller time;
   DS-022 removes the current vendor rule's untrusted Agent-context read, and
   DS-023 now durably pins the evaluation time, verified Evidence/trust
@@ -539,6 +553,12 @@ complete Decision Engine:
   any match against its durable Intent and Decision. Lowercase and valid EIP-55
   spellings deduplicate; DENY/cross-tenant rows do not, and unavailable
   normalization cannot preserve Permit.
+  DS-031 records the exact organization/Agent/Profile/action/threshold/window
+  and `REQUESTED` boundary. The interval is inclusive at both ends; a real
+  concurrent Gateway test proves at most one request can Permit at a limit of
+  one, while exact completed retries return the original Decision without a
+  second `IntentReceived`. Legacy events without Profile/action binding are
+  counted separately and produce a restrictive finding.
 - Multi-bundle merge and static conflict resolution (PRD §11.3) remain.
   DS-019/DS-020 now implement manifest/version/hash/scope/Schema validation,
   publisher proof, immutable persistence and atomic activation/rollback for

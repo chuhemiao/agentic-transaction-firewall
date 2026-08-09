@@ -8,7 +8,8 @@ use atf_core::{
     AccountingBoundary, Amount, DailySpendAssetTotal, DailySpendHistory, DailySpendQuery,
     DecisionKind, DestinationNormalization, DuplicatePurchaseHistory, DuplicatePurchaseMatch,
     DuplicatePurchaseQuery, ExecutionConstraints, FirstDestinationHistory, FirstDestinationMatch,
-    FirstDestinationQuery, ProfileBinding, RepositorySnapshot, RiskHistorySnapshot,
+    FirstDestinationQuery, ProfileBinding, RepositorySnapshot, RequestFrequencyActionScope,
+    RequestFrequencyHistory, RequestFrequencyQuery, RequestFrequencySubject, RiskHistorySnapshot,
     SimulationReference, Timestamp, VersionedArtifactReference,
 };
 use jsonschema::Validator;
@@ -52,7 +53,7 @@ fn amount() -> Amount {
 
 fn risk_history() -> RiskHistorySnapshot {
     let evaluated_at = Timestamp::from_str("2026-08-08T12:00:00Z").unwrap();
-    RiskHistorySnapshot::with_first_destination(
+    RiskHistorySnapshot::with_request_frequency(
         RepositorySnapshot::new("audit-chain:alpha-lab:10", 10, hash('e')).unwrap(),
         Some(
             DuplicatePurchaseHistory::new(
@@ -131,6 +132,29 @@ fn risk_history() -> RiskHistorySnapshot {
             )
             .unwrap(),
         ),
+        Some(
+            RequestFrequencyHistory::new(
+                RequestFrequencyQuery::new(
+                    "alpha-lab",
+                    "agent-1",
+                    "intent-1",
+                    "atf.agent-commerce.payment",
+                    "1.0",
+                    "payment",
+                    "purchase_api_resource",
+                    RequestFrequencySubject::Agent,
+                    RequestFrequencyActionScope::Profile,
+                    evaluated_at,
+                    60,
+                    10,
+                    AccountingBoundary::Requested,
+                )
+                .unwrap(),
+                2,
+                0,
+            )
+            .unwrap(),
+        ),
     )
     .unwrap()
 }
@@ -177,6 +201,14 @@ fn all_typed_payloads() -> Vec<(Option<String>, AuditPayload)> {
                 intent_hash: hash('a'),
                 amount: amount(),
                 resource_id: text("dataset-1"),
+                binding: Some(RequestScopeBinding {
+                    profile: ProfileBinding {
+                        id: text("atf.agent-commerce.payment"),
+                        version: text("1.0"),
+                    },
+                    action_category: text("payment"),
+                    action_operation: text("purchase_api_resource"),
+                }),
             }),
         ),
         (

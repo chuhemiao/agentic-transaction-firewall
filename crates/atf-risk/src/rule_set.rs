@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use atf_core::{sha256_hex, sort_json_keys, AccountingBoundary, Amount, RiskHistorySnapshot};
+use atf_core::{
+    sha256_hex, sort_json_keys, AccountingBoundary, Amount, RequestFrequencyActionScope,
+    RequestFrequencySubject, RiskHistorySnapshot, MAX_REQUEST_FREQUENCY_REQUESTS,
+};
 use atf_intent::{PAYMENT_DESTINATION_NORMALIZER_ID, PAYMENT_DESTINATION_NORMALIZER_VERSION};
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +60,8 @@ pub(crate) struct RuleSetRules {
     pub(crate) daily_cumulative_spend: Option<DailySpendRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) first_time_destination: Option<FirstDestinationRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) request_frequency: Option<RequestFrequencyRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +125,19 @@ pub(crate) struct FirstDestinationRule {
     pub(crate) severity: Severity,
     pub(crate) normalizer_id: String,
     pub(crate) normalizer_version: String,
+    pub(crate) accounting_boundary: AccountingBoundary,
+    pub(crate) missing_data: MissingDataBehavior,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RequestFrequencyRule {
+    pub(crate) enabled: bool,
+    pub(crate) severity: Severity,
+    pub(crate) subject: RequestFrequencySubject,
+    pub(crate) action_scope: RequestFrequencyActionScope,
+    pub(crate) max_requests: u64,
+    pub(crate) window_seconds: u64,
     pub(crate) accounting_boundary: AccountingBoundary,
     pub(crate) missing_data: MissingDataBehavior,
 }
@@ -286,6 +304,54 @@ impl RiskRuleSet {
             .map(|rule| rule.normalizer_version.as_str())
     }
 
+    pub fn request_frequency_enabled(&self) -> bool {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .is_some_and(|rule| rule.enabled)
+    }
+
+    pub fn request_frequency_subject(&self) -> Option<RequestFrequencySubject> {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .map(|rule| rule.subject)
+    }
+
+    pub fn request_frequency_action_scope(&self) -> Option<RequestFrequencyActionScope> {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .map(|rule| rule.action_scope)
+    }
+
+    pub fn request_frequency_max_requests(&self) -> Option<u64> {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .map(|rule| rule.max_requests)
+    }
+
+    pub fn request_frequency_window_seconds(&self) -> Option<u64> {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .map(|rule| rule.window_seconds)
+    }
+
+    pub fn request_frequency_accounting_boundary(&self) -> Option<AccountingBoundary> {
+        self.document
+            .rules
+            .request_frequency
+            .as_ref()
+            .map(|rule| rule.accounting_boundary)
+    }
+
     pub(crate) fn rules(&self) -> &RuleSetRules {
         &self.document.rules
     }
@@ -390,6 +456,29 @@ fn validate_document(document: &RiskRuleSetDocument) -> Result<(), RiskRuleSetEr
         {
             return invalid(
                 "enabled first_time_destination must be HIGH/CRITICAL and emit FINDING for normalization failure",
+            );
+        }
+    }
+    if let Some(rule) = &rules.request_frequency {
+        if !(1..=MAX_REQUEST_FREQUENCY_REQUESTS).contains(&rule.max_requests) {
+            return invalid(format!(
+                "request_frequency.max_requests must be within 1..={MAX_REQUEST_FREQUENCY_REQUESTS}"
+            ));
+        }
+        if !(1..=MAX_HISTORY_WINDOW_SECONDS).contains(&rule.window_seconds) {
+            return invalid(format!(
+                "request_frequency.window_seconds must be within 1..={MAX_HISTORY_WINDOW_SECONDS}"
+            ));
+        }
+        if rule.accounting_boundary != AccountingBoundary::Requested {
+            return invalid("request_frequency requires REQUESTED accounting");
+        }
+        if rule.enabled
+            && (!matches!(rule.severity, Severity::High | Severity::Critical)
+                || rule.missing_data != MissingDataBehavior::Finding)
+        {
+            return invalid(
+                "enabled request_frequency must be HIGH/CRITICAL and emit FINDING for unresolved scope",
             );
         }
     }

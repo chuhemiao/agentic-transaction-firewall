@@ -27,15 +27,16 @@
 截至 PRD v1.3：
 
 1. `atf-core`、Intent Schema/Canonical Hash、基础 Cedar Policy、基础 Risk、Policy/Risk Decision Merge、Hash Chain Audit、Identity Library、CLI、`atf-store` 和 Shadow Gateway 已有真实代码与测试。
-2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle；DS-028..DS-030 的重复购买、每日累计支出与首次目标地址规则读取 Organization/Agent/Profile、Evaluation Time 与 Repository Sequence 明确限界的持久化快照，而不再把完整 Audit Event 列表交给 Risk。
+2. Gateway 已切换到 PostgreSQL 单一持久化路径：DS-016 Admission 在 Policy/Risk 前验证 Canonical `ATF_INTENT_V1` Envelope、当前组织作用域 Agent 与精确 Ed25519 Key，并原子提交 hashed Nonce、Idempotency Reservation、Intent、`IntentReceived` 与 `IdentityVerified -> IDENTITY_VERIFIED/v2`；Finalization 在行锁和预期版本检查后，原子提交 Evaluation、Decision、Policy/Risk/Simulation/Decision 四个阶段事件与 `DECIDED_*/v6`。重启或第二实例可读取并重放原始 Decision/Lifecycle；DS-028..DS-031 的重复购买、每日累计支出、首次目标地址与 REQUESTED 请求频率规则读取 Organization/Agent/Profile/Action、Evaluation Time 与 Repository Sequence 明确限界的持久化快照，而不再把完整 Audit Event 列表交给 Risk。
 3. DS-006/DS-007 已定义并落地 22 个稳定 Lifecycle State、完整单向转换表；DS-015/DS-016/DS-018/DS-026/DS-027 将类型化 Audit Payload 扩展到 40 类（含 Agent/Key、Operator/Role 操作者事件与 `ReplayDetected`）。DS-008 已封闭 Intent Core Envelope，Schema 与 Rust 反序列化均拒绝未知核心字段和非 `1.0` 版本；扩展只能保留在参与 Canonical Hash 的对象型 `context`/`metadata` 中。DS-009 已实现所有 Action 共用的金额、时间、ULID、Identifier 与 Purpose 语义边界。DS-010 增加封闭 Profile Dispatch：当前只接受 `atf.agent-commerce.payment` v1.0（`payment/purchase_api_resource`），校验 typed resource、CAIP-2 Network、同链 CAIP-19 Asset 与 CAIP-10 Destination，并在 Durable Admission 与 Policy/Risk 前拒绝其他 Action 组合。DS-011 已统一业务错误为 `{code,message,request_id,details}`，为每个响应生成服务端 Request ID，且以 PostgreSQL 零记录证据锁定 Schema → Common Semantic → Profile → Authenticated Admission → Policy/Risk 顺序；原始输入、Schema/SQL/Policy/Key/Internal Error 不进入响应。DS-012/DS-013 已完成原子 Idempotency Reservation/Result、数据库时钟租约、续租/过期接管、单调 Generation Fencing、完成结果不可变和精确重试/Fail-Closed Recovery。DS-014/DS-015 已完成 Domain-separated Identity Envelope、持久化 Agent/Key 生命周期和仅公钥离线 CLI。DS-016 migration 0005 仅保存 Nonce/Envelope Hash 与精确绑定，拒绝/重放只提交组织作用域类型化证据，不得创建 Intent 或进入 Policy/Risk；精确重试不增加证据，冲突并发只能有一个有效绑定。DS-018 migration 0006 持久化外部 Subject Fingerprint、Operator 状态和显式 Organization Role，以类型化 Audit 绑定离线变更；Gateway 验证配置的 HTTPS Issuer/JWKS RFC 9068 Token，并以每请求重新加载的 `auditor`/`org_admin` 权限保护 Decision GET。DS-019 以闭合 Manifest、Cedar Schema、文件摘要、组织/环境作用域和激活窗口构造 Domain-separated Canonical Policy Bundle Hash；DS-020 migration 0007 进一步保存严格 Ed25519 发布者证明、不可变精确字节归档与单调 Active Pointer，安装/激活/回滚和 `PolicyChanged` 同事务提交，Gateway 每请求重载并验证当前签名版本，JWT Admin API 要求当前 `policy_author`/`org_admin`。DS-021 将 Risk 的 Engine/Rule Set Version、启用状态、Severity、Threshold、Missing-data Behavior、Deny List、History Window 与 Accounting Boundary 绑定为 Domain-separated Canonical Hash；每个 Risk Result 和当前 Gateway Risk Evidence 均携带精确 Version/Hash。DS-022 增加闭合、无 JSON Number 的 Provenance Evidence Envelope，将 Source/Kind/Source ID/Observation/Expiry/Value/Confidence 绑定为 Canonical Hash，并以精确 Allowlist、可选严格 Ed25519 Proof 和显式 Freshness 产生不可直接构造的 `VerifiedEvidence`；Risk 将 Agent Privileged Context 隔离，Vendor Median 只接受组织/资源/资产精确绑定的 `ATF_ENRICHED` Evidence，否则显式 Fail Closed。DS-023 migration 0008 在 Policy/Risk 前持久化不可变 Evaluation Context，将精确 Intent/Profile、同一次 Evaluation Time、Policy/Risk Artifact、Agent Context Hash、已验证 Evidence/Trust Policy、Audit History Prefix、外部 Snapshot 可用性和 Simulation `NOT_RUN` 绑定到 Domain-separated Canonical Hash，并以 `ContextEnriched` 和最终 Evaluation 外键验证；恢复路径复用已有 Context 或创建显式不可用 Context，仍只产生 `RECOVERY_REPLAY_NOT_IMPLEMENTED -> Decision(ERROR)`。DS-024 已使 Policy/Risk 只验证并消费该持久化 Context；DS-025 进一步以闭合 Decision v1 将 Intent/Profile、Policy/Risk、Context/Snapshot、Simulation、时间/到期时间和执行约束绑定到 Domain-separated Canonical Hash，并要求 Store 与 `DecisionRecorded` 使用相同绑定。`IDENTITY_UNVERIFIED`/`IdentityVerificationSkipped` 仅保留为历史兼容事实，当前 Gateway 不再产生或升级该分支。其他 Action Profile、后台恢复扫描、其他 Admin/Audit HTTP Role Matrix 和 Metrics 仍未完成。
 4. DS-026 migration 0009 按组织/环境归档不可变 Canonical Risk Rule Set，并以当前 Policy-change Role 与 `RiskRuleSetStored` 原子审计绑定安装。Original Replay 要求当前 `auditor`/`org_admin`，精确加载原 Intent、Evaluation Context、签名 Policy Bundle、Risk Rule Set 与 Context 指定的 Audit Prefix，重算并比较 typed module evidence 和完整 Decision bytes/hash；成功只追加 `OriginalReplayCompleted(authoritative=false)`，不新增或覆盖权威 Evaluation/Decision。缺失或篡改输入以稳定 Replay Code Fail Closed。
 5. DS-027 migration 0010 将 Counterfactual Replay 存入独立不可变表：复用原 Intent、Snapshot、Evaluation Time、Evidence 与 Audit Prefix，显式选择精确 Policy/Risk Artifact，以新 Evaluation/Decision ID 产生 `authoritative=false` 的 lineage；原权威记录保持不变，typed Audit 绑定 Context/Evaluation/Decision Hash、版本与结果变化。
 6. DS-028 migration 0011 为 `DecisionRecorded(PERMIT)` 增加组织/Agent/资源/时间索引；Store 在只读 Repeatable Read 中记录 Repository Boundary、精确 Query Input 与至多一条历史结果，Gateway 将其写入 Canonical Risk Evaluation/Audit Evidence，Original 与 Counterfactual Replay 按原 Sequence/Hash 重建相同输入。DENY、其他组织、当前 Intent 和 Evaluation Time 之后的事件均不计入。
 7. DS-029 migration 0012 为 `DecisionRecorded(PERMIT)` 增加组织/Agent/时间/资产索引；Store 在同一 Repeatable Read Snapshot 中按绑定资产使用 PostgreSQL `NUMERIC` 聚合每日历史，限制 256 个资产组并记录缺失资产绑定。Risk 把当前 Intent 加入合计，只允许 Verified `ATF_ENRICHED` 直接 Quote 做精确固定点换算；缺失、歧义、Scope 错误、溢出或精度损失产生 High/Critical Finding。并发完成的两笔 Permit 会同时出现在下一 Snapshot。
 8. DS-030 migration 0013 为 `DecisionRecorded(PERMIT)` 增加 Organization/Profile/目标地址/时间索引。Payment Profile 的版本化 EIP-155 Normalizer 不改写已签名 Intent，只把 legacy lowercase 或有效 EIP-55 checksum-case 地址派生为同一个 lowercase History Key；Store 在同一 Repeatable Read Snapshot 中返回至多一条先前 Permit，并重新验证 typed Event、Decision/Intent/Profile/Destination 绑定与 Normalizer 输出。先前 DENY、其他组织、无效 checksum 或不支持 namespace 均不能建立 familiarity。
-9. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
-10. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
+9. DS-031 migration 0014 为 `IntentReceived` 增加 Organization/Agent/Profile/Action/时间索引。Rule Set v1.3.0 将 `AGENT` Subject、`PROFILE` Action Scope、Threshold、Window、`REQUESTED` Boundary 与 Missing-data Behavior 绑定进 Canonical Hash；Authenticated Admission 原子写入 Profile/Action Binding，Store 在 Context Sequence/Hash 边界统计闭区间内的匹配请求与未解析遗留事件。并发接受请求不能全部绕过同一阈值，完成态幂等重试不增加 `IntentReceived` 或业务频率计数。
+10. Simulator、Approval、Execution Adapter、Reconciliation、SDK 和生产部署仍是 Scaffold 或缺失。
+11. 当前系统只能用于本地或受控环境下的 Shadow Evaluation；不得被描述为生产级、多租户或可控制真实资金的系统。
 
 当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
 
@@ -777,13 +778,13 @@ Risk Engine 负责：
 
 ## 12. Financial Risk Engine
 
-当前实现包含五条 Stateless MVP Rule，以及重复购买、每日累计支出和首次目标
-地址三条 History Rule。DS-021 的闭合
+当前实现包含五条 Stateless MVP Rule，以及重复购买、每日累计支出、首次目标
+地址和接受请求频率四条 History Rule。DS-021 的闭合
 Rule Set Artifact 已将 Engine/Rule Set Version、启用状态、Severity、Threshold、
 Missing-data Behavior、Deny List、History Window 和 `REQUESTED`/`PERMITTED`/
 `EXECUTED`/`SETTLED` Accounting Boundary 绑定为 Canonical Hash；默认重复购买
-边界为 `PERMITTED`。DS-022..DS-030 已将 Provenance、持久化 Artifact/Context、
-Replay 与这三类 History Snapshot 连接到当前 Gateway；生产 Enricher 和其余规则仍缺失。
+边界为 `PERMITTED`。DS-022..DS-031 已将 Provenance、持久化 Artifact/Context、
+Replay 与这四类 History Snapshot 连接到当前 Gateway；生产 Enricher 和其余规则仍缺失。
 
 ### 12.1 设计原则
 
@@ -837,6 +838,17 @@ EIP-55 checksum-case 写法，并派生 lowercase Key，但不改写签名 Inten
 产生 `FIRST_TIME_DESTINATION`；无效 checksum、非规范 Chain Reference 或不支持
 Namespace 产生 `FIRST_DESTINATION_NORMALIZATION_FAILED`。默认 High Finding 导致
 Review；Critical 配置导致 Deny。先前 DENY 和其他 Organization 均不得建立 familiarity。
+
+DS-031 把“接受请求频率”严格定义为：在
+`[evaluation_time - window, evaluation_time]` 内、不晚于 Evaluation Context 所绑定
+Audit Sequence、且具有同一 Organization + Agent + Profile ID/Version + Action
+Category/Operation 的 `IntentReceived` 数量。它是 `REQUESTED` 业务生命周期规则，
+不是 HTTP/IP 限流；默认 Rule Set v1.3.0 的闭合配置为 `AGENT` Subject、`PROFILE`
+Action Scope、60 秒最多 10 次和 High Missing-data Finding。超过最大值产生
+`REQUEST_FREQUENCY_EXCEEDED`；缺少可信 Profile/Action Binding 的遗留事件单独计数并
+产生 `REQUEST_FREQUENCY_SCOPE_UNRESOLVED`，不得静默漏算。Admission 在认证成功的
+同一事务写入 Binding；组织 Audit Head 的串行 Append 使并发接受请求在后续 Snapshot
+中可见；完成态幂等重试直接返回原 Decision，不新增业务事件。
 
 交易：
 
@@ -1113,7 +1125,7 @@ x402 Adapter：
 
 ## 16. Audit Ledger
 
-当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006/DS-007 已实现 22 状态转换契约；DS-015/DS-016/DS-018/DS-026/DS-027 扩展到 40 类 `schema_version: 1` 类型化 Payload。Agent/Key 生命周期行指向同事务提交的操作者事件；hashed Nonce 行绑定精确 Key、Intent、Idempotency Reservation、`IdentityVerified` 事件及对应生命周期版本；Operator Subject/Status 与 Organization Role Grant/Revoke 同样绑定原子提交的类型化事件。当前新请求在 Authenticated Admission Transaction 中产生 `IntentReceived` 与 `IdentityVerified`，Finalization 产生 `PolicyEvaluated`、`RiskEvaluated`、`SimulationCompleted` 和绑定的 `DecisionRecorded`。DS-028..DS-030 的 `RiskEvaluated` 还保留限界 Duplicate/Daily-spend/First-destination History Query 及其结果，并要求其 Repository Boundary 与 Evaluation Context 一致。拒绝与冲突重放分别产生组织作用域 `IdentityRejected`/`ReplayDetected`，但不创建 Intent。DS-026 的 Risk 归档产生组织作用域 `RiskRuleSetStored`，成功 Original Replay 产生 Intent 作用域、引用原 Evaluation/Decision 的 `OriginalReplayCompleted`；DS-027 的独立非权威记录产生绑定新 lineage 和所有派生 Hash 的 `CounterfactualReplayCompleted`，三者均不得推动 Lifecycle。DS-012/DS-013 的 Lease/Fencing/Recovery 语义保持不变。Query API、Checkpoint 和后台 Recovery Scanner 仍未实现。
+当前 Gateway 已将 `atf-store` 的 PostgreSQL Append-only Hash Chain 作为唯一 Decision/Audit 路径：每组织独立的 Audit Head/Event 表使用行锁串行 Append，重载时验证 Canonical Bytes/Hash、序列、前驱和 Head，且 Migration 禁止 UPDATE/DELETE/TRUNCATE。DS-006/DS-007 已实现 22 状态转换契约；DS-015/DS-016/DS-018/DS-026/DS-027 扩展到 40 类 `schema_version: 1` 类型化 Payload。Agent/Key 生命周期行指向同事务提交的操作者事件；hashed Nonce 行绑定精确 Key、Intent、Idempotency Reservation、`IdentityVerified` 事件及对应生命周期版本；Operator Subject/Status 与 Organization Role Grant/Revoke 同样绑定原子提交的类型化事件。当前新请求在 Authenticated Admission Transaction 中产生带可选兼容、当前必写 Profile/Action Binding 的 `IntentReceived` 与 `IdentityVerified`，Finalization 产生 `PolicyEvaluated`、`RiskEvaluated`、`SimulationCompleted` 和绑定的 `DecisionRecorded`。DS-028..DS-031 的 `RiskEvaluated` 还保留限界 Duplicate/Daily-spend/First-destination/Request-frequency History Query 及其结果，并要求其 Repository Boundary 与 Evaluation Context 一致。拒绝与冲突重放分别产生组织作用域 `IdentityRejected`/`ReplayDetected`，但不创建 Intent。DS-026 的 Risk 归档产生组织作用域 `RiskRuleSetStored`，成功 Original Replay 产生 Intent 作用域、引用原 Evaluation/Decision 的 `OriginalReplayCompleted`；DS-027 的独立非权威记录产生绑定新 lineage 和所有派生 Hash 的 `CounterfactualReplayCompleted`，三者均不得推动 Lifecycle。DS-012/DS-013 的 Lease/Fencing/Recovery 语义保持不变。Query API、Checkpoint 和后台 Recovery Scanner 仍未实现。
 
 ### 16.1 目标
 
@@ -1447,12 +1459,12 @@ Rust 主要组件：
 
 PRD v1.3 不再把目标目录结构等同于完成状态。当前模块分类如下：
 
-1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语、DS-022 Provenance Evidence、DS-023 Immutable Evaluation Context、Policy Conformance Harness、DS-014..DS-016 的 Agent Identity Admission 子集、DS-018 的 Operator Decision-read RBAC、DS-019/DS-020 的签名 Policy Bundle 身份与持久化激活/回滚，以及 DS-021 的 Versioned Risk Rule Set；Gateway 在 Policy/Risk 前使用当前持久化精确 Key 验证 Envelope 并原子消费 hashed Nonce，每次评估重新加载签名 Active Policy Pointer，并在独立短事务持久化同一次 Evaluation Time、Policy/Risk Identity、Evidence/Trust、Agent Context Hash、Audit History Prefix 与显式不可用输入；Risk 不再把 Agent Vendor Median 当作可信输入，Decision GET 与 Policy Admin Route 均验证配置的 JWT/JWKS 后重新加载持久化 Operator/Role。
+1. `IMPLEMENTED_AND_WIRED`：`atf-core` 基础原语、DS-022 Provenance Evidence、DS-023 Immutable Evaluation Context、DS-028..DS-031 四类闭合 Risk History Snapshot、Policy Conformance Harness、DS-014..DS-016 的 Agent Identity Admission 子集、DS-018 的 Operator Decision-read RBAC、DS-019/DS-020 的签名 Policy Bundle 身份与持久化激活/回滚，以及 DS-021 的 Versioned Risk Rule Set；Gateway 在 Policy/Risk 前使用当前持久化精确 Key 验证 Envelope 并原子消费 hashed Nonce，每次评估重新加载签名 Active Policy Pointer，并在独立短事务持久化同一次 Evaluation Time、Policy/Risk Identity、Evidence/Trust、Agent Context Hash、Audit History Prefix 与显式不可用输入；Risk 不再把 Agent Vendor Median 当作可信输入，Decision GET 与 Policy Admin Route 均验证配置的 JWT/JWKS 后重新加载持久化 Operator/Role。
 2. `PARTIALLY_IMPLEMENTED`：`atf-intent`、`atf-policy`、`atf-risk`、`atf-audit`、`atf-decision`、CLI、Gateway；各自的已实现/缺失边界见 `docs/architecture.md`。
-3. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration、Audit Append/Restart Verification、Admission/Context/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放、原子 Idempotency Reservation/Result、Evaluator Lease/Renew/Reclaim、Generation Fencing、Agent/Key Lifecycle、Operator/Role Lifecycle、签名 Policy Bundle Archive/Active Pointer 与不可变 Evaluation Context 已接入 Gateway；Agent/Key 与 Operator/Role 生命周期、Policy 安装仍由离线 CLI 预配，但 Gateway 已在每次对应请求中重验。后台 Recovery Scanner、Context-only Evaluator 与确定性重算尚未实现。
+3. `PARTIALLY_IMPLEMENTED`：`atf-store` 的 Schema、Migration 0001..0014、Audit Append/Restart Verification、Admission/Context/Finalization Repository、事务 Lifecycle State/Version/Event Pointer、类型化事件重放、原子 Idempotency Reservation/Result、Evaluator Lease/Renew/Reclaim、Generation Fencing、Agent/Key Lifecycle、Operator/Role Lifecycle、签名 Policy/Risk Archive、不可变 Evaluation Context、四类限界 Risk History Query 与 Original/Counterfactual Replay 已接入 Gateway/CLI；Agent/Key 与 Operator/Role 生命周期、Policy/Risk 安装仍由离线 CLI 预配，但 Gateway 已在每次对应请求中重验。后台 Recovery Scanner 尚未实现。
 4. `IMPLEMENTED_AND_WIRED`：ADR-0003 的 Operator JWT/JWKS、持久化 Organization Role、typed Principal、即时本地撤销与非枚举 Decision-read 边界已由 DS-018 实现；DS-020 增加 `policy_author`/`org_admin` 激活与回滚路由，并在 Store 事务内二次授权。共享网络 TLS/Proxy/Rate Limit 部署基线仍归 DS-034，其他 Admin/Audit 路由仍需单独能力矩阵。
 5. `SCAFFOLD_ONLY`：Simulator、Approval、Reconciliation、Adapters 及对应服务/Conformance/Deploy/Fuzz 目录。
-6. `MISSING`：除 Policy 激活/回滚外的 Admin API、SDK、Metrics、Replay、生产 Enricher，以及除已落地 `intent-spec.md`/`identity-envelope.md`/`api.md`/`policy-model.md`/`risk-rule-sets.md`/`context-provenance.md`/`evaluation-context.md` 外的大部分独立 Specification。
+6. `MISSING`：除 Policy 激活/回滚外的 Admin API、SDK、Metrics、生产 Enricher，以及除已落地 `intent-spec.md`/`identity-envelope.md`/`api.md`/`policy-model.md`/`risk-rule-sets.md`/`context-provenance.md`/`evaluation-context.md` 外的大部分独立 Specification。
 
 详细证据以 `docs/architecture.md` 与 `docs/audit-gap-matrix.md` 为准。任何功能只有在 Workspace Membership、真实调用路径、测试和文档状态同时成立时才能标记为 Implemented and Wired。
 

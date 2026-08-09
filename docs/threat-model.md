@@ -38,9 +38,9 @@ real network request path, but no execution path or production secret.
 | 15 | Unlimited token approval | Fail closed at admission: Token Approval has no implemented Profile and returns `UNSUPPORTED_INTENT_PROFILE`. A safe spender/allowance model and unlimited-approval rule still do not exist |
 | 16 | Malicious contract call | Fail closed at admission: Contract Call has no implemented Profile, and the Payment profile forbids contract/calldata fields. Simulator-backed Contract Call semantics remain Phase 3 work |
 | 17 | Payment settled but service not delivered | Not applicable yet — no Reconciliation (Phase 4) |
-| 18 | Duplicate purchase | Partially mitigated: DS-028 uses an indexed, repeatable-read, organization/Agent/resource/time/sequence-bounded query over prior `DecisionRecorded(PERMIT)` evidence, records its exact inputs/result, and reproduces it across restart, instances and Replay. DS-030 similarly detects organization-wide first-time Payment destinations through a versioned EIP-155 normalizer; frequency remains DS-031 |
+| 18 | Duplicate purchase | Partially mitigated: DS-028 uses an indexed, repeatable-read, organization/Agent/resource/time/sequence-bounded query over prior `DecisionRecorded(PERMIT)` evidence, records its exact inputs/result, and reproduces it across restart, instances and Replay. DS-030 similarly detects organization-wide first-time Payment destinations through a versioned EIP-155 normalizer |
 | 19 | Multi-agent collusion to bypass budget | Not applicable yet — Budget model is specced (PRD §9.4) but not implemented |
-| 20 | High-frequency small-order splitting to bypass per-transaction limits | Partially mitigated for one Agent's permitted daily spend in the current Payment profile: DS-029 sums the current Intent plus all prior same-organization/Agent `DecisionRecorded(PERMIT)` amounts inside the exact snapshot window. PostgreSQL fixed-point totals remain separated by asset, direct verified quotes are mandatory for conversion, and a real parallel-completion test proves the next snapshot observes both completed Decisions. There is no atomic reservation across simultaneously in-flight evaluations, and organization-wide budgets or colluding Agents remain EN-001/EN-002 work |
+| 20 | High-frequency small-order splitting to bypass per-transaction limits | Partially mitigated for one Agent in the current Payment profile: DS-029 sums the current Intent plus prior same-organization/Agent `DecisionRecorded(PERMIT)` amounts, while DS-031 counts accepted `IntentReceived` events over exact organization/Agent/Profile/action scope at a `REQUESTED` boundary. The inclusive window and threshold are Rule-Set-bound; concurrent accepted requests cannot all pass a limit of one, completed retries do not inflate the count, and unresolved legacy scope is restrictive. There is no organization-wide budget or colluding-Agent aggregation, so EN-001/EN-002 remain open |
 | 21 | Destination aliasing or first-use evasion | Partially mitigated for Payment EIP-155 destinations: DS-030 leaves signed CAIP-10 bytes unchanged but derives a versioned lowercase key from legacy lowercase or valid EIP-55 checksum case. Store scopes familiarity to one organization and exact Profile/normalizer, accepts only prior verified `DecisionRecorded(PERMIT)` evidence, and re-verifies the selected Decision/Intent binding. Invalid checksum, unsupported namespace, prior DENY and cross-tenant history are restrictive or ignored as appropriate. Other namespaces and ownership/allowlist intelligence remain future Profile/Adapter work |
 
 ## What this repo's current attack surface actually is
@@ -115,11 +115,13 @@ secret. The realistic attack surface today includes:
   Production evidence acquisition is still absent.
 - **Durable history cost and poisoning boundary** — denied and
   cross-organization requests cannot establish duplicate or destination
-  familiarity, and restart no longer clears history. DS-028..DS-030 replace
+  familiarity, and restart no longer clears history. DS-028..DS-031 replace
   Risk's full-chain input with typed indexed queries bounded by their exact
   organization/Agent/Profile/resource/destination/time and repository scope.
   Duplicate and destination matches are capped at one prior `PERMITTED`
-  result; daily spend is capped at 256 asset groups. Query/result evidence plus
+  result; daily spend is capped at 256 asset groups; request frequency is a
+  bounded aggregate over immutable Profile/action-bound `IntentReceived`
+  events. Query/result evidence plus
   the Context repository hash make later or substituted history fail closed in
   evaluation and Replay. Other Store
   integrity readers still verify complete organization chains, and configured

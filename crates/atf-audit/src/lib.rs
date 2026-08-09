@@ -22,7 +22,7 @@ pub use payload::{
     IntentExpiredPayload, IntentReceivedPayload, KillSwitchPayload, OperatorRegisteredPayload,
     OperatorRoleChangedPayload, OperatorStatusChangedPayload, OptionalModuleOutcome,
     OriginalReplayCompletedPayload, PolicyChangedPayload, PolicyEvaluatedPayload, PolicyOutcome,
-    ReconciliationFailedPayload, ReplayDetectedPayload, RequiredModuleOutcome,
+    ReconciliationFailedPayload, ReplayDetectedPayload, RequestScopeBinding, RequiredModuleOutcome,
     RiskEvaluatedPayload, RiskFindingEvidence, RiskRuleSetStoredPayload, RiskSeverity,
     ServiceDeliveredPayload, SettlementVerifiedPayload, SimulationCompletedPayload,
     SimulationOutcome, AUDIT_PAYLOAD_SCHEMA_VERSION,

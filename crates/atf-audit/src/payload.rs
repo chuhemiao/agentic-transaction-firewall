@@ -60,6 +60,17 @@ pub enum SimulationOutcome {
     Unsafe,
 }
 
+/// Immutable Profile and action dimensions attached to a newly accepted
+/// request. The parent field is optional solely so pre-DS-031 Audit events
+/// remain decodable; current admission always writes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestScopeBinding {
+    pub profile: ProfileBinding,
+    pub action_category: String,
+    pub action_operation: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IntentReceivedPayload {
@@ -69,6 +80,8 @@ pub struct IntentReceivedPayload {
     pub intent_hash: String,
     pub amount: Amount,
     pub resource_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<RequestScopeBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -692,6 +705,17 @@ impl AuditPayload {
                 )?;
                 sha256(event_type, "intent_hash", &value.intent_hash)?;
                 nonnegative_amount(event_type, "amount", value.amount)?;
+                if let Some(binding) = &value.binding {
+                    strings(
+                        event_type,
+                        &[
+                            ("binding.profile.id", &binding.profile.id),
+                            ("binding.profile.version", &binding.profile.version),
+                            ("binding.action_category", &binding.action_category),
+                            ("binding.action_operation", &binding.action_operation),
+                        ],
+                    )?;
+                }
             }
             Self::IdentityVerified(value) => {
                 strings(

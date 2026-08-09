@@ -164,6 +164,32 @@
         }
       ]
     },
+    "requestFrequencyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "severity", "subject", "action_scope", "max_requests", "window_seconds", "accounting_boundary", "missing_data"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "subject": { "const": "AGENT" },
+        "action_scope": { "const": "PROFILE" },
+        "max_requests": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 2678400 },
+        "accounting_boundary": { "const": "REQUESTED" },
+        "missing_data": { "$ref": "#/$defs/missingData" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "severity": { "enum": ["high", "critical"] },
+              "missing_data": { "const": "FINDING" }
+            }
+          }
+        }
+      ]
+    },
     "rules": {
       "type": "object",
       "additionalProperties": false,
@@ -183,7 +209,8 @@
         "high_risk_network_or_protocol": { "$ref": "#/$defs/denyListRule" },
         "duplicate_purchase": { "$ref": "#/$defs/historyWindowRule" },
         "daily_cumulative_spend": { "$ref": "#/$defs/dailySpendRule" },
-        "first_time_destination": { "$ref": "#/$defs/firstDestinationRule" }
+        "first_time_destination": { "$ref": "#/$defs/firstDestinationRule" },
+        "request_frequency": { "$ref": "#/$defs/requestFrequencyRule" }
       }
     }
   }

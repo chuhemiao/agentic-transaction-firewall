@@ -3,7 +3,7 @@
 
 mod common;
 
-use atf_audit::EventType;
+use atf_audit::{AuditPayload, EventType};
 use atf_core::{IntentLifecycleState, Timestamp};
 use atf_gateway::build_router;
 use atf_policy::{
@@ -36,6 +36,7 @@ fn daily_spend_rule_set(max_amount: &str) -> RiskRuleSet {
         serde_json::json!("NOT_APPLICABLE");
     document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
     document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(false);
+    document["rules"]["request_frequency"]["enabled"] = serde_json::json!(false);
     document["rules"]["daily_cumulative_spend"]["max_amount"] = serde_json::json!(max_amount);
     RiskRuleSet::from_json(&document.to_string()).unwrap()
 }
@@ -56,6 +57,24 @@ fn first_destination_rule_set(enabled: bool) -> RiskRuleSet {
     document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
     document["rules"]["daily_cumulative_spend"]["enabled"] = serde_json::json!(false);
     document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(enabled);
+    document["rules"]["request_frequency"]["enabled"] = serde_json::json!(false);
+    RiskRuleSet::from_json(&document.to_string()).unwrap()
+}
+
+fn request_frequency_rule_set(max_requests: u64) -> RiskRuleSet {
+    let mut document: serde_json::Value =
+        serde_json::from_str(include_str!("../../../risk-rules/default.json")).unwrap();
+    document["rule_set_version"] =
+        serde_json::json!("risk-rules-request-frequency-gateway-test-v1");
+    document["rules"]["max_fee_ratio"]["enabled"] = serde_json::json!(false);
+    document["rules"]["max_fee_ratio"]["missing_data"] = serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["vendor_price_deviation"]["enabled"] = serde_json::json!(false);
+    document["rules"]["vendor_price_deviation"]["missing_data"] =
+        serde_json::json!("NOT_APPLICABLE");
+    document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
+    document["rules"]["daily_cumulative_spend"]["enabled"] = serde_json::json!(false);
+    document["rules"]["first_time_destination"]["enabled"] = serde_json::json!(false);
+    document["rules"]["request_frequency"]["max_requests"] = serde_json::json!(max_requests);
     RiskRuleSet::from_json(&document.to_string()).unwrap()
 }
 
@@ -305,7 +324,7 @@ async fn agent_price_context_cannot_impersonate_trusted_gateway_evidence(
         .expect("restrictive Decision must be durable");
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        "risk-rules-1.2.0"
+        "risk-rules-1.3.0"
     );
     assert!(finalized.evaluation.evidence["risk"]["outcome"]["result"]
         .as_array()
@@ -1070,6 +1089,183 @@ async fn parallel_completed_permits_are_visible_to_the_next_daily_spend_snapshot
     assert_eq!(daily["query"]["accounting_boundary"], "PERMITTED");
     assert_eq!(daily["totals"][0]["amount"], "20.00");
     assert_eq!(daily["totals"][0]["decision_count"], 2);
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_accepted_requests_cannot_bypass_the_requested_frequency_threshold(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("request_frequency_concurrent").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state_with_risk(
+        store.clone(),
+        request_frequency_rule_set(1),
+    ));
+    let mut first = sample_intent_json("01J0000000000000000000F101", "10.00");
+    first["resource"]["resource_id"] = serde_json::json!("frequency-resource-a");
+    let mut second = sample_intent_json("01J0000000000000000000F102", "10.00");
+    second["resource"]["resource_id"] = serde_json::json!("frequency-resource-b");
+
+    let (first_response, second_response) = tokio::join!(
+        app.clone().oneshot(post_intent_value_request(first)),
+        app.clone().oneshot(post_intent_value_request(second)),
+    );
+    let decisions = [
+        body_json(first_response?).await?,
+        body_json(second_response?).await?,
+    ];
+    let permit_count = decisions
+        .iter()
+        .filter(|decision| decision["decision"] == "PERMIT")
+        .count();
+    let review_count = decisions
+        .iter()
+        .filter(|decision| decision["decision"] == "REVIEW")
+        .count();
+    assert!(permit_count <= 1);
+    assert!(review_count >= 1);
+    assert!(decisions
+        .iter()
+        .filter(|decision| decision["decision"] == "REVIEW")
+        .all(|decision| decision["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reason| reason["code"] == "REQUEST_FREQUENCY_EXCEEDED")));
+
+    let mut counts = Vec::new();
+    for intent_id in ["01J0000000000000000000F101", "01J0000000000000000000F102"] {
+        let finalized = store
+            .load_finalized_decision("alpha-lab", intent_id)
+            .await?
+            .expect("both concurrent requests are durably finalized");
+        counts.push(
+            finalized.evaluation.evidence["risk"]["history"]["request_frequency"]["request_count"]
+                .as_u64()
+                .unwrap(),
+        );
+    }
+    assert_eq!(counts.into_iter().max(), Some(2));
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn completed_idempotent_retry_does_not_inflate_requested_frequency(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("request_frequency_idempotent").await?;
+    let store = database.connect().await?;
+    let app = build_router(test_state_with_risk(
+        store.clone(),
+        request_frequency_rule_set(1),
+    ));
+    let first_id = "01J0000000000000000000F201";
+    let first = body_json(
+        app.clone()
+            .oneshot(post_intent_request(first_id, "10.00"))
+            .await?,
+    )
+    .await?;
+    assert_eq!(first["decision"], "PERMIT");
+
+    let retry = body_json(
+        app.clone()
+            .oneshot(post_intent_request(first_id, "10.00"))
+            .await?,
+    )
+    .await?;
+    assert_eq!(retry, first);
+
+    let mut second = sample_intent_json("01J0000000000000000000F202", "10.00");
+    second["resource"]["resource_id"] = serde_json::json!("frequency-resource-second");
+    let second = body_json(app.oneshot(post_intent_value_request(second)).await?).await?;
+    assert_eq!(second["decision"], "REVIEW");
+    assert!(second["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|reason| reason["code"] == "REQUEST_FREQUENCY_EXCEEDED"));
+
+    let finalized = store
+        .load_finalized_decision("alpha-lab", "01J0000000000000000000F202")
+        .await?
+        .expect("the second request is durable");
+    assert_eq!(
+        finalized.evaluation.evidence["risk"]["history"]["request_frequency"]["request_count"],
+        2
+    );
+    let chain = store.load_verified_audit_chain("alpha-lab").await?;
+    let received: Vec<_> = chain
+        .iter()
+        .filter(|stored| stored.event.event_type == EventType::IntentReceived)
+        .collect();
+    assert_eq!(received.len(), 2);
+    for stored in received {
+        let AuditPayload::IntentReceived(payload) = stored.event.typed_payload()? else {
+            panic!("IntentReceived must retain its typed payload");
+        };
+        let binding = payload
+            .binding
+            .expect("current admission always binds Profile/action scope");
+        assert_eq!(binding.profile.id, "atf.agent-commerce.payment");
+        assert_eq!(binding.profile.version, "1.0");
+        assert_eq!(binding.action_category, "payment");
+        assert_eq!(binding.action_operation, "purchase_api_resource");
+    }
+
+    store.close().await;
+    database.destroy().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn requested_frequency_window_is_inclusive_at_start_and_excludes_one_millisecond_before_it(
+) -> Result<(), Box<dyn Error>> {
+    let database = provisioned_database("request_frequency_window").await?;
+    let store = database.connect().await?;
+    let rule_set = request_frequency_rule_set(10);
+    let app = build_router(test_state_with_risk(store.clone(), rule_set.clone()));
+    let prior_id = "01J0000000000000000000F301";
+    assert_eq!(
+        body_json(app.oneshot(post_intent_request(prior_id, "10.00")).await?).await?["decision"],
+        "PERMIT"
+    );
+    let prior = store
+        .load_admitted_intent("alpha-lab", prior_id)
+        .await?
+        .expect("the accepted request is durable");
+    let current: atf_intent::TransactionIntent =
+        serde_json::from_value(sample_intent_json("01J0000000000000000000F302", "10.00"))?;
+    let at_start =
+        Timestamp::from_datetime(prior.received_at.as_datetime() + chrono::Duration::seconds(60));
+    let included = store
+        .capture_risk_history(&current, &rule_set, at_start)
+        .await?;
+    assert_eq!(
+        included
+            .request_frequency()
+            .expect("frequency query is enabled")
+            .request_count(),
+        1
+    );
+
+    let just_outside =
+        Timestamp::from_datetime(at_start.as_datetime() + chrono::Duration::milliseconds(1));
+    let excluded = store
+        .capture_risk_history(&current, &rule_set, just_outside)
+        .await?;
+    assert_eq!(
+        excluded
+            .request_frequency()
+            .expect("frequency query is enabled")
+            .request_count(),
+        0
+    );
 
     store.close().await;
     database.destroy().await?;

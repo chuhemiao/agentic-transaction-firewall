@@ -27,6 +27,7 @@ fn rule_set(severity: &str) -> RiskRuleSet {
         serde_json::json!("NOT_APPLICABLE");
     document["rules"]["duplicate_purchase"]["enabled"] = serde_json::json!(false);
     document["rules"]["daily_cumulative_spend"]["enabled"] = serde_json::json!(false);
+    document["rules"]["request_frequency"]["enabled"] = serde_json::json!(false);
     document["rules"]["first_time_destination"] = serde_json::json!({
         "enabled": true,
         "severity": severity,

@@ -240,8 +240,9 @@ mod tests {
         AccountingBoundary, DailySpendHistory, DailySpendQuery, DestinationNormalization,
         DuplicatePurchaseHistory, DuplicatePurchaseMatch, DuplicatePurchaseQuery,
         EvaluationContextInput, EvidenceTrustPolicyReference, ExternalSnapshotReference,
-        FirstDestinationHistory, FirstDestinationQuery, RepositorySnapshot, RiskHistorySnapshot,
-        SimulationReference, VersionedArtifactReference,
+        FirstDestinationHistory, FirstDestinationQuery, RepositorySnapshot,
+        RequestFrequencyHistory, RequestFrequencyQuery, RiskHistorySnapshot, SimulationReference,
+        VersionedArtifactReference,
     };
     use atf_intent::{normalize_destination, Action, Mandate, Principal, Resource, Transaction};
     use std::str::FromStr;
@@ -371,9 +372,33 @@ mod tests {
             )
             .unwrap()
         });
-        let history =
-            RiskHistorySnapshot::with_first_destination(repository, duplicate, daily, first)
-                .unwrap();
+        let frequency = rule_set.request_frequency_enabled().then(|| {
+            RequestFrequencyHistory::new(
+                RequestFrequencyQuery::new(
+                    &intent.principal.organization_id,
+                    &intent.principal.agent_id,
+                    &intent.intent_id,
+                    profile.id(),
+                    profile.version(),
+                    &intent.action.category,
+                    &intent.action.operation,
+                    rule_set.request_frequency_subject().unwrap(),
+                    rule_set.request_frequency_action_scope().unwrap(),
+                    evaluated_at,
+                    rule_set.request_frequency_window_seconds().unwrap(),
+                    rule_set.request_frequency_max_requests().unwrap(),
+                    rule_set.request_frequency_accounting_boundary().unwrap(),
+                )
+                .unwrap(),
+                1,
+                0,
+            )
+            .unwrap()
+        });
+        let history = RiskHistorySnapshot::with_request_frequency(
+            repository, duplicate, daily, first, frequency,
+        )
+        .unwrap();
         super::evaluate_context(intent, rule_set, &context, &history).unwrap()
     }
 
