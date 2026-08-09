@@ -1,7 +1,7 @@
 //! DS-032 organization-scoped Audit query contract through the real Gateway
 //! and an isolated PostgreSQL database.
 
-mod common;
+mod support;
 
 use atf_core::Timestamp;
 use atf_gateway::build_router;
@@ -11,7 +11,7 @@ use axum::http::{Method, Request, StatusCode};
 use std::error::Error;
 use tower::ServiceExt;
 
-use common::{
+use support::{
     body_json, error_json, operator_authorization, post_intent_request, test_state, TestDatabase,
 };
 

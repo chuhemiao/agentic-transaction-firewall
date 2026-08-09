@@ -1,4 +1,4 @@
-mod common;
+mod support;
 
 use atf_core::DecisionKind;
 use atf_gateway::build_router;
@@ -8,7 +8,7 @@ use sqlx::{Connection, Executor, PgConnection};
 use std::error::Error;
 use tower::ServiceExt;
 
-use common::{
+use support::{
     body_json, error_json, post_intent_request, test_durable_policy_state, test_state, TestDatabase,
 };
 

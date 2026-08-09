@@ -99,6 +99,37 @@ Admission that committed before a later dependency failure remains fenced; an
 exact retry can reclaim it only after lease expiry and can then produce only
 the existing generation-fenced recovery `Decision(ERROR)`.
 
+## Persistence race verification
+
+DS-036 provides one focused, repeatable gate for the migrations and durable
+races that protect Shadow Mode. The configured test role must be able to create
+and drop isolated PostgreSQL databases:
+
+```bash
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh
+```
+
+The suite covers migration/append-only constraints, concurrent Audit append,
+atomic lifecycle finalization, idempotency fencing/recovery, Nonce replay,
+Gateway restart/two-instance convergence, dependency rollback, lock timeout and
+real deadlock classification. Every lock/deadlock test has a five-second outer
+deadline. CI executes two complete repetitions before the full workspace test
+gate.
+
+For an isolated CI-equivalent run without a host PostgreSQL:
+
+```bash
+ATF_PERSISTENCE_TEST_REPETITIONS=2 \
+  docker compose -f deploy/docker/compose.test.yml run --rm persistence-tests
+docker compose -f deploy/docker/compose.test.yml down --volumes
+```
+
+This is a test stack, not the DS-039 supported local Gateway stack. PostgreSQL
+uses temporary storage, source is mounted read-only, and Cargo registry/target
+volumes are disposable. Compose defaults to one linker and no test debug
+symbols to remain reliable on small Docker Desktop/CI memory allocations.
+
 ## HTTP safety boundary
 
 All limits are finite, validated at startup and process-local. Zero, malformed

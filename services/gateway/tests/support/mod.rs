@@ -1,3 +1,5 @@
+//! Shared real-PostgreSQL Gateway test support used by every integration suite.
+
 use atf_core::Timestamp;
 use atf_gateway::{AppState, IdentityGatewayConfig, OperatorAuthConfig, OperatorAuthenticator};
 use atf_identity::{AgentRecord, AgentStatus, IdentityEnvelope, IdentityKeyRecord};
@@ -305,7 +307,7 @@ pub async fn error_json(
     expected_status: StatusCode,
     expected_code: &str,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    assert_eq!(response.status(), expected_status);
+    let actual_status = response.status();
     assert_eq!(
         response
             .headers()
@@ -321,6 +323,10 @@ pub async fn error_json(
         .to_str()?
         .to_owned();
     let body = body_json(response).await?;
+    assert_eq!(
+        actual_status, expected_status,
+        "unexpected Gateway error body: {body}"
+    );
     let object = body.as_object().expect("the error body is a JSON object");
     let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
     keys.sort_unstable();
@@ -506,7 +512,7 @@ impl TestDatabase {
         let quoted_name = quote_identifier(&self.name);
         let mut admin = self.admin;
         admin
-            .execute(format!("DROP DATABASE {quoted_name}").as_str())
+            .execute(format!("DROP DATABASE {quoted_name} WITH (FORCE)").as_str())
             .await?;
         Ok(())
     }

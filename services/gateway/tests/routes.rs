@@ -1,7 +1,7 @@
 //! End-to-end tests of the Gateway HTTP surface through a real, isolated
 //! PostgreSQL database and `tower::ServiceExt::oneshot`.
 
-mod common;
+mod support;
 
 use atf_audit::{AuditPayload, EventType};
 use atf_core::{IntentLifecycleState, Timestamp};
@@ -18,7 +18,7 @@ use std::{error::Error, path::Path, sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tower::ServiceExt;
 
-use common::{
+use support::{
     authenticated_admission_input, body_json, error_json, get_decision_request,
     operator_authorization, post_intent_request, post_intent_value_request, sample_intent_json,
     test_durable_policy_state, test_risk_rule_set, test_state, test_state_with_default_risk,
@@ -364,7 +364,7 @@ async fn posting_an_over_budget_intent_denies_and_records_risk_as_not_run(
     );
     assert_eq!(
         finalized.evaluation.evidence["risk"]["risk_rule_set_version"],
-        common::TEST_RISK_RULE_SET_VERSION
+        support::TEST_RISK_RULE_SET_VERSION
     );
 
     store.close().await;

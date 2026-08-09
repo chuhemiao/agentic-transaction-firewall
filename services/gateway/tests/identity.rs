@@ -1,7 +1,7 @@
 //! DS-016 authenticated Gateway admission tests through a real PostgreSQL
 //! database. The first RED case proves the pre-DS-016 unsigned path exists.
 
-mod common;
+mod support;
 
 use atf_audit::EventType;
 use atf_core::Timestamp;
@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use std::error::Error;
 use tower::ServiceExt;
 
-use common::{
+use support::{
     error_json, post_intent_request, sample_intent_json, signed_post_intent_request, test_state,
     TestDatabase, AUDIENCE, ENVIRONMENT,
 };

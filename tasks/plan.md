@@ -1213,6 +1213,8 @@ atomic evidence.
 
 ### DS-036 — Build the multi-instance persistence test suite `[M]`
 
+**Status:** Complete (2026-08-09).
+
 **Description:** Add reusable PostgreSQL integration coverage for migration,
 restart, two Gateway instances, chain append, lifecycle, idempotency, nonce and
 lock contention.
@@ -1227,6 +1229,26 @@ lock contention.
   2. Restart/two-instance tests prove one durable result and valid Audit chains.
   3. Lock timeout/deadlock paths fail closed without hanging the suite.
 - **Verification:** run suite repeatedly and through CI-equivalent Compose; full DoD.
+
+**Delivered boundary:** All Gateway integration tests now share one support
+module. New tests race two independent Gateway/Store states against one
+PostgreSQL database: same signed Intent requests converge on one canonical
+Decision and seven-event business chain after restart, while conflicting
+same-Nonce bindings produce exactly one Decision plus one typed replay event.
+That race exposed a full-chain `READ COMMITTED` read-skew between separate head
+and event queries; Store now verifies both from one statement-level MVCC
+snapshot, preventing healthy concurrent appends from becoming false integrity
+failures.
+Store contention tests induce real `55P03` lock timeout and `40P01` deadlock
+errors, classify both as the closed `LOCK` dependency and enforce a five-second
+outer deadline. `scripts/test-persistence.sh` groups migration, Audit,
+lifecycle, idempotency, Nonce, recovery, dependency and multi-instance tests;
+CI runs it twice before full workspace tests. The test-only PostgreSQL 17.10
+Compose stack runs the identical locked command with temporary database state,
+read-only source and memory-bounded Cargo linking. Generated Gateway test
+databases are force-dropped only after their owned pool closes, preventing a
+late disposable test connection from making repeated CI cleanup flaky. Host
+PostgreSQL repetitions and a clean Compose run both pass.
 
 ### DS-037 — Add replay/property/fuzz conformance `[M]`
 

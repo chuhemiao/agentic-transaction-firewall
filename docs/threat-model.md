@@ -188,8 +188,10 @@ secret. The realistic attack surface today includes:
   with the committed `FinalizedDecision`; injected `DecisionRecorded` failure
   proves no Permit or partial Evaluation/Decision escapes. Closed dependency
   labels expose the affected boundary without SQLSTATE, tenant, artifact or
-  error-message cardinality. Background recovery and cross-instance incident
-  drills remain DS-036/DS-039 work.
+  error-message cardinality. DS-036 repeats two-instance Decision/Nonce races,
+  restart verification, lock timeout and real deadlock detection in local/CI
+  PostgreSQL with external deadlines. Background recovery and operational
+  cross-instance incident drills remain DS-039 work.
 - **Supply-chain risk in Rust dependencies** — partially mitigated via
   warning-free, all-feature/all-target `cargo deny` in CI; the broader controls
   listed above remain open.

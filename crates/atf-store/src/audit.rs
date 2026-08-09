@@ -100,6 +100,28 @@ pub(crate) struct AuditEventRow {
     pub(crate) canonical_event_bytes: Vec<u8>,
 }
 
+/// One atomic PostgreSQL snapshot of the chain head and its events. The
+/// nullable event columns preserve an empty chain, while repeating the head
+/// alongside every event keeps both sides of verification in one statement
+/// snapshot even inside a `READ COMMITTED` write transaction.
+#[derive(Debug, FromRow)]
+struct AuditChainReadRow {
+    head_sequence: Option<i64>,
+    head_event_hash: Option<String>,
+    sequence: Option<i64>,
+    event_id: Option<String>,
+    event_type: Option<String>,
+    schema_version: Option<i32>,
+    occurred_at: Option<DateTime<Utc>>,
+    intent_id: Option<String>,
+    evaluation_id: Option<String>,
+    decision_id: Option<String>,
+    previous_event_hash: Option<String>,
+    event_hash: Option<String>,
+    canonical_event: Option<Value>,
+    canonical_event_bytes: Option<Vec<u8>>,
+}
+
 impl AuditQuery {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -523,42 +545,107 @@ pub(crate) async fn load_verified_in_transaction(
         });
     }
 
-    let head: Option<(i64, Option<String>)> = sqlx::query_as(
+    let snapshot: Vec<AuditChainReadRow> = sqlx::query_as(
         r#"
-        SELECT last_sequence, last_event_hash::text
-        FROM audit_chain_heads
-        WHERE organization_id = $1
-        "#,
-    )
-    .bind(organization_id)
-    .fetch_optional(&mut **transaction)
-    .await?;
-
-    let rows: Vec<AuditEventRow> = sqlx::query_as(
-        r#"
+        WITH organization_head AS (
+            SELECT
+                last_sequence AS head_sequence,
+                last_event_hash::text AS head_event_hash
+            FROM audit_chain_heads
+            WHERE organization_id = $1
+        ), organization_events AS (
+            SELECT
+                sequence,
+                event_id,
+                event_type,
+                schema_version,
+                occurred_at,
+                intent_id,
+                evaluation_id,
+                decision_id,
+                previous_event_hash::text AS previous_event_hash,
+                event_hash::text AS event_hash,
+                canonical_event,
+                canonical_event_bytes
+            FROM audit_events
+            WHERE organization_id = $1
+        )
         SELECT
-            sequence,
-            event_id,
-            event_type,
-            schema_version,
-            occurred_at,
-            intent_id,
-            evaluation_id,
-            decision_id,
-            previous_event_hash::text AS previous_event_hash,
-            event_hash::text AS event_hash,
-            canonical_event,
-            canonical_event_bytes
-        FROM audit_events
-        WHERE organization_id = $1
-        ORDER BY sequence
+            head.head_sequence,
+            head.head_event_hash,
+            event.sequence,
+            event.event_id,
+            event.event_type,
+            event.schema_version,
+            event.occurred_at,
+            event.intent_id,
+            event.evaluation_id,
+            event.decision_id,
+            event.previous_event_hash,
+            event.event_hash,
+            event.canonical_event,
+            event.canonical_event_bytes
+        FROM organization_head AS head
+        FULL OUTER JOIN organization_events AS event ON TRUE
+        ORDER BY event.sequence
         "#,
     )
     .bind(organization_id)
     .fetch_all(&mut **transaction)
     .await?;
 
+    let head = snapshot.first().and_then(AuditChainReadRow::head);
+    if snapshot.iter().any(|row| row.head() != head) {
+        return Err(corrupt(
+            organization_id,
+            "one Audit snapshot returned inconsistent chain heads",
+        ));
+    }
+    let rows = snapshot
+        .into_iter()
+        .filter_map(|row| row.into_event_row(organization_id).transpose())
+        .collect::<Result<Vec<_>, _>>()?;
+
     verify_rows(organization_id, head, rows)
+}
+
+impl AuditChainReadRow {
+    fn head(&self) -> Option<(i64, Option<String>)> {
+        self.head_sequence
+            .map(|sequence| (sequence, self.head_event_hash.clone()))
+    }
+
+    fn into_event_row(self, organization_id: &str) -> Result<Option<AuditEventRow>, StoreError> {
+        let Some(sequence) = self.sequence else {
+            return Ok(None);
+        };
+        let missing = |column: &str| {
+            corrupt(
+                organization_id,
+                format!("Audit sequence {sequence} is missing required column `{column}`"),
+            )
+        };
+        Ok(Some(AuditEventRow {
+            sequence,
+            event_id: self.event_id.ok_or_else(|| missing("event_id"))?,
+            event_type: self.event_type.ok_or_else(|| missing("event_type"))?,
+            schema_version: self
+                .schema_version
+                .ok_or_else(|| missing("schema_version"))?,
+            occurred_at: self.occurred_at.ok_or_else(|| missing("occurred_at"))?,
+            intent_id: self.intent_id,
+            evaluation_id: self.evaluation_id,
+            decision_id: self.decision_id,
+            previous_event_hash: self.previous_event_hash,
+            event_hash: self.event_hash.ok_or_else(|| missing("event_hash"))?,
+            canonical_event: self
+                .canonical_event
+                .ok_or_else(|| missing("canonical_event"))?,
+            canonical_event_bytes: self
+                .canonical_event_bytes
+                .ok_or_else(|| missing("canonical_event_bytes"))?,
+        }))
+    }
 }
 
 async fn verify_locked_head(

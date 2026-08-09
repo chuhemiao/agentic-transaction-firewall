@@ -1,4 +1,4 @@
-mod common;
+mod support;
 
 use atf_gateway::build_router;
 use axum::body::Body;
@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use std::error::Error;
 use tower::ServiceExt;
 
-use common::{
+use support::{
     body_json, error_json, get_decision_request, post_intent_request, test_state, TestDatabase,
 };
 

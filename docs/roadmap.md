@@ -167,6 +167,10 @@ order. The executable order is:
   active Policy and Operator JWKS. Database, Bundle, bounded-history Snapshot,
   Audit and lock failures have closed metrics and cannot expose a new Decision
   before its durable evidence commits atomically.
+- [x] DS-036 Repeatable multi-instance persistence suite. One local/CI command
+  runs migrations, Audit/lifecycle/idempotency/Nonce races, restart recovery,
+  two independent Gateway states and bounded real lock/deadlock failures on
+  PostgreSQL 17.10. CI repeats it twice; test-only Compose runs the same gate.
 - [~] P0.8 Context provenance, freshness, and trusted enrichment. DS-022 adds
   the closed canonical Evidence contract, exact source/kind trust allowlists,
   optional strict Ed25519 verification, explicit freshness and the Risk
@@ -184,8 +188,8 @@ order. The executable order is:
 No real wallet, exchange, approval, or execution integration starts before
 Durable Shadow Mode is complete and re-audited.
 
-**Immediate next task:** `DS-036` — make restart, multi-instance, race,
-contention and recovery persistence proofs reusable in local and CI PostgreSQL.
+**Immediate next task:** `DS-037` — add Replay fixtures, binding properties and
+a bounded fail-closed fuzz smoke to the conformance gates.
 
 ## Later releases
 

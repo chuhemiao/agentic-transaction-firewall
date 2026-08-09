@@ -1,0 +1,43 @@
+name: atf-persistence-tests
+
+services:
+  postgres:
+    image: postgres:17.10-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${ATF_TEST_POSTGRES_PASSWORD:-atf-test-only}
+      POSTGRES_USER: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:${ATF_TEST_POSTGRES_PORT:-55435}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  persistence-tests:
+    image: rust:1.95-bookworm
+    init: true
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ATF_PERSISTENCE_TEST_REPETITIONS: ${ATF_PERSISTENCE_TEST_REPETITIONS:-1}
+      ATF_TEST_DATABASE_URL: postgres://postgres:${ATF_TEST_POSTGRES_PASSWORD:-atf-test-only}@postgres:5432/postgres
+      CARGO_BUILD_JOBS: ${ATF_PERSISTENCE_CARGO_JOBS:-1}
+      CARGO_HOME: /cargo
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TARGET_DIR: /target
+      RUSTUP_TOOLCHAIN: 1.95.0
+    volumes:
+      - ../..:/workspace:ro
+      - cargo-registry:/cargo
+      - cargo-target:/target
+    command: ["./scripts/test-persistence.sh"]
+
+volumes:
+  cargo-registry:
+  cargo-target:

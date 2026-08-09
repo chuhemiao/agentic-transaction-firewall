@@ -1,6 +1,6 @@
 //! DS-034 HTTP resource-boundary tests through the real Gateway router.
 
-mod common;
+mod support;
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -20,7 +20,7 @@ use axum::http::{Request, StatusCode};
 use http_body::Frame;
 use tower::ServiceExt;
 
-use common::{error_json, get_decision_request, post_intent_request, test_state, TestDatabase};
+use support::{error_json, get_decision_request, post_intent_request, test_state, TestDatabase};
 
 struct PendingBody;
 

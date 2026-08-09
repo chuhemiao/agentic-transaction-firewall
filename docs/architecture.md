@@ -280,8 +280,20 @@ Agent Intent
   unavailable; a healthy Store can instead persist active-Policy
   unavailability and atomically terminate with `Decision(ERROR)`. Evaluation,
   Decision, lifecycle and final Audit evidence remain one transaction, so no
-  new Decision response can escape a failed Finalization.*
+  new Decision response can escape a failed Finalization. DS-036 moves all
+  Gateway integration fixtures behind one shared support module and adds
+  independent Router/Store races for same-Intent convergence and conflicting
+  Nonce binding. A restarted Store verifies the one committed Decision and
+  complete Audit chain; real PostgreSQL lock timeout/deadlock tests carry a
+  five-second outer deadline so CI cannot hang. The race exposed and closed a
+  `READ COMMITTED` read-skew: full-chain verification now obtains the head and
+  ordered events in one statement-level MVCC snapshot, so a concurrent append
+  is either wholly before or wholly after that verification snapshot.*
 - **Supply-chain baseline** — CI runs fmt, clippy, tests, and cargo-deny.
+  DS-036 runs a named persistence suite twice against PostgreSQL 17.10 before
+  the full workspace tests. The same locked commands are available through a
+  test-only Compose stack with read-only source, temporary database storage and
+  memory-bounded serial linking.
   cargo-deny is fixed at 0.20.2 in both local policy semantics and the pinned
   CI Action commit; local ATF crate dependencies carry exact `=0.1.0` version
   bounds as well as paths, while wildcard and unknown-source denial remain
@@ -628,7 +640,9 @@ complete Decision Engine:
   `IDEMPOTENCY_CONFLICT`. A failure between admission and finalization can
   leave a fenced admitted Intent without a Decision until a retry triggers
   DS-013 recovery. DS-035 makes that partial lifecycle and every dependency
-  outcome explicit; background scanning, Audit checkpoints and measured
+  outcome explicit. DS-036 repeatedly proves two-instance Decision/Nonce
+  convergence, restart verification, transaction rollback and bounded
+  lock/deadlock behavior on real PostgreSQL; background scanning, Audit checkpoints and measured
   operational recovery procedures remain later gaps, not reasons to
   reintroduce process-local state.
 - `atf-core::sort_json_keys`/`sha256_hex` are shared by `atf-intent`,

@@ -250,7 +250,15 @@ Only the following crates are implemented so far:
   Snapshot, Audit and lock failures have closed dependency metrics and stable
   fail-closed outcomes; no new Decision is returned unless its Evaluation,
   Decision and Audit evidence committed atomically. Restart/second-instance
-  reads return the committed Decision. GET requires one validated RFC 9068 Bearer JWT plus
+  reads return the committed Decision. DS-036 collects migration, Audit,
+  lifecycle, idempotency, Nonce, restart and contention proofs into one
+  repeatable real-PostgreSQL suite. Two independent Gateway states race the
+  same Decision and conflicting Nonce bindings, then a restarted Store verifies
+  one durable result and one valid Audit chain; real lock-timeout/deadlock tests
+  are externally bounded. Full-chain verification reads the chain head and
+  events in one PostgreSQL statement snapshot, so a legitimate concurrent
+  append cannot be misclassified as durable corruption. GET requires one
+  validated RFC 9068 Bearer JWT plus
   a current PostgreSQL `auditor` or `org_admin` role for the canonical
   `X-ATF-Organization-ID` selector. JWT role/organization/email claims and the
   selector itself grant no authority. POST requires one canonical detached
@@ -599,6 +607,15 @@ semantics (evaluate only, never execute).
     acquisition cap returns database loss before the HTTP deadline. Failed
     durability or evidence never returns a new Decision, while a healthy database can
     atomically terminate Policy unavailability as `Decision(ERROR)`.
+36. ~~Repeatable multi-instance persistence proof.~~ Done in DS-036: one
+    executable suite groups the existing migration, Audit append, lifecycle,
+    idempotency, Nonce, restart/recovery and dependency races. New two-Gateway
+    tests converge on one restart-safe Decision/Audit chain and one conflicting
+    Nonce winner; PostgreSQL lock timeout and deadlock detection are bounded by
+    an outer test deadline. The suite also closed a `READ COMMITTED` read-skew
+    race by loading each Audit head/event set from one statement snapshot. CI
+    runs the suite twice, and an isolated test-only Compose stack runs the same
+    command with temporary database state.
 
 ### Remaining before Phase 2 can close out
 
@@ -692,7 +709,7 @@ implementation plan and executable checklist are in
   re-audit. Strongly bound Decisions plus Original/Counterfactual Replay and
   bounded durable Risk-history reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
-  complete through DS-035.
+  complete through DS-036.
 - **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
@@ -705,7 +722,15 @@ implementation plan and executable checklist are in
 ```bash
 cargo build
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
-  cargo test
+  cargo test --workspace --all-targets --all-features
+
+# Run the focused persistence/race gate repeatedly against the same test server.
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh
+
+# Or run that gate in the isolated test-only Compose stack.
+docker compose -f deploy/docker/compose.test.yml run --rm persistence-tests
+docker compose -f deploy/docker/compose.test.yml down --volumes
 
 # Apply/verify the embedded durable-state migration
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/atf \

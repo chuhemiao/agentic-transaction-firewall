@@ -1,7 +1,7 @@
 //! DS-033 safe Metrics and structured tracing contract through the real
 //! Gateway and an isolated PostgreSQL database.
 
-mod common;
+mod support;
 
 use atf_gateway::build_router;
 use axum::body::{to_bytes, Body};
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 use tracing_subscriber::fmt::MakeWriter;
 
-use common::{
+use support::{
     body_json, error_json, operator_authorization, post_intent_request, post_intent_value_request,
     sample_intent_json, test_state, TestDatabase,
 };

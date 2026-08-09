@@ -203,6 +203,13 @@ principals and non-enumerating Decision-read RBAC.
 - **module:** Gateway persistence and identity envelopes
 - **current_state:** `CLOSED_CURRENT_SCOPE`
 - **evidence:** DS-012/DS-013 implement immutable organization/idempotency/Intent-hash binding, evaluator lease/fencing, completed result evidence, exact retry and restrictive recovery. DS-016 migration 0005 adds immutable `(organization_id,agent_id,nonce_hash)` binding to the exact Key, Envelope hash, Intent/idempotency tuple, lifecycle versions and `IdentityVerified` event. Exact retries add nothing; fresh valid retries consume a new Nonce; conflicting concurrent/post-restart reuse emits `ReplayDetected` and returns 409. Database guards and verified reads reject mutation/tamper.
+- **DS-036 verification:** one locked local/CI command now groups migration,
+  Audit, lifecycle, idempotency, Nonce, recovery and dependency races. It adds
+  independent Gateway Decision/Nonce convergence after restart, externally
+  bounds real PostgreSQL lock-timeout/deadlock tests, runs twice in CI and runs
+  unchanged in test-only Compose. Audit verification now reads chain head and
+  events in one statement snapshot, eliminating a concurrent-append read-skew
+  that could otherwise misclassify healthy state as corrupt.
 - **design evidence:** ADR-0002 plus `docs/gateway-identity.md` define the implemented transaction and retry/replay semantics.
 - **security_impact:** concurrent evaluation, stale completion, completed-response loss, stranded admission and signed request replay are fenced at the current durable Gateway boundary.
 - **financial_impact:** one signed Nonce cannot authorize another binding; completed retries return the original result after restarts or Policy changes.
@@ -478,12 +485,18 @@ principals and non-enumerating Decision-read RBAC.
 - **module:** Gateway state, Audit store, migrations/deploy
 - **current_state:** `PARTIALLY_IMPLEMENTED`
 - **evidence:** `atf-store`, embedded migrations, schema metadata checks, tenant constraints, canonical JSON/bytes/hash columns, append-only triggers, a concurrent per-organization Audit writer/verifier, atomic admission/finalization, persisted/replayed lifecycle, and DS-012 idempotency reservation/result plus evaluator fencing are implemented and wired. Evidence-gated reads reject canonical/hash/lifecycle/idempotency-result mismatches and Decisions lacking matching Evaluation/Audit evidence. DS-013 adds exact completed-response recovery and request-driven restrictive recovery for expired admissions. The Gateway has no Decision/Audit `Mutex` fallback; real tests prove restart/second-instance reads, changed-Policy exact retry, durable duplicate-purchase history, tenant-keyed lookup, unavailable-store readiness, concurrent single-result admission, renewal/reclaim, stale-owner rejection, finalizer race rejection, transaction rollback and completed-result tamper rejection. A crash after admission remains visibly `RECEIVED` until a retry reclaims it; no background scanner exists.
-- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner, stale completion is fenced and retry recovers stranded work without current-input re-evaluation; authenticated replay guarantees remain incomplete.
+- **DS-036 verification:** the focused persistence suite runs these migrations,
+  races and rollback checks twice in CI and unchanged in test-only Compose. Two
+  independent Gateway states converge on one restart-safe Decision/Audit chain
+  and one conflicting-Nonce winner; real lock timeout/deadlock tests have an
+  external five-second deadline. Its discovered `READ COMMITTED` head/event
+  read-skew is closed with one atomic statement snapshot.
+- **security_impact:** accepted final Decisions survive restart, instances converge, concurrent work is single-owner, stale completion is fenced and retry recovers stranded work without current-input re-evaluation; background scanning and operational restore/failover evidence remain incomplete.
 - **financial_impact:** final Decisions no longer disappear, duplicate concurrent evaluation is prevented, and a stranded admission reaches one explicit fail-closed terminal result when retried.
 - **severity:** `CRITICAL`
-- **recommended_change:** preserve the DS-012/DS-013 durable-only boundary while adding Identity/nonce protection, deterministic Context snapshots and operational recovery scanning.
-- **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency, database-unavailable fail-closed behavior.
-- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, repositories, Gateway cutover, DS-006/DS-007 lifecycle enforcement and DS-012/DS-013 idempotency/recovery are complete.
+- **recommended_change:** preserve the now-tested durable-only boundary while adding background recovery scanning and DS-039 backup/restore/failover procedures.
+- **required_tests:** migration, restart recovery, rollback, concurrent append/idempotency/Nonce, database-unavailable and bounded lock/deadlock behavior are implemented; scanner and operational restore/failover drills remain.
+- **dependencies:** transaction boundary, organization chain policy, base schema, Audit writer, repositories, Gateway cutover, lifecycle, identity/Nonce, immutable Context and idempotency/recovery are complete.
 - **target_release:** Durable Shadow Mode P0.1.
 - **acceptance_criteria:** service restart or second instance returns the same accepted Intent/Decision and preserves a valid Audit chain.
 
@@ -581,6 +594,5 @@ principals and non-enumerating Decision-read RBAC.
 
 ## Next vertical feature
 
-`DS-036` is next: turn the existing restart, second-instance, contention,
-idempotency, Nonce and Audit-race proofs into one reusable real-PostgreSQL
-local/CI persistence suite.
+`DS-037` is next: add executable Replay fixtures, Decision/input binding
+properties and a bounded fail-closed/no-panic fuzz smoke.

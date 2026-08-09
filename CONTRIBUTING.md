@@ -1,8 +1,8 @@
 # Contributing to ATF
 
-Thanks for considering a contribution. ATF is early-stage (PRD Phase 0/1) —
-the core Transaction Intent and Policy Kernel types are still stabilizing, so
-please open an issue to discuss non-trivial changes before writing code.
+Thanks for considering a contribution. ATF is in PRD Phase 2 (Durable Shadow
+Mode) and still cannot execute transactions, so please open an issue to discuss
+non-trivial changes before writing code.
 
 ## Ground rules
 
@@ -28,7 +28,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo deny check -D warnings
 ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
-  cargo test
+  cargo test --workspace --all-targets --all-features
 ```
 
 All five must pass before opening a PR; CI enforces the same checks
@@ -36,6 +36,16 @@ All five must pass before opening a PR; CI enforces the same checks
 
 The PostgreSQL test role must be allowed to create temporary databases and
 roles. CI provisions a version-pinned PostgreSQL 17.10 service for this gate.
+DS-036 also runs the persistence/race subset twice in CI. Run the same focused
+gate locally with:
+
+```bash
+ATF_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+ATF_PERSISTENCE_TEST_REPETITIONS=2 ./scripts/test-persistence.sh
+```
+
+Use the isolated test-only stack documented in `deploy/docker/README.md` when
+no local PostgreSQL is available.
 
 ## Commit / PR expectations
 

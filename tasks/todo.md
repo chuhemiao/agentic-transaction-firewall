@@ -155,8 +155,10 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   Snapshot, Audit and lock failure outcomes/metrics; readiness now verifies the
   durable active Policy and no unfinalized Decision can escape. Depends:
   DS-025, DS-033, DS-034.
-- [ ] **NEXT — DS-036:** add real PostgreSQL restart/multi-instance/race CI suite. Depends: DS-016, DS-025, DS-035.
-- [ ] **DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
+- [x] **DS-036:** added a reusable real-PostgreSQL migration/restart/two-
+  instance/Audit/lifecycle/idempotency/Nonce/contention suite, repeated in CI
+  and runnable through isolated test Compose. Depends: DS-016, DS-025, DS-035.
+- [ ] **NEXT — DS-037:** add Replay conformance, property tests and fuzz smoke. Depends: DS-027, DS-036.
 - [ ] **DS-038:** add dependency, secret and SAST CI gates. Depends: DS-036.
 - [ ] **DS-039:** ship local Compose, recovery runbooks and measured SLO baseline. Depends: DS-033, DS-036, DS-038.
 - [ ] **CLI-GAP-001:** make `atf evaluate`'s default current evaluation time
