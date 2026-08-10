@@ -244,7 +244,8 @@ acceptance contract.
 - The operations edge and Unix-socket permission boundary become security-
   critical and must be included in configuration, secret, SAST and runtime
   review.
-- This closes neither production PKI/readiness nor independent C4 approval.
+- This closes neither production PKI/readiness nor, by itself, independent C4
+  approval.
 
 ## Approval and implementation record
 
@@ -261,5 +262,11 @@ The implementation removes Metrics from the business Router, adds the
 metrics-only UDS Router and typed principal, provisions the separate mTLS edge
 and development PKI, and makes every required invariant executable in Router,
 resource-boundary, configuration and clean Compose tests. `C4-GAP-001` is
-closed. C4 itself still requires the separate independent human sign-off in
-`C4-SIGNOFF-001`.
+closed. At implementation time, C4 still required the separate independent
+human sign-off in `C4-SIGNOFF-001`.
+
+That separate sign-off was completed on 2026-08-10: the independent human
+project-owner reviewer accepted the documented residual risks and approved
+reviewed implementation commit `850477e` for Durable Shadow Checkpoint C4.
+The approval permits RA-001 to begin and does not authorize production or
+execution authority.

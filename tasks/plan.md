@@ -136,7 +136,8 @@ is DS-026 Original Replay.
 
 ## 3. Non-negotiable delivery rules
 
-- Shadow-only until checkpoint C4 is passed and reviewed.
+- C4 has passed, but the current runtime remains Shadow-only until later
+  phase-specific execution gates are implemented and approved.
 - No real wallet/exchange credentials in ATF core or test fixtures.
 - All money remains fixed-point; no floating point in financial domain types.
 - Unknown, stale, malformed or unavailable decision input fails closed.
@@ -1373,15 +1374,17 @@ exists.
   3. Independent human security review approves C4 before RA-001 starts.
 - **Verification:** full DoD, clean CI/Compose E2E, audit checklist and human sign-off.
 
-**Status:** Technical review and C4-GAP-001 remediation complete (2026-08-09);
-C4 blocked only on independent sign-off.
+**Status:** Complete. Technical review and C4-GAP-001 remediation completed on
+2026-08-09; independent human approval completed on 2026-08-10 for reviewed
+commit `850477e`.
 
 **Delivered:** `docs/release-candidate-checklist.md` maps all PRD §32.1/§32.2
 items to executable evidence, records STRIDE/five-axis review and classifies
 every CRITICAL/HIGH gap without reducing severity by documentation. It found
 `C4-GAP-001`; accepted ADR-0004 now closes it with an isolated mTLS Operations
-Principal and UDS-only Metrics Router. Independent sign-off remains pending,
-so acceptance criterion 3 and C4 are not complete.
+Principal and UDS-only Metrics Router. The independent project-owner reviewer
+accepted the documented residual risks and approved C4, satisfying acceptance
+criterion 3.
 
 ### C4-GAP-001 — Resolve the metrics operations access boundary `[M]`
 
@@ -1406,6 +1409,11 @@ health check or make a private-network assumption count as application RBAC.
   and full DoD.
 
 ### C4-SIGNOFF-001 — Independent Durable Shadow security approval `[S]`
+
+**Status:** Complete (2026-08-10). Reviewer identifier
+`ATF-HUMAN-REVIEWER-PROJECT-OWNER` approved reviewed commit `850477e` for the
+documented Durable Shadow scope and residual risks. Checkpoint C4 passed;
+RA-001 may begin, while production and execution authority remain unavailable.
 
 **Description:** A human reviewer who did not author the implementation checks
 the DS-040 checklist and the `C4-GAP-001` evidence, then records approval or

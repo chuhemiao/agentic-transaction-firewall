@@ -208,19 +208,21 @@ order. The executable order is:
   component metrics ship with their Simulator/Adapter/Approval owners.
 - [x] DS-040 technical re-audit and release-candidate checklist. All PRD
   §32.1/§32.2 items and CRITICAL/HIGH gaps have evidence dispositions; the
-  result is blocked rather than promoted to C4.
+  initial result remained blocked until remediation and independent approval.
 - [x] C4-GAP-001 metrics access boundary. Accepted ADR-0004 removes `/metrics`
   from the business surface and implements a dedicated mTLS operations edge,
   protected UDS-only Router and typed `OperationsPrincipal(METRICS_READ)`;
   clean E2E covers negative certificates, outage scraping and rotation.
-- [ ] C4-SIGNOFF-001 independent human security approval.
+- [x] C4-SIGNOFF-001 independent human security approval. The project-owner
+  reviewer approved implementation commit `850477e` on 2026-08-10 with the
+  residual risks retained in the release-candidate checklist.
 
-No real wallet, exchange, approval, or execution integration starts before
-Durable Shadow Mode is complete and re-audited.
+C4 approval does not authorize real wallet, exchange, approval or execution
+integration; each remains subject to its later phase-specific gate.
 
-**Immediate next decision:** complete `C4-SIGNOFF-001`, an independent human
-security review of the accepted ADR-0004 implementation and DS-040 evidence.
-RA-001 remains blocked until that sign-off is recorded.
+**Immediate next feature:** RA-001, the typed/hash-bound Simulator result
+contract and deterministic Decision merge. C4 approval permits this Shadow/
+Mock work only; it does not authorize real Adapter execution or production use.
 
 ## Later releases
 

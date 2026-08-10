@@ -7,8 +7,8 @@
 核心语言：Rust
 开源许可：Apache License 2.0
 文档版本：PRD v1.4（Authenticated Operations Metrics 修订版）
-更新日期：2026-08-09
-项目阶段：Phase 2 — DS-040 技术复审与整改完成，Checkpoint C4 待独立人工签核
+更新日期：2026-08-10
+项目阶段：Phase 2 已通过 Checkpoint C4；Phase 3 RA-001 待启动
 目标定位：面向 AI Agent 金融行为的非托管、确定性、可验证控制与证据层
 
 ---
@@ -48,10 +48,12 @@
     `METRICS_READ` 的 typed `OperationsPrincipal`，不依赖 PostgreSQL/JWKS，且
     不能调用任何业务路由。缺失、错误 CA、过期、未来生效、错误 EKU 与未批准
     身份均被真实 TLS 演练拒绝；PostgreSQL 故障时授权抓取仍返回 process metrics
-    与 `replay_metrics_available=0`。Checkpoint C4 仍为 `BLOCKED`，唯一当前阻断项
-    是 `C4-SIGNOFF-001` 独立人工安全审核尚未签字。
+    与 `replay_metrics_available=0`。独立人工 ATF 维护者已于 2026-08-10 审核
+    实现提交 `850477e`、接受文档列明的残余风险并批准 `C4-SIGNOFF-001`；
+    Checkpoint C4 已通过，下一项为 RA-001。该批准不代表生产就绪、真实资金或
+    执行权限获批。
 
-当前版本的唯一近期目标是完成 **Durable Shadow Mode**：让每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。完成并重新审计前，不进入真实执行链。
+当前版本已完成并通过 **Durable Shadow Mode** C4 审核：每个被接受的 Intent 和 Decision 都经过身份校验、持久化、可幂等返回、可确定性重放、可查询和可审计。下一近期目标是 Phase 3 的 RA-001 Simulator 结果契约；真实执行链仍未获授权。
 
 ---
 
@@ -1983,9 +1985,9 @@ Canonical Intent/Hash、基础 Cedar Policy、Policy Conformance、基础 Risk�
    RBAC 激活和原子回滚；DS-025 已将当前单 Bundle 精确绑定到 Decision v1。
    多 Bundle 解析仍是后续能力。
 10. **P0.10 Metrics & Audit Query API（当前组件范围已完成）**：DS-032 已完成组织隔离、完整链验证、限界稳定分页的 Audit Query；DS-033 已完成请求、Decision、Policy/Risk、Replay、Idempotency、Freshness、Audit Failure 的低基数 Metrics，以及 Request/Trace/Audit Event Correlation 和 Captured-log Redaction。Accepted ADR-0004 进一步以独立 mTLS Operations Surface、typed `METRICS_READ` Principal 与受保护 UDS 关闭匿名抓取，同时保留数据库故障期可观测性。未实现组件的指标不伪造；Checkpoint/Retention 继续作为生产残余审计项。
-11. **Local Operations & Recovery Evidence（单机本地范围已完成）**：DS-039 提供 digest-pinned、loopback-only TLS 的 PostgreSQL/Gateway Compose，执行前向 Migration 和幂等 Provisioning；clean E2E 已验证 Submit/Restart/Replay，Backup/隔离 Restore 后 Audit Head 与计数一致，Policy Rollback/Forward 后 Replay 不变。实测 P95 178 ms、28.328 evaluations/s 未达到 §26 目标；共享 Ingress、HA/故障切换、生产 Backup Retention、后台 Recovery Scanner 和生产容量仍是 C4 阻断/残余项。
+11. **Local Operations & Recovery Evidence（单机本地范围已完成）**：DS-039 提供 digest-pinned、loopback-only TLS 的 PostgreSQL/Gateway Compose，执行前向 Migration 和幂等 Provisioning；clean E2E 已验证 Submit/Restart/Replay，Backup/隔离 Restore 后 Audit Head 与计数一致，Policy Rollback/Forward 后 Replay 不变。实测 P95 178 ms、28.328 evaluations/s 未达到 §26 目标；共享 Ingress、HA/故障切换、生产 Backup Retention、后台 Recovery Scanner 和生产容量仍是生产部署阻断项，不由 C4 批准关闭。
 
-**Phase 2 Gate：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 相关的 CRITICAL/HIGH 缺口关闭，并完成安全复审。DS-040 技术复审及 §32.2.2 Metrics 访问边界整改已完成；独立人工签字仍未通过，因此 Checkpoint C4 未批准。未通过 Gate 不启动 RA-001、真实 Adapter 或执行权限集成。
+**Phase 2 Gate（已通过）：** 第 32.1/32.2 验收全部通过、Gap Matrix 中与 Durable Shadow 当前范围相关的 CRITICAL/HIGH 缺口已有可执行处置，DS-040 技术复审及 §32.2.2 Metrics 访问边界整改已完成；独立人工 ATF 维护者于 2026-08-10 对提交 `850477e` 批准 `C4-SIGNOFF-001`。Checkpoint C4 允许启动 RA-001，但不批准生产部署、真实 Adapter 执行或任何资金权限。
 
 ### Phase 3：Reference Simulation 与 Adapter
 

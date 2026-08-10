@@ -35,16 +35,18 @@ Current product vision and release gates: [`docs/PRD.md`](docs/PRD.md)
 
 ## Status
 
-This repository is in **Phase 2: Durable Shadow Mode**. Phase 1 is complete;
-DS-040's technical re-audit and `C4-GAP-001` remediation are complete, but
-Checkpoint C4 is **blocked** pending the required independent human security
-approval. Accepted ADR-0004 now isolates `GET /metrics` behind a dedicated
+This repository has completed **Phase 2: Durable Shadow Mode**. DS-040's
+technical re-audit and `C4-GAP-001` remediation are complete, and an
+independent human ATF maintainer approved `C4-SIGNOFF-001` on 2026-08-10 after
+reviewing implementation commit `850477e`. Accepted ADR-0004 isolates
+`GET /metrics` behind a dedicated
 mTLS `OperationsPrincipal(METRICS_READ)`, a separate loopback operations edge
 and a protected Unix-socket-only Router; business listeners no longer expose
 the route. See the [`release-candidate checklist`](docs/release-candidate-checklist.md)
 and [`accepted ADR`](docs/decisions/0004-authenticated-operations-metrics.md).
-No RA-001, tagged release, internet-exposed deployment or real execution work
-may start while C4 is blocked (PRD §31–32).
+RA-001 is now the next planned feature. C4 approval does not authorize an
+internet-exposed deployment, production release, real-funds path or execution
+authority (PRD §31–32).
 Only the following crates are implemented so far:
 
 - `crates/atf-core` — shared domain primitives, stable Intent lifecycle states,
@@ -673,13 +675,13 @@ semantics (evaluate only, never execute).
     it is regression evidence, not a production SLO claim.
 40. ~~Complete Durable Shadow re-audit, remediate its current-scope blocker and publish the release-candidate
     checklist.~~ Done in DS-040: PRD §32.1/§32.2, STRIDE, CRITICAL/HIGH gap
-    disposition and executable gate evidence are recorded. The honest result
-    remains `BLOCKED`, not a status-only C4 pass. Accepted ADR-0004 closes the
+    disposition and executable gate evidence are recorded. The initial result
+    remained `BLOCKED`, not a status-only C4 pass. Accepted ADR-0004 closed the
     metrics authentication/RBAC blocker with an mTLS Operations Principal,
     protected UDS-only Router, outage scrape and negative-certificate evidence;
-    independent human sign-off remains open.
+    independent human sign-off then approved C4 on 2026-08-10.
 
-### Remaining before Phase 2 can close out
+### Phase 2 close-out record and next feature
 
 - ~~Restore the `cargo deny 0.20.2` baseline.~~ Done: reviewed and explicitly
   allowed the two new permissive transitive licenses, exact-versioned every
@@ -764,8 +766,13 @@ semantics (evaluate only, never execute).
   `OperationsPrincipal(METRICS_READ)` and protected Unix-socket Metrics Router;
   clean E2E rejects missing/wrong/expired/future/wrong-EKU/unapproved
   certificates and preserves authorized metrics during PostgreSQL loss.
-- `C4-SIGNOFF-001`: obtain independent human security approval after the
-  metrics boundary evidence. Until it closes, C4 and RA-001 remain blocked.
+- ~~`C4-SIGNOFF-001`: obtain independent human security approval after the
+  metrics boundary evidence.~~ Done: the independent human project maintainer
+  reviewed commit `850477e`, accepted the documented residual risks and
+  approved Checkpoint C4 on 2026-08-10.
+- **NEXT — `RA-001`:** implement the typed, versioned and hash-bound Simulator
+  result contract and deterministic Decision merge rules. Execution remains
+  unavailable.
 - ~~Make the advertised `atf evaluate` default satisfy the immutable Context
   time contract.~~ Done in `CLI-GAP-001`: the omitted `--evaluated-at` path
   samples a millisecond-aligned current time, and a real-binary integration
@@ -780,15 +787,15 @@ implementation plan and executable checklist are in
 ### Phased plan (PRD §31)
 
 - **Phase 1 (done)**: Policy Kernel + Decision merge + conformance harness.
-- **Phase 2 (Durable Shadow Mode, in progress)**: the PostgreSQL-backed
-  Gateway foundation, core libraries and supported local recovery path exist;
-  DS-040's technical security re-audit and metrics-boundary remediation are
-  complete, while C4 remains blocked by independent human sign-off. Strongly bound
+- **Phase 2 (Durable Shadow Mode, done)**: the PostgreSQL-backed Gateway
+  foundation, core libraries and supported local recovery path exist;
+  DS-040's technical security re-audit, metrics-boundary remediation and
+  independent C4 approval are complete. Strongly bound
   Decisions plus Original/Counterfactual Replay and bounded durable Risk-history
   reconstruction, daily cumulative spend,
   normalized first-destination and accepted-request-frequency checks are
   complete through DS-039; the evidence disposition is recorded in DS-040.
-- **Phase 3 (reference scenarios)**: `atf-simulator` + the three reference
+- **Phase 3 (reference scenarios, next)**: `atf-simulator` + the three reference
   Adapters (Hyperliquid, Safe, x402) + the Adapter Conformance Test Suite.
 - **Phase 4 (Approval & Enforce Mode)**: `atf-approval` + `atf-reconciliation`
   + execution-hash binding + Kill Switch.

@@ -5,8 +5,9 @@ against the current Phase 2 Shadow Mode implementation. The gateway has a
 real network request path, but no execution path or production secret.
 DS-040 revalidated it on 2026-08-09 against input commit `a0cc1a6` and the
 accepted ADR-0004 remediation closes the discovered Metrics access gap. C4
-remains blocked only for independent human sign-off as documented in
-`docs/release-candidate-checklist.md`.
+was independently approved on 2026-08-10 for reviewed commit `850477e`, as
+documented in `docs/release-candidate-checklist.md`; production and future
+execution-path threats remain outside that approval.
 
 ## Security principles (PRD §18.1)
 
@@ -268,8 +269,8 @@ current-scope access-control contradiction is now remediated by accepted
 ADR-0004's disjoint mTLS/UDS boundary and closed `METRICS_READ` capability.
 The clean Compose drill proves negative certificate cases, business-surface
 non-reachability, database-outage telemetry and trust-pool rotation without an
-anonymous interval. C4 remains blocked until an independent human reviewer
-accepts this evidence and residual trusted-edge/local-PKI risk.
+anonymous interval. The independent human reviewer accepted this evidence and
+the residual trusted-edge/local-PKI risk for Durable Shadow C4 on 2026-08-10.
 
 Future Budget, Simulator, Approval, Execution, Adapter and Reconciliation
 threats remain non-applicable only because those capabilities and routes are

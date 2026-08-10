@@ -36,8 +36,10 @@ STRIDE review and CRITICAL/HIGH disposition are published in
 unauthenticated Metrics contradiction. The maintainer subsequently accepted
 ADR-0004, and its disjoint mTLS Operations Principal plus protected UDS Router
 now close `C4-GAP-001` with clean runtime evidence. The technical controls
-pass, but Checkpoint C4 remains `BLOCKED` solely because the required
-independent human security approval is still pending.
+pass. The independent human project-owner reviewer approved reviewed commit
+`850477e` and the documented residual risks on 2026-08-10, closing
+`C4-SIGNOFF-001` and passing Checkpoint C4 without changing production or
+future execution-path gap severity.
 
 DS-001 fixed the missing persistence design contract on 2026-08-07 in
 ADR-0002. It selects one PostgreSQL storage boundary, per-organization
@@ -126,7 +128,7 @@ principals and non-enumerating Decision-read RBAC.
 | Security PR gates | `IMPLEMENTED_AND_WIRED` | DS-038 pins every Action/tool, audits root/fuzz locks with RustSec, scans complete history/current source with Gitleaks, forbids first-party unsafe code with Clippy, and proves every gate plus exception expiry through safe negative fixtures. |
 | Adapter conformance and supported deploy | `PARTIALLY_IMPLEMENTED` | Adapter conformance remains a README-only Phase 3 scaffold. DS-039 provides the supported digest-pinned single-host local Shadow Gateway stack, clean migration/provisioning, restart/Replay, backup/isolated restore, Policy rollback/forward and bounded load evidence. |
 | SDKs and most target documentation | `PARTIALLY_IMPLEMENTED` | SDKs, a standalone Replay specification and the Adapter manifest Schema remain missing. `intent-spec.md`, `identity-envelope.md`, `policy-model.md`, `audit-model.md`, `api.md`, `quickstart.md` and `operations.md` document the other current implemented contracts and supported local path. |
-| README/Architecture/Threat Model | `PARTIALLY_IMPLEMENTED` | DS-040 corrected stale DS-034/DS-039 inventory claims and linked the release-candidate evidence. The documents intentionally retain future-phase and production gaps, and C4 stays blocked rather than rewriting them as complete. |
+| README/Architecture/Threat Model | `PARTIALLY_IMPLEMENTED` | DS-040 corrected stale DS-034/DS-039 inventory claims and linked the release-candidate evidence. The documents retain future-phase and production gaps; independent C4 approval closes only the Durable Shadow gate. |
 
 ## Gap matrix
 
@@ -544,7 +546,7 @@ principals and non-enumerating Decision-read RBAC.
 ### GAP-SEC-001 — API Security
 
 - **module:** `services/gateway`
-- **current_state:** `PARTIAL_C4_BLOCKED_BY_GAP_API_001`
+- **current_state:** `CLOSED_CURRENT_SCOPE`
 - **evidence:** DS-011 supplies the fixed safe error envelope and fresh request
   ID; DS-018 adds bounded JWT/JWKS validation, durable RBAC and non-enumerating
   reads; DS-033 adds fixed-cardinality telemetry and captured redaction
@@ -664,13 +666,14 @@ principals and non-enumerating Decision-read RBAC.
 DS-040's technical review is published in
 `docs/release-candidate-checklist.md`. PRD §32.1's ten functional checks have
 executable evidence. Accepted ADR-0004 closes `C4-GAP-001`; Checkpoint C4
-still requires an independent human reviewer. Budget, Simulator, Approval,
+was independently approved on 2026-08-10 for reviewed commit `850477e`.
+Budget, Simulator, Approval,
 Execution, Adapter and Reconciliation gaps remain future-phase blockers while
 their routes are absent; persistence/Audit/CI/production residuals retain their
 original severity and forbid a production claim.
 
 ## Next vertical feature
 
-No implementation task may advance to RA-001 while C4 is blocked. The next
-required action is the independent human security disposition recorded by
-`C4-SIGNOFF-001` over the accepted ADR-0004 implementation evidence.
+RA-001 is the next implementation task now that C4 is approved. Its scope is
+the typed/hash-bound Simulator result contract and deterministic merge only;
+the C4 approval grants no Adapter execution or production authority.

@@ -23,13 +23,14 @@ Agent Intent
   -> Immutable Audit                (atf-audit)
 ```
 
-## What exists today (Phase 2 remediated, C4 sign-off pending)
+## What exists today (Phase 2 complete; Phase 3 not started)
 
 DS-040 revalidated the implemented module, route, storage, CI and supported
 local deployment boundaries on 2026-08-09. The evidence mapping is in
 `docs/release-candidate-checklist.md`. Accepted ADR-0004 closes the discovered
-Metrics principal contradiction; the system remains Phase 2 because independent
-human C4 approval is pending.
+Metrics principal contradiction. An independent human ATF maintainer reviewed
+commit `850477e` and approved C4 on 2026-08-10. RA-001 may now start, but no
+Simulator, Adapter or execution authority exists yet.
 
 - **`atf-core`** — shared domain primitives: fixed-point `Amount`, `Timestamp`
   (RFC 3339), shared Decision kind, 22 stable Intent lifecycle states, and an
@@ -619,9 +620,9 @@ complete Decision Engine:
 
 - Accepted ADR-0004's separate mTLS Operations Principal, operations listener
   and Unix-socket-only Metrics Router close `C4-GAP-001` with executable
-  outage and negative-certificate evidence. C4 still cannot close until an
-  independent human security reviewer signs the candidate; see
-  `docs/release-candidate-checklist.md`.
+  outage and negative-certificate evidence. Independent human review approved
+  C4 on 2026-08-10; see `docs/release-candidate-checklist.md`. This does not
+  close the production PKI or future execution-path gaps.
 
 - Decision merge algorithm (PRD §10.1) — implemented for Policy + Risk;
   the Simulator branch has no input to merge yet (no `atf-simulator`).

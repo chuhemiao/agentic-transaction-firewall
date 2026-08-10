@@ -5,6 +5,14 @@ This project has not yet made a tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- `C4-SIGNOFF-001`: an independent human project-owner reviewer approved the
+  Durable Shadow evidence and ADR-0004 remediation at implementation commit
+  `850477e` on 2026-08-10. Checkpoint C4 now passes and RA-001 may begin. The
+  sign-off explicitly retains production PKI/HA/Audit residuals and does not
+  authorize production deployment, real funds or execution authority.
+
 ### Fixed
 
 - `C4-GAP-001`: accepted ADR-0004 removes `/metrics` from the business Router
@@ -16,7 +24,7 @@ This project has not yet made a tagged release.
   malformed/forged assertions plus missing, wrong-CA, expired, future,
   wrong-EKU and unapproved certificates, preserve authorized process metrics
   during PostgreSQL loss, and exercise restart/trust rotation without an
-  anonymous interval. C4 remains pending independent human sign-off.
+  anonymous interval. The independent sign-off is now recorded above.
 
 - `CLI-GAP-001`: `atf evaluate` now defaults to a millisecond-aligned current
   evaluation time, matching the immutable Evaluation Context contract. A
@@ -32,7 +40,7 @@ This project has not yet made a tagged release.
   missing Metrics principal and independent human approval; the
   `C4-GAP-001` fix above closes the technical contradiction. README, PRD,
   Architecture, Threat Model, Roadmap, Gap Matrix and task plans now agree
-  that C4 and RA-001 still await independent human sign-off.
+  that C4 is approved and RA-001 is the next feature.
 
 - DS-039 supported local Durable Shadow operations. A digest-pinned,
   non-root Compose stack keeps PostgreSQL/Gateway private and exposes only a

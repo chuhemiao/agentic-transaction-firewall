@@ -175,20 +175,22 @@ Legend: `[x]` complete, `[~]` partial, `[ ]` not started, `NEXT` immediate task.
   command. Discovered by DS-030 smoke.
 - [x] **DS-040:** published the PRD §32.1/§32.2 evidence map, STRIDE review,
   CRITICAL/HIGH disposition and release-candidate checklist. The technical
-  verdict is blocked rather than a status-only pass. Depends: DS-028..DS-039
+  verdict initially remained blocked rather than claiming a status-only pass;
+  remediation and independent approval are now complete. Depends: DS-028..DS-039
   and CLI-GAP-001.
 - [x] **C4-GAP-001:** accepted and implemented ADR-0004's authenticated metrics
   operations boundary with business-route removal, mTLS, typed
   `METRICS_READ`, UDS/direct-port isolation, outage telemetry, rotation and
   negative-certificate evidence.
-- [ ] **NEXT — C4-SIGNOFF-001:** independent human security reviewer signs or
-  rejects the remediated candidate.
-- [ ] **Checkpoint C4:** human security review approves Durable Shadow;
+- [x] **C4-SIGNOFF-001:** independent human project-owner reviewer approved
+  implementation commit `850477e` and its documented residual risks on
+  2026-08-10.
+- [x] **Checkpoint C4:** human security review approves Durable Shadow;
   execution remains unavailable.
 
 ## Phase 3 — Reference Simulation and Adapters
 
-- [ ] **RA-001:** implement typed/hash-bound Simulator results and merge rules. Depends: C4.
+- [ ] **NEXT — RA-001:** implement typed/hash-bound Simulator results and merge rules. Depends: C4 (satisfied).
 - [ ] **RA-002:** wire deterministic Mock Simulator into Shadow Gateway. Depends: RA-001.
 - [ ] **RA-003:** define Adapter SDK and strict Manifest Schema. Depends: RA-001.
 - [ ] **RA-004:** build Mock Adapter and Adapter conformance harness. Depends: RA-003.

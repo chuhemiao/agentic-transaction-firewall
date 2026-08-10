@@ -1,7 +1,8 @@
 # Durable Shadow Release Candidate Checklist
 
-- Review date: 2026-08-09
-- Audit input commit: `a0cc1a6`; ADR-0004 remediation: current DS-040 closure change
+- Technical review date: 2026-08-09
+- Independent sign-off date: 2026-08-10
+- Audit input commit: `a0cc1a6`; reviewed remediation commit: `850477e`
 - Scope: source and the supported single-host local Durable Shadow topology
 - Execution authority: absent
 - Production readiness: not claimed
@@ -12,15 +13,11 @@ this candidate.
 
 ## Verdict
 
-**C4 TECHNICAL CONTROLS: PASS; CHECKPOINT: BLOCKED.** DS-040 and the accepted
-ADR-0004 remediation now satisfy the current-scope executable criteria. This
-does not authorize C4, RA-001, a tagged release, an internet-exposed
-deployment, or any real-funds path until the independent sign-off below.
-
-Blocking conditions:
-
-1. `C4-SIGNOFF-001`: the independent human security reviewer required by
-   DS-040 and Checkpoint C4 has not approved this candidate.
+**C4 TECHNICAL CONTROLS: PASS; CHECKPOINT: APPROVED.** DS-040 and the accepted
+ADR-0004 remediation satisfy the current-scope executable criteria, and the
+independent human review recorded below approves Durable Shadow Checkpoint C4.
+RA-001 may begin. This approval does not authorize a production release,
+internet-exposed deployment, Adapter execution or real-funds path.
 
 `C4-GAP-001` is closed. [ADR-0004](decisions/0004-authenticated-operations-metrics.md)
 is accepted and implemented as a separate mTLS-authenticated Operations
@@ -55,7 +52,7 @@ pool without an anonymous interval.
 | 32.2.3 | PASS | Policy Bundle, Risk Rule Set, Evaluation Context and Evidence canonical hash/version/tamper/freshness tests pass; dependency-failure tests prove unavailable or corrupt state cannot return a new Permit. |
 | 32.2.4 | PASS | `scripts/test-persistence.sh` ran twice against PostgreSQL 17.10; restart, two-instance, lock timeout, real deadlock, Audit append and Decision/Nonce convergence passed. |
 | 32.2.5 | PASS | fmt, Clippy/SAST, workspace tests, deny, dependency/Secret/SAST, persistence, Replay/conformance, pinned 15-second Fuzz and clean Compose operations passed. |
-| 32.2.6 | PASS_WITH_SIGNOFF | The CRITICAL/HIGH disposition below is evidence-linked. No technical current-scope contradiction remains; independent human sign-off is still mandatory and future-phase/production gaps are not relabeled closed. |
+| 32.2.6 | PASS | The CRITICAL/HIGH disposition below is evidence-linked, the independent human sign-off is recorded, and future-phase/production gaps are not relabeled closed. |
 
 ## CRITICAL/HIGH gap disposition
 
@@ -117,7 +114,8 @@ closed instead of silently skipping two real CLI/database tests.
   contention and local backup/restore; HA and production RPO/RTO are absent.
 - Observability: PASS for safe current-component telemetry and its authenticated,
   database-independent scrape path.
-- Release readiness: BLOCKED until an independent human reviewer signs.
+- Release readiness: PASS for the Phase 2 Durable Shadow C4 scope; production
+  release readiness remains explicitly unclaimed.
 
 PRD §32.4 documentation residual: current Intent, Identity, Policy, Audit,
 API, operations and quickstart documents exist, but a standalone Replay
@@ -134,5 +132,15 @@ fallback. Runtime restore, certificate rotation and signed Policy rollback
 procedures remain in `docs/quickstart.md` and `docs/operations.md`.
 
 - Technical review author: Codex, evidence collector; **not independent**
-- Independent human security reviewer: **PENDING**
-- Human decision: **PENDING — C4 NOT APPROVED**
+- Independent human security reviewer: **ATF-HUMAN-REVIEWER-PROJECT-OWNER** —
+  the requesting human repository maintainer, who did not author the
+  implementation; no additional personal information is retained.
+- Sign-off date: **2026-08-10**
+- Reviewed commit: **`850477e`**
+- Approved scope: source and supported single-host local Durable Shadow
+  topology, including ADR-0004's mTLS/UDS Metrics boundary.
+- Accepted residual risks: no production PKI, HA/RPO/RTO, independent Audit
+  checkpoints, retention or background recovery scanner; Simulator, Adapter,
+  Budget, Approval, execution and reconciliation controls remain future-phase
+  work and grant no current authority.
+- Human decision: **APPROVED — CHECKPOINT C4 PASSED; RA-001 MAY BEGIN**
